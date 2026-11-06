@@ -5,7 +5,7 @@
   import PetPanel from './PetPanel.svelte';
   import Settings from './Settings.svelte';
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
-  import { watchConnect } from './wallet.svelte';
+  import { petReaction, watchConnect } from './wallet.svelte';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -49,7 +49,16 @@
   });
 
   async function load() {
-    pets = await invoke<InstalledPet[]>('list_pets');
+    const found = await invoke<InstalledPet[]>('list_pets');
+    const isNew = found.length > pets.length;
+    pets = found;
+
+    // Installing a pet happens in a terminal while this window is open, so
+    // the app looks broken if it only notices at startup. Select the newest
+    // one when it is the first, or when nothing is selected.
+    if (isNew && (!activeSlug || pets.length === 1)) {
+      activeSlug = pets[pets.length - 1]?.slug ?? activeSlug;
+    }
   }
 
   /**
@@ -90,16 +99,28 @@
     void load();
 
     const ticker = setInterval(() => (now = Date.now()), 250);
+    // Cheap: reading a couple of small files every few seconds.
+    const rescan = setInterval(() => void load(), 5_000);
     const unlisten = listen<AgentEvent>('agent-event', (event) => void react(event.payload));
 
     return () => {
       clearInterval(ticker);
+      clearInterval(rescan);
       void unlisten.then((off) => off());
     };
   });
 
   $effect(() => {
     if (activeSlug) localStorage.setItem(STORAGE_KEY, activeSlug);
+  });
+
+  // Feeding and fighting drive the pet the same way an agent's hooks do, so
+  // the sprite behind the panel reacts to what you just did to it.
+  $effect(() => {
+    if (!petReaction.what) return;
+    const what = petReaction.what;
+    petReaction.what = null;
+    reaction = nextReaction(reaction, { kind: 'game', what });
   });
 </script>
 

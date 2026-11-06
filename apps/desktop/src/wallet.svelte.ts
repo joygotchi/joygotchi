@@ -185,6 +185,23 @@ export async function watchConnect() {
  * signature. So these go out to the gallery and come back over loopback, the
  * same path a grant takes.
  */
+/**
+ * What the player just did to their pet, for the window to act out.
+ *
+ * The pet already animates for a coding agent's hooks; doing the same for a
+ * feed or a fight is the same vocabulary pointed at the game, and it is why
+ * `feeding` and `battling` were added to the state list.
+ */
+export const petReaction = $state<{ what: 'fed' | 'battled' | null; at: number }>({
+  what: null,
+  at: 0
+});
+
+export const reactToGame = (what: 'fed' | 'battled') => {
+  petReaction.what = what;
+  petReaction.at = Date.now();
+};
+
 export const walletAction = $state<{ running: string | null; error: string | null; done: string | null }>(
   { running: null, error: null, done: null }
 );

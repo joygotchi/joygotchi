@@ -17,8 +17,10 @@
     stakeContractFor,
     type ChainPetSummary
   } from './chain';
+  import BattleScene from './BattleScene.svelte';
   import {
     findEvent,
+    reactToGame,
     requestWalletAction,
     session as walletSession,
     signAndSend,
@@ -43,6 +45,9 @@
   let inventory = $state<Array<[number, number]>>([]);
   let targets = $state<ChainPetSummary[]>([]);
   let showTargets = $state(false);
+  let opponent = $state<ChainPetSummary | null>(null);
+  let fight = $state<'ready' | 'fighting' | 'won' | 'lost'>('ready');
+  let wager = $state<string | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
   let busy = $state<string | null>(null);
@@ -109,6 +114,31 @@
   const net = () => pet.chain.network;
 
   /**
+   * Feed, claiming first when the balance alone will not cover it.
+   *
+   * Earned credits sit in `pending` until `claim_credits` moves them, and the
+   * contract only ever spends the balance — so "not enough credits" while the
+   * panel shows plenty is a thing that happens unless this does.
+   */
+  const feed = () =>
+    act(
+      'feed',
+      async () => {
+        const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
+        if (credits < ACTION_PRICE.ai_feed && pending > 0) {
+          await signAndSend(net(), 'claim_credits', {});
+        }
+        await signAndSend(net(), 'spend_credits', {
+          action: 'ai_feed',
+          pet_id: pet.petId,
+          amount: String(Math.round(ACTION_PRICE.ai_feed * 1e6))
+        });
+        reactToGame('fed');
+      },
+      'Fed.'
+    );
+
+  /**
    * Who this pet could pick a fight with.
    *
    * Filtered here so the list only holds fights the chain will accept:
@@ -132,62 +162,50 @@
     targets = candidates.filter((_, index) => allowed[index]);
   }
 
-  /** Attack, and read who won out of the contract's own event. */
-  async function attack(target: ChainPetSummary) {
-    await act(
-      `attack-${target.pet_id}`,
-      async () => {
-        const { logs } = await signAndSend(net(), 'attack', {
-          pet_id: pet.petId,
-          target_pet_id: target.pet_id
-        });
+  /**
+   * Fight, with the scene doing the talking.
+   *
+   * The clash plays while the transaction is in flight rather than for a
+   * fixed time, so nothing pretends to be finished before the chain says so,
+   * and the outcome comes from the contract's own `battle_settled` event.
+   */
+  async function attack() {
+    if (!opponent) return;
+    const target = opponent;
 
-        const settled = findEvent<{ winner_pet_id: number; transferred: string }>(
-          logs,
-          'battle_settled'
-        );
-        if (settled) {
-          const won = settled.winner_pet_id === pet.petId;
-          note = won
-            ? `Won against ${target.name}. +${formatCredits(settled.transferred)} credits.`
-            : `Lost to ${target.name}. −${formatCredits(settled.transferred)} credits.`;
-        }
-      },
-      'Battle settled.'
-    );
-    showTargets = false;
+    fight = 'fighting';
+    error = null;
+    note = null;
+
+    try {
+      const { logs } = await signAndSend(net(), 'attack', {
+        pet_id: pet.petId,
+        target_pet_id: target.pet_id
+      });
+
+      const settled = findEvent<{ winner_pet_id: number; transferred: string }>(
+        logs,
+        'battle_settled'
+      );
+      if (!settled) throw new Error('The battle went through but reported no result');
+
+      fight = settled.winner_pet_id === pet.petId ? 'won' : 'lost';
+      reactToGame('battled');
+      wager = formatCredits(settled.transferred);
+      await load();
+    } catch (cause) {
+      error = cause instanceof Error ? cause.message : String(cause);
+      opponent = null;
+      fight = 'ready';
+    }
   }
 
-  // A wallet round trip reports back through `walletAction`; when it lands,
-  // re-read the chain so the panel shows what actually happened.
-  $effect(() => {
-    if (walletAction.done) {
-      note = walletAction.done === 'stake_pet' ? 'At work.' : 'Back home.';
-      walletAction.done = null;
-      void load();
-    }
-    if (walletAction.error) {
-      error = walletAction.error;
-      walletAction.error = null;
-    }
-  });
-
-  const feed = () =>
-    act(
-      'feed',
-      async () => {
-        const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
-        if (credits < ACTION_PRICE.ai_feed && pending > 0) {
-          await signAndSend(net(), 'claim_credits', {});
-        }
-        await signAndSend(net(), 'spend_credits', {
-          action: 'ai_feed',
-          pet_id: pet.petId,
-          amount: String(Math.round(ACTION_PRICE.ai_feed * 1e6))
-        });
-      },
-      'Fed.'
-    );
+  function closeFight() {
+    opponent = null;
+    fight = 'ready';
+    wager = null;
+    showTargets = false;
+  }
 
   $effect(() => {
     void pet.petId;
@@ -201,7 +219,16 @@
     <button data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
   </header>
 
-  {#if loading}
+  {#if opponent}
+    <BattleScene
+      mine={pet}
+      target={opponent}
+      phase={fight}
+      transferred={wager}
+      onfight={attack}
+      onclose={closeFight}
+    />
+  {:else if loading}
     <p class="muted">Reading the chain…</p>
   {:else if error}
     <p class="bad">{error}</p>
@@ -296,10 +323,14 @@
                 </span>
                 <button
                   disabled={busy !== null}
-                  onclick={() => attack(target)}
+                  onclick={() => {
+                    opponent = target;
+                    fight = 'ready';
+                    wager = null;
+                  }}
                   title="Wager credits against {target.owner_id}"
                 >
-                  {busy === `attack-${target.pet_id}` ? '…' : 'fight'}
+                  fight
                 </button>
               </li>
             {/each}
