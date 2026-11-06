@@ -5,7 +5,7 @@
   "description": "Install on-chain JOYGOTCHI pets on your machine. One command, no account, no server.",
   "license": "MIT",
   "bin": {
-    "joygotchi": "./dist/index.js"
+    "joygotchi": "dist/index.js"
   },
   "files": [
     "dist",
