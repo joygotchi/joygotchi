@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  js:
+    name: web, cli and packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm first: setup-node's pnpm cache needs the binary to resolve the store.
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm check
+      - run: pnpm test
+      - run: pnpm build
+
+  desktop:
+    name: desktop (rust)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      # Tauri on Linux needs the webkit stack to even compile.
+      - name: System dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+
+      - name: Tests
+        working-directory: apps/desktop/src-tauri
+        run: cargo test
+
+      - name: Clippy
+        working-directory: apps/desktop/src-tauri
+        run: cargo clippy --all-targets -- -D warnings
+
+  contracts:
+    name: contracts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: contracts
+
+      - name: Install cargo-near
+        # Prebuilt and pinned: `build.sh` requires >= 0.22, and the wasm-opt it
+        # bundles is the whole reason this job exists.
+        run: |
+          curl --proto '=https' --tlsv1.2 -LsSf \
+            https://github.com/near/cargo-near/releases/download/cargo-near-v0.22.0/cargo-near-installer.sh \
+            | sh
+
+      - name: Tests
+        working-directory: contracts
+        run: cargo test
+
+      - name: Clippy
+        working-directory: contracts
+        run: cargo clippy --all-targets -- -D warnings
+
+      # `cargo near build` runs a `wasm-opt -O` post-step that its own help
+      # calls "required for correctness of build on rustc >= 1.82". Without it
+      # every panic on chain degrades to a bare `unreachable` trap and the
+      # message is lost. Plain `cargo build` ships that happily.
+      - name: Build contracts
+        working-directory: contracts
+        run: ./build.sh

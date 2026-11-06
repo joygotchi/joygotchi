@@ -1,0 +1,44 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "JOYGOTCHI",
+  "version": "0.1.0",
+  "identifier": "dev.joygotchi.desktop",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5275",
+    "beforeDevCommand": "pnpm dev",
+    "beforeBuildCommand": "pnpm build"
+  },
+  "app": {
+    "withGlobalTauri": false,
+    "windows": [
+      {
+        "label": "pet",
+        "title": "JOYGOTCHI",
+        "width": 260,
+        "height": 300,
+        "resizable": false,
+        "transparent": true,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "skipTaskbar": true,
+        "shadow": false,
+        "center": false,
+        "x": 80,
+        "y": 80
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; connect-src 'self' ipc: http://ipc.localhost http://localhost:* https:",
+      "assetProtocol": {
+        "enable": true,
+        "scope": ["$HOME/.joygotchi/**"]
+      }
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": ["icons/icon.png"]
+  }
+}

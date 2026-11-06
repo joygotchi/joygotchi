@@ -1,0 +1,12 @@
+node_modules/
+dist/
+build/
+.svelte-kit/
+.vercel/
+.env
+.env.*
+!.env.example
+target/
+contracts/res/
+*.wasm
+.DS_Store

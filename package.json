@@ -1,0 +1,18 @@
+{
+  "name": "joygotchi",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --filter @joygotchi/web dev",
+    "build": "pnpm -r build",
+    "check": "pnpm -r check",
+    "test": "pnpm -r test",
+    "desktop": "pnpm --filter @joygotchi/desktop tauri dev",
+    "contracts:test": "cd contracts && cargo test",
+    "contracts:build": "cd contracts && ./build.sh"
+  },
+  "packageManager": "pnpm@10.12.4",
+  "engines": {
+    "node": ">=20"
+  }
+}

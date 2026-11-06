@@ -1,0 +1,31 @@
+{
+  "name": "joygotchi",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Install on-chain JOYGOTCHI pets on your machine.",
+  "license": "MIT",
+  "bin": {
+    "joygotchi": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "assets"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@joygotchi/pet": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^6.0.0",
+    "vitest": "^5.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

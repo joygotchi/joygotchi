@@ -1,0 +1,52 @@
+@import 'tailwindcss';
+
+/*
+ * Dark, flat, and pixel-first. The art is 192x208 GIF sprites, so everything
+ * around it is kept square and hard-edged: rounded, soft-shadowed cards make
+ * pixel art look like a mistake.
+ */
+@theme {
+  --color-ink: #0b0d10;
+  --color-panel: #12151a;
+  --color-panel-2: #171b22;
+  --color-line: #242a33;
+  --color-line-bright: #39414d;
+  --color-text: #e7ebf0;
+  --color-muted: #8b95a3;
+  --color-accent: #b6f36b;
+  --color-accent-dim: #7ba93f;
+  --color-warn: #f3a66b;
+  --color-bad: #f36b7b;
+
+  --font-mono: 'Berkeley Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+}
+
+html {
+  background: var(--color-ink);
+  color-scheme: dark;
+}
+
+body {
+  background: var(--color-ink);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Sprites are small and must stay crisp at any scale. */
+.pixel {
+  image-rendering: pixelated;
+}
+
+/* The faint grid petdex uses behind the gallery. */
+.grid-bg {
+  background-image:
+    linear-gradient(to right, color-mix(in srgb, var(--color-line) 60%, transparent) 1px, transparent 1px),
+    linear-gradient(to bottom, color-mix(in srgb, var(--color-line) 60%, transparent) 1px, transparent 1px);
+  background-size: 48px 48px;
+}
+
+::selection {
+  background: var(--color-accent);
+  color: var(--color-ink);
+}

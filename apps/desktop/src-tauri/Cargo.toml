@@ -1,0 +1,30 @@
+[package]
+name = "joygotchi-desktop"
+version = "0.1.0"
+description = "A JOYGOTCHI pet that floats over your editor and reacts to your coding agent."
+edition = "2021"
+rust-version = "1.77"
+
+[lib]
+name = "joygotchi_desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+# `protocol-asset` is what lets the window show a GIF from ~/.joygotchi;
+# the scope in tauri.conf.json is what keeps it to that folder.
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-opener = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+axum = "0.7"
+tokio = { version = "1", features = ["net", "rt-multi-thread"] }
+
+[profile.release]
+codegen-units = 1
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

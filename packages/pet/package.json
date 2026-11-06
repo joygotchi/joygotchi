@@ -1,0 +1,27 @@
+{
+  "name": "@joygotchi/pet",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "The JOYGOTCHI pet package format, install codes, and on-chain pet mapping. Shared by the web app, the CLI and the desktop app.",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepare": "tsc -p tsconfig.build.json",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.0",
+    "vitest": "^5.1.0"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist"
+  ]
+}
