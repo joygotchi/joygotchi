@@ -1,7 +1,19 @@
 <script lang="ts">
-  import { formatCredits, ITEMS, itemName, type PetStatus, type StakeAccount } from '@joygotchi/pet';
-  import { ACTION_PRICE } from '@joygotchi/pet';
-  import { getInventory, getPetStatus, getStakeAccount, stakeContractFor } from './chain';
+  import {
+    ACTION_PRICE,
+    formatCredits,
+    ITEMS,
+    itemName,
+    type PetStatus,
+    type StakeAccount
+  } from '@joygotchi/pet';
+  import {
+    getInventory,
+    getPetOwner,
+    getPetStatus,
+    getStakeAccount,
+    stakeContractFor
+  } from './chain';
   import { session as walletSession, signAndSend } from './wallet.svelte';
   import type { InstalledPet } from './types';
 
@@ -26,7 +38,9 @@
   let note = $state<string | null>(null);
 
   const session = $derived(walletSession.current);
-  const mine = $derived(session?.accountId === pet.chain.owner);
+  let chainOwner = $state<string | null>(null);
+  const owner = $derived(chainOwner ?? pet.chain.owner);
+  const mine = $derived(session?.accountId === owner);
   const credits = $derived(Number(account ? formatCredits(account.credit_balance, 6) : 0));
   const canFeed = $derived(mine && credits >= ACTION_PRICE.ai_feed);
 
@@ -38,10 +52,16 @@
     loading = true;
     error = null;
     try {
+      // The owner comes first: the credits and inventory shown belong to
+      // whoever owns the pet now, not to whoever owned it at install time.
+      const current = (await getPetOwner(pet.chain.network, pet.chain.contract, pet.petId)) ??
+        pet.chain.owner;
+      chainOwner = current;
+
       const [acc, st, inv] = await Promise.all([
-        getStakeAccount(pet.chain.network, stake, pet.chain.owner),
+        getStakeAccount(pet.chain.network, stake, current),
         getPetStatus(pet.chain.network, stake, pet.petId),
-        getInventory(pet.chain.network, stake, pet.chain.owner)
+        getInventory(pet.chain.network, stake, current)
       ]);
       account = acc;
       status = st;
@@ -154,7 +174,7 @@
       <p class="note">Connect a wallet in Settings (⌘,) to feed it from here.</p>
     {:else if !mine}
       <p class="note">
-        You are signing as {session.accountId}; this pet belongs to {pet.chain.owner}.
+        You are signing as {session.accountId}; this pet belongs to {owner}.
       </p>
     {:else}
       <div class="actions">
@@ -175,11 +195,49 @@
         </button>
       </div>
 
+      <ul class="items-grid">
+        {#each Object.values(ITEMS) as item (item.id)}
+          {@const owned = inventory.find(([id]) => id === item.id)?.[1] ?? 0}
+          <li>
+            <span class="item-name" title={item.blurb}>
+              {item.name}{#if owned > 0}<span class="accent"> ×{owned}</span>{/if}
+            </span>
+            <span class="item-buttons">
+              <button
+                disabled={busy !== null}
+                onclick={() =>
+                  act(
+                    `buy-${item.id}`,
+                    () =>
+                      signAndSend(net(), 'buy_credit_item', { item_id: item.id, quantity: 1 }),
+                    `Bought a ${item.name}.`
+                  )}
+                title="Buy one"
+              >
+                {busy === `buy-${item.id}` ? '…' : '+'}
+              </button>
+              <button
+                disabled={busy !== null || owned === 0}
+                onclick={() =>
+                  act(
+                    `use-${item.id}`,
+                    () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
+                    `Used a ${itemName(item.id)}.`
+                  )}
+                title="Use on this pet"
+              >
+                {busy === `use-${item.id}` ? '…' : 'use'}
+              </button>
+            </span>
+          </li>
+        {/each}
+      </ul>
+
       {#if note}<p class="ok">{note}</p>{/if}
 
       <p class="note">
-        Staking asks your wallet — a session key cannot attach the yoctoNEAR the contract wants
-        for moving a pet in or out of the lab.
+        Staking and battling are not here yet. Staking wants a yoctoNEAR a session key cannot
+        attach; battling lives on the game contract, which this key does not cover.
       </p>
     {/if}
   {/if}
@@ -273,6 +331,45 @@
     padding: 6px 8px 0;
     list-style: none;
     border-top: 1px solid #171b22;
+  }
+
+  .items-grid {
+    margin: 6px 0 0;
+    padding: 6px 8px 0;
+    border-top: 1px solid #171b22;
+    list-style: none;
+  }
+
+  .items-grid li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+
+  .item-name {
+    color: #8b95a3;
+  }
+
+  .item-buttons {
+    display: flex;
+    gap: 3px;
+  }
+
+  .item-buttons button {
+    background: none;
+    border: 1px solid #242a33;
+    color: inherit;
+    font: inherit;
+    font-size: 10px;
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+
+  .item-buttons button:disabled {
+    opacity: 0.35;
+    cursor: default;
   }
 
   .actions {

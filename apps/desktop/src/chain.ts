@@ -65,6 +65,23 @@ export const getStakeAccount = (network: string, stake: string, accountId: strin
 export const getPetStatus = (network: string, stake: string, petId: number) =>
   viewFunction<PetStatus>(network, stake, 'get_pet_state', { pet_id: petId });
 
+/**
+ * Who owns the pet right now.
+ *
+ * `pet.json` records the owner at install time, which is wrong the moment a
+ * pet is sold — and the panel decides whether to show its buttons from this.
+ */
+export async function getPetOwner(
+  network: string,
+  gameContract: string,
+  petId: number
+): Promise<string | null> {
+  const pet = await viewFunction<{ owner_id?: string } | null>(network, gameContract, 'get_pet', {
+    pet_id: petId
+  }).catch(() => null);
+  return pet?.owner_id ?? null;
+}
+
 export const getInventory = (network: string, stake: string, accountId: string) =>
   viewFunction<Array<[number, number]>>(network, stake, 'get_inventory', {
     account_id: accountId
