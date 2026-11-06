@@ -149,6 +149,32 @@ export type FunctionCallKeyRequest = {
  * The picker still appears when nobody is connected, which is the only time
  * there is a choice to make.
  */
+/**
+ * The account this browser already has a session for, or null.
+ *
+ * Separate from `wallet.accountId` because that only fills in once
+ * `restoreWallet` has run and the connector has replayed its sign-in event.
+ * A page that needs to *say* whether it found a session has to ask directly.
+ */
+export async function connectedAccount(): Promise<string | null> {
+  try {
+    const connector = await getConnector();
+    const active = await connector.wallet();
+    if (!active) return null;
+
+    const accounts = await (
+      active as unknown as {
+        getAccounts: (p: { network: string }) => Promise<Array<{ accountId: string }>>;
+      }
+    ).getAccounts({ network: NETWORK });
+
+    return accounts[0]?.accountId ?? null;
+  } catch {
+    // near-connect throws rather than returning null when nothing is stored.
+    return null;
+  }
+}
+
 export async function grantFunctionCallKey(
   request: FunctionCallKeyRequest
 ): Promise<string> {

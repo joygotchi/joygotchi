@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { grantFunctionCallKey } from '#lib/near/wallet.svelte';
+  import { connectedAccount, grantFunctionCallKey } from '#lib/near/wallet.svelte';
 
   /**
    * The desktop app's way in to a wallet.
@@ -23,6 +23,24 @@
 
   let phase = $state<Phase>('review');
   let message = $state<string | null>(null);
+
+  /**
+   * Whether this browser already has a wallet session.
+   *
+   * Shown rather than inferred, because the desktop opens your *default*
+   * browser — which is often not the one you signed in to the gallery with.
+   * Being asked to pick a wallet then looks like the page forgot you; saying
+   * so turns it into an explanation.
+   */
+  let signedInAs = $state<string | null>(null);
+  let checked = $state(false);
+
+  $effect(() => {
+    void connectedAccount().then((account) => {
+      signedInAs = account;
+      checked = true;
+    });
+  });
 
   const params = $derived(page.url.searchParams);
   const publicKey = $derived(params.get('public_key') ?? '');
@@ -113,6 +131,17 @@
       <div class="border-b border-line px-4 py-3 text-xs text-muted">
         JOYGOTCHI Desktop is asking your wallet for a key. You are not sending anything, and the
         key stays on the machine that asked.
+
+        {#if checked && signedInAs}
+          <p class="mt-2 text-accent">
+            Signed in here as {signedInAs} — it will sign without asking you to pick again.
+          </p>
+        {:else if checked}
+          <p class="mt-2 text-warn">
+            No wallet is connected <em>in this browser</em>. The app opens your default browser,
+            which may not be the one you used on the gallery, so you will be asked to pick one.
+          </p>
+        {/if}
       </div>
 
       <dl class="divide-y divide-line text-xs">
@@ -140,7 +169,13 @@
           disabled={phase === 'connecting'}
           onclick={approve}
         >
-          {phase === 'connecting' ? 'Waiting for your wallet…' : 'Choose a wallet'}
+          {#if phase === 'connecting'}
+            Waiting for your wallet…
+          {:else if signedInAs}
+            Grant the key
+          {:else}
+            Choose a wallet
+          {/if}
         </button>
         <button class="border border-line px-3 py-2 hover:border-line-bright" onclick={refuse}>
           Cancel
