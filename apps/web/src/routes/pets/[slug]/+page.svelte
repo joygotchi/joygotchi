@@ -2,7 +2,7 @@
   import { page } from '$app/state';
   import CopyField from '#lib/components/CopyField.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
-  import { EXPLORER, GAME_CONTRACT } from '#lib/config';
+  import { explorerAccount, explorerToken } from '#lib/config';
   import { truncateAccount } from '#lib/near/amount';
   import { wallet } from '#lib/near/wallet.svelte';
   import { getPetBySlug, type GalleryPet } from '#lib/pets';
@@ -85,14 +85,24 @@
         </dl>
       </div>
 
-      <a
-        class="border border-line px-3 py-2 text-center text-xs text-muted hover:border-line-bright"
-        href="{EXPLORER}/address/{GAME_CONTRACT}"
-        rel="noreferrer"
-        target="_blank"
-      >
-        Contract on the explorer
-      </a>
+      <div class="flex gap-2 text-xs">
+        <a
+          class="flex-1 border border-line px-3 py-2 text-center text-muted hover:border-line-bright"
+          href={explorerToken(pet.pet_id)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          This pet on the explorer
+        </a>
+        <a
+          class="flex-1 border border-line px-3 py-2 text-center text-muted hover:border-line-bright"
+          href={explorerAccount(pet.owner_id)}
+          rel="noreferrer"
+          target="_blank"
+        >
+          Its owner
+        </a>
+      </div>
     </div>
 
     <!-- Install and talk -->
@@ -114,6 +124,12 @@
             prefix="$ "
             value={`npx joygotchi install ${pet.pkg.installCode}`}
           />
+
+          <p class="text-[0.65rem] text-warn">
+            The CLI is not published to npm yet, so that command 404s today —
+            <a class="underline" href="/download">build it from source</a> and the code works the
+            same.
+          </p>
 
           <p class="text-[0.65rem] text-muted">
             Then open the desktop app and pick {pet.name} under Pets.

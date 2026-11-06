@@ -24,6 +24,19 @@ export const RPC_URL =
 export const EXPLORER =
   NETWORK === 'mainnet' ? 'https://nearblocks.io' : 'https://testnet.nearblocks.io';
 
+/** An account's page. */
+export const explorerAccount = (accountId: string) => `${EXPLORER}/address/${accountId}`;
+
+/** One transaction. */
+export const explorerTx = (hash: string) => `${EXPLORER}/txns/${hash}`;
+
+/**
+ * The NFT token itself, which is what someone means by "the pet on the
+ * explorer" — not the contract account that happens to hold it.
+ */
+export const explorerToken = (petId: number) =>
+  `${EXPLORER}/nft-token/${GAME_CONTRACT}/${petId}`;
+
 export const MINT_PRICE_NEAR = PUBLIC_MINT_PRICE_NEAR;
 
 /** Gas, in units. 100 Tgas covers a call that crosses contracts twice. */

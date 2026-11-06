@@ -18,6 +18,7 @@ mod types;
 use near_contract_standards::non_fungible_token::metadata::{
     NFTContractMetadata, NonFungibleTokenMetadataProvider, TokenMetadata, NFT_METADATA_SPEC,
 };
+use near_contract_standards::non_fungible_token::events::{NftMint, NftTransfer};
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
 use near_sdk::borsh::BorshSerialize;
 use near_sdk::collections::{LookupMap, UnorderedMap};
@@ -304,13 +305,35 @@ impl Game {
             locked: false,
         };
 
+        let token_id = pet_id.to_string();
         self.tokens.internal_mint_with_refund(
-            pet_id.to_string(),
+            token_id.clone(),
             owner_id.clone(),
             Some(Self::token_metadata(&pet)),
+            // No refund: the deposit is the mint price and it stays here until
+            // `sweep` moves it to the treasury. The standard's `internal_mint`
+            // would hand the excess over storage back to the caller, which for
+            // a 2 NEAR mint means handing back the mint price.
             None,
         );
         self.pets.insert(&pet_id, &pet);
+
+        // Emitted by hand precisely because of the `None` above: the standard
+        // emits `nft_mint` from `internal_mint`, the wrapper we cannot use, and
+        // `internal_mint_with_refund` emits nothing at all.
+        //
+        // An explorer's token page still resolves without this, because it also
+        // calls `nft_token` directly. What does not happen is indexing: the
+        // contract never appears in an NFT index, a wallet's collectibles are
+        // built from `nep171` events and stay empty, and nothing can show who
+        // held a pet before. nearblocks returns an empty contract list for this
+        // account while returning full metadata for contracts that emit.
+        NftMint {
+            owner_id: &owner_id,
+            token_ids: &[&token_id],
+            memo: None,
+        }
+        .emit();
 
         self.log_event(
             "pet_minted",
@@ -325,8 +348,11 @@ impl Game {
         pet_id
     }
 
-    /// Mint for yourself. The deposit covers the mint price plus NEP-171
-    /// storage; anything over is refunded by the standard.
+    /// Mint for yourself.
+    ///
+    /// The whole deposit stays on the contract — mint price and NEP-171
+    /// storage both — and `sweep` moves it to the treasury. Nothing is
+    /// refunded, so a caller attaching more than the price is overpaying.
     #[payable]
     pub fn create_pet(&mut self, name: String, category: String) -> u64 {
         self.assert_running();
@@ -568,11 +594,23 @@ impl Game {
         let change = paid - listing.price.0;
 
         // Move the token and the game's own owner field together.
-        self.tokens.internal_transfer_unguarded(
-            &pet_id.to_string(),
-            &listing.seller_id,
-            &buyer_id,
-        );
+        //
+        // `internal_transfer_unguarded` is the silent variant, like the mint
+        // above: it skips the approval checks `buy_pet` has already done, and
+        // skips the event with them. A sale that emits nothing leaves every
+        // indexer believing the seller still owns the pet.
+        let token_id = pet_id.to_string();
+        self.tokens
+            .internal_transfer_unguarded(&token_id, &listing.seller_id, &buyer_id);
+        NftTransfer {
+            old_owner_id: &listing.seller_id,
+            new_owner_id: &buyer_id,
+            token_ids: &[&token_id],
+            authorized_id: None,
+            memo: Some("sold on the JOYGOTCHI market"),
+        }
+        .emit();
+
         pet.owner_id = buyer_id.clone();
         self.pets.insert(&pet_id, &pet);
         self.listings.remove(&pet_id);
@@ -974,6 +1012,7 @@ impl Game {
     pub fn import_pets(&mut self, pets: Vec<LegacyPet>) -> u64 {
         self.assert_owner();
         let mut imported = 0;
+        let mut minted: Vec<(AccountId, String)> = Vec::new();
 
         for legacy in pets {
             if self.pets.get(&legacy.pet_id).is_some() {
@@ -1011,9 +1050,24 @@ impl Game {
                 Some(Self::token_metadata(&pet)),
                 None,
             );
+            // Silent imports would be the worst version of this bug: the twenty
+            // pets carried over from v1 would arrive on mainnet already
+            // invisible, and there is no second chance to emit a mint for a
+            // token that already exists.
+            minted.push((pet.owner_id.clone(), pet.pet_id.to_string()));
+
             self.pets.insert(&pet.pet_id, &pet);
             self.next_pet_id = self.next_pet_id.max(pet.pet_id + 1);
             imported += 1;
+        }
+
+        for (owner_id, token_id) in &minted {
+            NftMint {
+                owner_id,
+                token_ids: &[token_id],
+                memo: Some("imported from JOYGOTCHI v1"),
+            }
+            .emit();
         }
 
         self.log_event("pets_imported", json!({ "count": imported }));
@@ -1760,6 +1814,69 @@ mod tests {
     }
 
     // ── Marketplace ──────────────────────────────────────────────────────────
+
+    /// The bug this pins made the pets invisible rather than broken.
+    ///
+    /// `internal_mint_with_refund` is the one function in the standard that
+    /// emits nothing — `internal_mint` is the wrapper that emits `nft_mint`,
+    /// and we cannot use it because it would refund the mint price. So the
+    /// tokens existed, `nft_token` returned them, and no explorer, wallet or
+    /// marketplace had any idea they were there: all of them build NFT
+    /// ownership from `nep171` events, never by polling `nft_tokens`.
+    #[test]
+    fn minting_emits_the_nep171_event_indexers_actually_read() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 0, 2 * ONE_NEAR).build());
+        let pet_id = contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
+
+        let events: Vec<String> = near_sdk::test_utils::get_logs()
+            .into_iter()
+            .filter(|line| line.starts_with("EVENT_JSON:"))
+            .collect();
+
+        let nep171 = events
+            .iter()
+            .find(|line| line.contains("\"standard\":\"nep171\""))
+            .unwrap_or_else(|| panic!("no nep171 event among {events:?}"));
+
+        assert!(nep171.contains("\"event\":\"nft_mint\""), "{nep171}");
+        assert!(nep171.contains(&format!("\"{pet_id}\"")), "{nep171}");
+        assert!(nep171.contains("alice.near"), "{nep171}");
+
+        // The game's own event stays: it carries rarity and category, which
+        // nep171 has no field for.
+        assert!(
+            events.iter().any(|line| line.contains("\"event\":\"pet_minted\"")),
+            "{events:?}"
+        );
+    }
+
+    #[test]
+    fn a_sale_emits_the_transfer_event_so_ownership_can_be_followed() {
+        // `internal_transfer_unguarded` skips the approval checks `buy_pet`
+        // has already done — and skips the event with them. Without this, an
+        // indexer keeps showing the seller as the owner forever.
+        let mut contract = deploy();
+
+        testing_env!(ctx(alice(), 0, 2 * ONE_NEAR).build());
+        let pet_id = contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
+
+        testing_env!(ctx(alice(), 0, 1).build());
+        contract.list_pet(pet_id, U128(ONE_NEAR));
+
+        testing_env!(ctx(bob(), 0, ONE_NEAR).build());
+        let _refund = contract.buy_pet(pet_id);
+
+        let logs = near_sdk::test_utils::get_logs();
+        let transfer = logs
+            .iter()
+            .find(|line| line.contains("\"event\":\"nft_transfer\""))
+            .unwrap_or_else(|| panic!("no nft_transfer event: {logs:?}"));
+
+        assert!(transfer.contains("\"standard\":\"nep171\""), "{transfer}");
+        assert!(transfer.contains("alice.near"), "{transfer}");
+        assert!(transfer.contains("bob.near"), "{transfer}");
+    }
 
     #[test]
     fn a_pet_sells_for_near_and_the_treasury_takes_its_cut() {

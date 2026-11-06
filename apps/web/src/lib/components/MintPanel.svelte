@@ -1,7 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import CopyField from '#lib/components/CopyField.svelte';
-  import { EXPLORER, NETWORK } from '#lib/config';
+  import { NETWORK, explorerToken } from '#lib/config';
   import { wallet } from '#lib/near/wallet.svelte';
   import { KINDS, getPet, mintPriceNear, mintPet } from '#lib/pets';
   import type { PetKind } from '@joygotchi/pet';
@@ -66,6 +66,10 @@
 
       <CopyField label="Install code" value={minted.installCode} />
       <CopyField label="Install it" prefix="$ " value={`npx joygotchi install ${minted.installCode}`} />
+      <p class="text-[0.65rem] text-warn">
+        The CLI is not on npm yet, so that command 404s today.
+        <a class="underline" href="/download">Build it from source</a> in the meantime.
+      </p>
 
       <div class="flex flex-wrap gap-2 text-xs">
         <button
@@ -79,11 +83,11 @@
         </button>
         <a
           class="border border-line px-3 py-2 text-muted hover:border-line-bright"
-          href="{EXPLORER}/address/{wallet.accountId}"
+          href={explorerToken(minted.petId)}
           rel="noreferrer"
           target="_blank"
         >
-          Explorer
+          On the explorer
         </a>
       </div>
     </div>
