@@ -13,8 +13,15 @@ use serde::{Deserialize, Serialize};
 /// It lives in the operating system's keychain rather than in the webview's
 /// localStorage, because localStorage is a file any process running as this
 /// user can read. The webview asks for it at signing time and never stores it.
+/// Two keys, not one.
+///
+/// A NEAR account's access keys are a map from public key to permission, so a
+/// single public key carries exactly one permission — granting it for a second
+/// contract does nothing, silently. Playing from the desktop needs the lab and
+/// the game, so it needs two keypairs, and this is where both live.
 const SERVICE: &str = "dev.joygotchi.desktop";
 const KEY_ENTRY: &str = "session-secret-key";
+const GAME_KEY_ENTRY: &str = "session-game-secret-key";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -23,6 +30,13 @@ pub struct Session {
     pub public_key: String,
     /// The contract the key may call. One, by protocol.
     pub contract_id: String,
+    /// The game contract, reached by a second key. Absent on older sessions.
+    #[serde(default)]
+    pub game_contract_id: Option<String>,
+    /// That second key's public half. One public key carries one permission,
+    /// so reaching two contracts takes two keypairs — not one granted twice.
+    #[serde(default)]
+    pub game_public_key: Option<String>,
     /// The methods it may call on it.
     pub method_names: Vec<String>,
     /// Unix seconds. Not enforced by the chain — see `is_expired`.
@@ -62,8 +76,10 @@ pub fn clear_session(app_dir: &std::path::Path) -> Result<(), String> {
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
-    // A session with no key is not a session; drop both or neither.
-    let _ = entry(KEY_ENTRY).and_then(|e| e.delete_credential().map_err(|x| x.to_string()));
+    // A session with no key is not a session; drop all of it or none.
+    for name in [KEY_ENTRY, GAME_KEY_ENTRY] {
+        let _ = entry(name).and_then(|e| e.delete_credential().map_err(|x| x.to_string()));
+    }
     Ok(())
 }
 
@@ -77,6 +93,16 @@ pub fn load_secret_key() -> Option<String> {
     entry(KEY_ENTRY).ok()?.get_password().ok()
 }
 
+pub fn save_game_secret_key(secret: &str) -> Result<(), String> {
+    entry(GAME_KEY_ENTRY)?
+        .set_password(secret)
+        .map_err(|error| format!("could not write to the keychain: {error}"))
+}
+
+pub fn load_game_secret_key() -> Option<String> {
+    entry(GAME_KEY_ENTRY).ok()?.get_password().ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -86,6 +112,8 @@ mod tests {
             account_id: "alice.testnet".into(),
             public_key: "ed25519:abc".into(),
             contract_id: "jg-stake-5656.testnet".into(),
+            game_contract_id: Some("jg-game-5656.testnet".into()),
+            game_public_key: Some("ed25519:def".into()),
             method_names: vec!["spend_credits".into()],
             expires_at,
         }
@@ -110,10 +138,30 @@ mod tests {
         // camelCase, because the other side of this is TypeScript.
         assert!(json.contains("\"accountId\""), "{json}");
         assert!(json.contains("\"methodNames\""), "{json}");
+        // The game key is its own keypair, and the session has to carry it:
+        // one public key can only ever hold one contract's permission.
+        assert!(json.contains("\"gamePublicKey\""), "{json}");
+        // The game key is a separate keypair, and the session has to say so —
+        // one public key can only ever carry one contract's permission.
+        assert!(json.contains("\"gamePublicKey\""), "{json}");
 
         let back: Session = serde_json::from_str(&json).unwrap();
         assert_eq!(back.account_id, "alice.testnet");
         assert_eq!(back.expires_at, 42);
+    }
+
+    #[test]
+    fn an_older_session_without_a_game_key_still_loads() {
+        let json = r#"{
+          "accountId": "alice.testnet",
+          "publicKey": "ed25519:abc",
+          "contractId": "jg-stake-5656.testnet",
+          "methodNames": ["spend_credits"],
+          "expiresAt": 0
+        }"#;
+        let session: Session = serde_json::from_str(json).unwrap();
+        assert_eq!(session.account_id, "alice.testnet");
+        assert!(session.game_public_key.is_none());
     }
 
     #[test]

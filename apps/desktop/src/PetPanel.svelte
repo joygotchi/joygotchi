@@ -20,6 +20,7 @@
   import BattleScene from './BattleScene.svelte';
   import {
     findEvent,
+    readableError,
     reactToGame,
     requestWalletAction,
     session as walletSession,
@@ -105,7 +106,7 @@
       note = after;
       await load();
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = readableError(cause);
     } finally {
       busy = null;
     }
@@ -194,7 +195,7 @@
       wager = formatCredits(settled.transferred);
       await load();
     } catch (cause) {
-      error = cause instanceof Error ? cause.message : String(cause);
+      error = readableError(cause);
       opponent = null;
       fight = 'ready';
     }
@@ -291,8 +292,11 @@
           {busy === 'claim' ? 'Claiming…' : 'Claim'}
         </button>
         <button
-          disabled={busy !== null}
+          disabled={busy !== null || (account?.staked_pets.length ?? 0) === 0}
           onclick={() => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.')}
+          title={(account?.staked_pets.length ?? 0) === 0
+            ? 'Mining needs a pet at work in the lab'
+            : 'A small top-up every six hours'}
         >
           {busy === 'mine' ? 'Mining…' : 'Mine'}
         </button>

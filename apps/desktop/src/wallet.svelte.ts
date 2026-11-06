@@ -52,8 +52,19 @@ export type Session = {
   publicKey: string;
   /** The lab. Kept under its old name so an existing session still loads. */
   contractId: string;
-  /** The game contract, granted alongside it. Absent on older sessions. */
+  /** The game contract, reached by its own key. Absent on older sessions. */
   gameContractId?: string;
+  /**
+   * The game key's public half.
+   *
+   * A second keypair, not the same one granted twice: NEAR stores access keys
+   * as a map from public key to permission, so one public key carries exactly
+   * one contract. Granting it again for another contract does nothing, and
+   * does it silently — `attack` failed with "access key receiver
+   * jg-stake-… does not match transaction receiver jg-game-…" until this
+   * became two keys.
+   */
+  gamePublicKey?: string;
   methodNames: string[];
   /** Unix seconds; 0 means never. */
   expiresAt: number;
@@ -71,6 +82,7 @@ const network = (value: string) => (value === 'mainnet' ? 'mainnet' : 'testnet')
  */
 export async function beginConnect(gameContract: string) {
   const keyPair = KeyPair.fromRandom('ed25519');
+  const gameKeyPair = KeyPair.fromRandom('ed25519');
   const contractId = stakeContractFor(gameContract);
   const callback = await invoke<string>('wallet_callback_url');
 
@@ -78,20 +90,20 @@ export async function beginConnect(gameContract: string) {
   url.searchParams.set('public_key', keyPair.getPublicKey().toString());
   url.searchParams.set('contract_id', contractId);
   url.searchParams.set('methods', STAKE_METHODS.join(','));
-  // The same public key, granted twice: once per contract, because that is
-  // the only shape NEAR allows.
+  // A different public key: one key cannot hold two contracts' permissions.
+  url.searchParams.set('game_public_key', gameKeyPair.getPublicKey().toString());
   url.searchParams.set('game_contract_id', gameContract);
   url.searchParams.set('game_methods', GAME_METHODS.join(','));
   url.searchParams.set('callback', callback);
 
   await invoke('open_url', { url: url.toString() });
 
-  return { keyPair, contractId, gameContract };
+  return { keyPair, gameKeyPair, contractId, gameContract };
 }
 
 /** Called once the wallet redirects back with the account it granted for. */
 export async function completeConnect(
-  pending: { keyPair: KeyPair; contractId: string; gameContract: string },
+  pending: { keyPair: KeyPair; gameKeyPair: KeyPair; contractId: string; gameContract: string },
   accountId: string
 ): Promise<Session> {
   const session: Session = {
@@ -99,13 +111,15 @@ export async function completeConnect(
     publicKey: pending.keyPair.getPublicKey().toString(),
     contractId: pending.contractId,
     gameContractId: pending.gameContract,
+    gamePublicKey: pending.gameKeyPair.getPublicKey().toString(),
     methodNames: [...SESSION_METHODS],
     expiresAt: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400
   };
 
   await invoke('save_session', {
     session,
-    secretKey: pending.keyPair.toString()
+    secretKey: pending.keyPair.toString(),
+    gameSecretKey: pending.gameKeyPair.toString()
   });
 
   return session;
@@ -124,7 +138,12 @@ export const session = $state<{ current: Session | null; connecting: boolean; er
   { current: null, connecting: false, error: null }
 );
 
-let pending: { keyPair: KeyPair; contractId: string; gameContract: string } | null = null;
+let pending: {
+  keyPair: KeyPair;
+  gameKeyPair: KeyPair;
+  contractId: string;
+  gameContract: string;
+} | null = null;
 let listening = false;
 
 export const getSession = () => invoke<Session | null>('get_session');
@@ -277,9 +296,6 @@ export async function signAndSend(
   if (sessionExpired(session)) throw new Error('This session has expired — connect again');
   if (!session.methodNames.includes(method)) throw new MethodNotInSessionError(method);
 
-  const secret = await invoke<string | null>('session_secret_key');
-  if (!secret) throw new NoSessionError();
-
   const receiver = contractForMethod(method, {
     stake: session.contractId,
     game: session.gameContractId ?? ''
@@ -288,18 +304,35 @@ export async function signAndSend(
     throw new MethodNotInSessionError(method);
   }
 
+  // The key has to match the contract, not just the method: a transaction
+  // signed by the lab key and sent to the game contract is refused by the
+  // node, not by the contract.
+  const onGame = receiver === session.gameContractId;
+  const secret = await invoke<string | null>(
+    onGame ? 'session_game_secret_key' : 'session_secret_key'
+  );
+  if (!secret) {
+    throw new Error(
+      onGame
+        ? 'This session has no key for the game contract — connect again to grant one'
+        : 'Connect a wallet first'
+    );
+  }
+
   const keyPair = KeyPair.fromString(secret as Parameters<typeof KeyPair.fromString>[0]);
   const provider = new JsonRpcProvider({ url: RPC_URL[network(net)] });
   const account = new Account(session.accountId, provider, new KeyPairSigner(keyPair));
 
-  // `callFunction` fetches the key's own nonce and a recent block hash, signs
-  // and sends. Hand-rolling that is borsh plus ed25519 plus nonce handling,
-  // and getting any of the three subtly wrong fails at the chain rather than
-  // here.
+  // `callFunctionRaw`, not `callFunction`: the latter returns the method's
+  // decoded return value, and `attack` returns a promise, so it hands back an
+  // empty object. Everything below — the receipt walk, the battle result, the
+  // transaction hash — was reading that empty object and finding nothing,
+  // which meant a failed receipt went unnoticed by the very code written to
+  // notice it.
   //
   // No deposit, ever: a function-call key cannot attach one, so passing a
   // non-zero value would produce a transaction the protocol refuses.
-  const outcome = await account.callFunction({
+  const outcome = await account.callFunctionRaw({
     contractId: receiver,
     methodName: method,
     args,
@@ -355,6 +388,18 @@ export function findEvent<T = Record<string, unknown>>(
     }
   }
   return null;
+}
+
+/**
+ * Strip the boilerplate off whatever went wrong.
+ *
+ * `near-api-js` throws a `ContractExecutionError` for a panic in the outer
+ * call rather than returning an outcome, so the receipt walk never sees it
+ * and the message arrives with "Smart contract panicked:" still on the front.
+ */
+export function readableError(cause: unknown): string {
+  const message = cause instanceof Error ? cause.message : String(cause);
+  return message.replace(/^Smart contract panicked:\s*/, '');
 }
 
 /** Pull the contract's own words out of a failure, not the envelope's. */

@@ -47,6 +47,7 @@
   const contractId = $derived(params.get('contract_id') ?? '');
   const methods = $derived((params.get('methods') ?? '').split(',').filter(Boolean));
   const gameContractId = $derived(params.get('game_contract_id') ?? '');
+  const gamePublicKey = $derived(params.get('game_public_key') ?? '');
   const gameMethods = $derived((params.get('game_methods') ?? '').split(',').filter(Boolean));
   const callback = $derived(params.get('callback') ?? '');
 
@@ -122,10 +123,12 @@
       // The second key, for the game contract. Asked for separately because
       // NEAR binds a key to one contract, and after the first so a refusal
       // here leaves a usable session rather than none.
-      if (gameContractId && gameMethods.length > 0) {
+      if (gameContractId && gameMethods.length > 0 && gamePublicKey) {
         await addKeyForContract({
           contractId: gameContractId,
-          publicKey,
+          // Its own key. NEAR maps a public key to one permission, so reusing
+          // the first one here adds nothing and says nothing about it.
+          publicKey: gamePublicKey,
           allowMethods: { anyMethod: false, methodNames: gameMethods },
           gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
         });
@@ -205,7 +208,7 @@
             <dt class="shrink-0 text-muted">And on the game</dt>
             <dd class="text-right break-all">
               {gameContractId}: {gameMethods.join(', ')}
-              <span class="block text-muted">a second signature, for the same key</span>
+              <span class="block text-muted">a second key, and a second signature</span>
             </dd>
           </div>
         {/if}

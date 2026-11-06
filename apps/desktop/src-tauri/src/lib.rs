@@ -99,8 +99,16 @@ fn wallet_callback_url() -> String {
 /// plain file, because the account id and the public key are not secrets and
 /// keeping them readable makes the app's state inspectable.
 #[tauri::command]
-fn save_session(app: AppHandle, session: Session, secret_key: String) -> Result<(), String> {
+fn save_session(
+    app: AppHandle,
+    session: Session,
+    secret_key: String,
+    game_secret_key: Option<String>,
+) -> Result<(), String> {
     session::save_secret_key(&secret_key)?;
+    if let Some(game) = game_secret_key {
+        session::save_game_secret_key(&game)?;
+    }
     session::save_session(&app_dir(&app)?, &session)
 }
 
@@ -118,6 +126,11 @@ fn get_session(app: AppHandle) -> Result<Option<Session>, String> {
 #[tauri::command]
 fn session_secret_key() -> Option<String> {
     session::load_secret_key()
+}
+
+#[tauri::command]
+fn session_game_secret_key() -> Option<String> {
+    session::load_game_secret_key()
 }
 
 #[tauri::command]
@@ -189,6 +202,7 @@ pub fn run() {
             save_session,
             get_session,
             session_secret_key,
+            session_game_secret_key,
             clear_session
         ])
         .setup(|app| {
