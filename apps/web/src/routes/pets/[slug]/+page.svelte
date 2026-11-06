@@ -1,7 +1,7 @@
 <script lang="ts">
   import { page } from '$app/state';
   import CopyField from '#lib/components/CopyField.svelte';
-  import { SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL, installCommand } from '#lib/cli';
+  import { installCommand } from '#lib/cli';
   import PetChat from '#lib/components/PetChat.svelte';
   import StateViewer from '#lib/components/StateViewer.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
@@ -129,28 +129,6 @@
           <CopyField label="Install code" value={pet.pkg.installCode} />
           <CopyField label="Install it" prefix="$ " value={installCommand(pet.pkg.installCode)} />
 
-          <details class="border border-line bg-ink">
-            <summary class="cursor-pointer px-3 py-2 text-[0.65rem] text-warn">
-              First time on this machine? Two one-time commands →
-            </summary>
-
-            <div class="flex flex-col gap-3 border-t border-line p-3">
-              <p class="text-[0.65rem] text-muted">
-                The CLI is published to GitHub Packages, and npm looks for a scoped name on
-                npmjs unless you tell it otherwise.
-              </p>
-              <CopyField label="Point the scope at GitHub" prefix="$ " value={SETUP_REGISTRY} />
-
-              <p class="text-[0.65rem] text-muted">
-                The package is private while the repository is, so npm also needs a GitHub token
-                with <code class="text-text">read:packages</code> —
-                <a class="text-accent hover:underline" href={TOKEN_URL} rel="noreferrer" target="_blank">
-                  make one here
-                </a>.
-              </p>
-              <CopyField label="Give npm a token" prefix="$ " value={SETUP_TOKEN} />
-            </div>
-          </details>
 
           <p class="text-[0.65rem] text-muted">
             Then open the desktop app and pick {pet.name} under Pets.

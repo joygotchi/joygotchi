@@ -1,5 +1,6 @@
 <script lang="ts">
   import CopyField from '#lib/components/CopyField.svelte';
+  import { CLI_PACKAGE, SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL } from '#lib/cli';
 </script>
 
 <h1 class="text-xl">JOYGOTCHI Desktop</h1>
@@ -54,10 +55,29 @@
   </div>
 </div>
 
-<div class="mt-8 border border-line bg-panel p-4">
-  <h2 class="text-sm tracking-widest text-muted uppercase">Install a pet first</h2>
-  <p class="mt-1 text-xs text-muted">
-    Copy the install code from any pet's page, then run the one command it shows. The pet lands in
-    <code class="text-text">~/.joygotchi/pets/</code> and the app finds it there.
-  </p>
+<div class="mt-8 border border-line bg-panel">
+  <div class="border-b border-line px-4 py-3">
+    <h2 class="text-sm tracking-widest text-muted uppercase">Install a pet</h2>
+    <p class="mt-1 text-xs text-muted">
+      Copy the install code from any pet's page and run the command it shows. The pet lands in
+      <code class="text-text">~/.joygotchi/pets/</code> and the app finds it there.
+    </p>
+  </div>
+
+  <div class="flex flex-col gap-3 p-4">
+    <p class="text-xs text-muted">
+      Two commands first, once per machine. <code class="text-text">{CLI_PACKAGE}</code> is
+      published to GitHub Packages, and npm looks for a scoped name on npmjs unless told
+      otherwise — that part is not a visibility setting and does not go away.
+    </p>
+    <CopyField label="Point the scope at GitHub" prefix="$ " value={SETUP_REGISTRY} />
+
+    <p class="text-xs text-muted">
+      The package is private while the repository is, so npm also needs a GitHub token with
+      <code class="text-text">read:packages</code> —
+      <a class="text-accent hover:underline" href={TOKEN_URL} rel="noreferrer" target="_blank">
+        make one here</a>. This step is the one that disappears when the repository goes public.
+    </p>
+    <CopyField label="Give npm a token" prefix="$ " value={SETUP_TOKEN} />
+  </div>
 </div>
