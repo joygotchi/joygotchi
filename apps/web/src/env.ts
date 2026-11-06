@@ -52,7 +52,9 @@ export const variables = defineEnvVars({
     description: 'NEAR AI Cloud base URL.'
   },
   NEAR_AI_MODEL: {
-    schema: withDefault('deepseek-v3p1'),
-    description: 'Model used for pet reactions and chat.'
+    schema: withDefault('zai-org/GLM-5.1-FP8'),
+    description:
+      'Model used for pet reactions and chat. Must be an exact id from the NEAR AI catalogue; ' +
+      'a name that is close but not exact fails at call time, not at startup.'
   }
 });
