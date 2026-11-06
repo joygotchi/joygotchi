@@ -113,8 +113,8 @@
         Opens your browser once. {SESSION_METHODS.length} methods, {SESSION_DAYS} days — feeding,
         items and claiming then sign here. Staking still asks your wallet.
       </p>
-      <button disabled={connecting} onclick={startConnect}>
-        {connecting ? 'Waiting for the wallet…' : 'Connect wallet'}
+      <button onclick={startConnect}>
+        {connecting ? 'Waiting for the wallet… (click to retry)' : 'Connect wallet'}
       </button>
     {/if}
 

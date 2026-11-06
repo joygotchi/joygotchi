@@ -72,10 +72,34 @@
     publicKey.startsWith('ed25519:') && contractId.length > 0 && methods.length > 0 && target !== null
   );
 
-  function handBack(extra: Record<string, string>) {
+  let returnUrl = $state<string | null>(null);
+
+  /**
+   * Tell the app, by two routes that fail differently.
+   *
+   * The fetch is what normally does it: a request to the loopback server needs
+   * no navigation and cannot be blocked as mixed content, which a top-level
+   * jump from https to http://127.0.0.1 can be. `no-cors` means the response
+   * is unreadable, which does not matter — the server only has to receive it.
+   *
+   * The navigation stays as a fallback, and the link stays visible after both,
+   * because a grant that the app never hears about leaves somebody staring at
+   * "Waiting for the wallet…" with nothing to click.
+   */
+  async function handBack(extra: Record<string, string>) {
     if (!target) return;
     for (const [key, value] of Object.entries(extra)) target.searchParams.set(key, value);
-    window.location.href = target.toString();
+
+    const url = target.toString();
+    returnUrl = url;
+
+    try {
+      await fetch(url, { mode: 'no-cors' });
+    } catch {
+      // The app may not be listening. The navigation below still tries.
+    }
+
+    window.location.href = url;
   }
 
   async function approve() {
@@ -123,9 +147,16 @@
       <p class="mt-3 text-muted">Open the desktop app and press Connect there instead.</p>
     </div>
   {:else if phase === 'done'}
-    <p class="mt-4 border border-line bg-panel p-4 text-xs text-accent">
-      Granted. Handing you back to the app…
-    </p>
+    <div class="mt-4 border border-line bg-panel p-4 text-xs">
+      <p class="text-accent">Granted. Handing you back to the app…</p>
+      {#if returnUrl}
+        <p class="mt-2 text-muted">
+          Still here?
+          <a class="text-accent hover:underline" href={returnUrl}>Tell the app yourself</a>
+          — it is listening on this machine.
+        </p>
+      {/if}
+    </div>
   {:else}
     <div class="mt-4 border border-line bg-panel">
       <div class="border-b border-line px-4 py-3 text-xs text-muted">

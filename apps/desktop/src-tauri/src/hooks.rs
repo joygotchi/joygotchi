@@ -97,15 +97,28 @@ async fn wallet_callback(
     State(app): State<AppHandle>,
     Query(params): Query<WalletCallback>,
 ) -> Html<&'static str> {
+    // Logged because the failure everybody hits is silent: the browser either
+    // reached this machine or it did not, and from inside the window those
+    // look identical.
     match (params.account_id, params.public_key, params.error_code) {
         (Some(account_id), Some(public_key), _) => {
-            let _ = app.emit(
+            println!("joygotchi: wallet callback for {account_id}");
+            match app.emit(
                 "wallet-connected",
                 serde_json::json!({ "accountId": account_id, "publicKey": public_key }),
-            );
+            ) {
+                Ok(()) => println!("joygotchi: told the window"),
+                Err(error) => eprintln!("joygotchi: could not tell the window: {error}"),
+            }
             Html(CONNECTED_PAGE)
         }
-        (_, _, Some(_)) | (None, _, None) | (_, None, None) => {
+        (_, _, Some(code)) => {
+            println!("joygotchi: wallet callback refused ({code})");
+            let _ = app.emit("wallet-cancelled", serde_json::json!({}));
+            Html(CANCELLED_PAGE)
+        }
+        _ => {
+            println!("joygotchi: wallet callback with no account and no error");
             let _ = app.emit("wallet-cancelled", serde_json::json!({}));
             Html(CANCELLED_PAGE)
         }
