@@ -159,11 +159,57 @@ export async function watchConnect() {
     }
   });
 
+  await listen<{ method: string; txHash: string }>('act-done', (event) => {
+    walletAction.running = null;
+    walletAction.done = event.payload.method;
+  });
+
+  await listen<{ method: string; error: string }>('act-failed', (event) => {
+    walletAction.running = null;
+    walletAction.error = event.payload.error;
+  });
+
   await listen('wallet-cancelled', () => {
     pending = null;
     session.connecting = false;
     session.error = 'The wallet did not grant anything.';
   });
+}
+
+/**
+ * One wallet-signed action, for the things a session key may not do.
+ *
+ * `stake_pet` and `unstake_pet` require a yoctoNEAR, and a function-call key
+ * can never attach one — that requirement is the contract asking for a real
+ * signature. So these go out to the gallery and come back over loopback, the
+ * same path a grant takes.
+ */
+export const walletAction = $state<{ running: string | null; error: string | null; done: string | null }>(
+  { running: null, error: null, done: null }
+);
+
+export async function requestWalletAction(
+  method: 'stake_pet' | 'unstake_pet',
+  contractId: string,
+  petId: number
+) {
+  walletAction.running = method;
+  walletAction.error = null;
+  walletAction.done = null;
+
+  const callback = await invoke<string>('wallet_callback_url');
+  const url = new URL('/act', SITE());
+  url.searchParams.set('method', method);
+  url.searchParams.set('contract', contractId);
+  url.searchParams.set('pet_id', String(petId));
+  url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
+
+  try {
+    await invoke('open_url', { url: url.toString() });
+  } catch (cause) {
+    walletAction.running = null;
+    walletAction.error = cause instanceof Error ? cause.message : String(cause);
+  }
 }
 
 /** Start a connect. The result arrives through `watchConnect`. */

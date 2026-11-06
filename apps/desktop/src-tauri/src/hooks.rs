@@ -141,11 +141,68 @@ const CANCELLED_PAGE: &str = r#"<!doctype html><meta charset=utf-8>
 <p style="color:#8b95a3">Nothing was granted. You can close this tab and try again.</p>
 </div>"#;
 
+/// What the gallery reports after signing one transaction with the wallet.
+#[derive(Debug, Deserialize)]
+pub struct ActCallback {
+    pub method: Option<String>,
+    pub tx_hash: Option<String>,
+    pub error: Option<String>,
+}
+
+/// Where a wallet-signed action reports back to.
+///
+/// Separate from the wallet callback because it means something different: a
+/// grant happens once, an action happens whenever the player stakes a pet.
+/// Both come home the same way, over loopback, for the same reason.
+async fn act_callback(
+    State(app): State<AppHandle>,
+    Query(params): Query<ActCallback>,
+) -> Html<&'static str> {
+    let method = params.method.unwrap_or_else(|| "action".into());
+
+    match (params.tx_hash, params.error) {
+        (Some(hash), _) => {
+            println!("joygotchi: {method} signed, tx {hash}");
+            let _ = app.emit(
+                "act-done",
+                serde_json::json!({ "method": method, "txHash": hash }),
+            );
+            Html(ACTED_PAGE)
+        }
+        (None, error) => {
+            let reason = error.unwrap_or_else(|| "cancelled".into());
+            println!("joygotchi: {method} did not go through ({reason})");
+            let _ = app.emit(
+                "act-failed",
+                serde_json::json!({ "method": method, "error": reason }),
+            );
+            Html(NOT_ACTED_PAGE)
+        }
+    }
+}
+
+const ACTED_PAGE: &str = r#"<!doctype html><meta charset=utf-8>
+<title>JOYGOTCHI</title>
+<body style="background:#0b0d10;color:#e7ebf0;font:14px ui-monospace,monospace;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center">
+<p style="color:#b6f36b;font-size:18px">Done.</p>
+<p style="color:#8b95a3">Back to your pet. You can close this tab.</p>
+</div>"#;
+
+const NOT_ACTED_PAGE: &str = r#"<!doctype html><meta charset=utf-8>
+<title>JOYGOTCHI</title>
+<body style="background:#0b0d10;color:#e7ebf0;font:14px ui-monospace,monospace;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center">
+<p style="color:#f3a66b;font-size:18px">Nothing happened.</p>
+<p style="color:#8b95a3">Your pet is unchanged. You can close this tab.</p>
+</div>"#;
+
 pub fn router(app: AppHandle) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/event", post(event))
         .route("/wallet-callback", get(wallet_callback))
+        .route("/act-callback", get(act_callback))
         .with_state(app)
 }
 

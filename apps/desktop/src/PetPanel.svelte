@@ -14,7 +14,12 @@
     getStakeAccount,
     stakeContractFor
   } from './chain';
-  import { session as walletSession, signAndSend } from './wallet.svelte';
+  import {
+    requestWalletAction,
+    session as walletSession,
+    signAndSend,
+    walletAction
+  } from './wallet.svelte';
   import type { InstalledPet } from './types';
 
   /**
@@ -95,6 +100,20 @@
   }
 
   const net = () => pet.chain.network;
+
+  // A wallet round trip reports back through `walletAction`; when it lands,
+  // re-read the chain so the panel shows what actually happened.
+  $effect(() => {
+    if (walletAction.done) {
+      note = walletAction.done === 'stake_pet' ? 'At work.' : 'Back home.';
+      walletAction.done = null;
+      void load();
+    }
+    if (walletAction.error) {
+      error = walletAction.error;
+      walletAction.error = null;
+    }
+  });
 
   const feed = () =>
     act(
@@ -195,6 +214,23 @@
         </button>
       </div>
 
+      <div class="actions">
+        <button
+          disabled={walletAction.running !== null}
+          onclick={() =>
+            requestWalletAction(status?.staked ? 'unstake_pet' : 'stake_pet', stake, pet.petId)}
+          title="Opens your browser — the contract wants a real signature for this"
+        >
+          {#if walletAction.running}
+            In your browser…
+          {:else if status?.staked}
+            Unstake ↗
+          {:else}
+            Stake ↗
+          {/if}
+        </button>
+      </div>
+
       <ul class="items-grid">
         {#each Object.values(ITEMS) as item (item.id)}
           {@const owned = inventory.find(([id]) => id === item.id)?.[1] ?? 0}
@@ -236,8 +272,9 @@
       {#if note}<p class="ok">{note}</p>{/if}
 
       <p class="note">
-        Staking and battling are not here yet. Staking wants a yoctoNEAR a session key cannot
-        attach; battling lives on the game contract, which this key does not cover.
+        Staking opens your browser: the contract wants a yoctoNEAR, which a session key may never
+        attach. Battling is not here yet — it lives on the game contract, which this key does not
+        cover.
       </p>
     {/if}
   {/if}
