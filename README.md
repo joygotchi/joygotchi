@@ -184,6 +184,12 @@ pnpm build
 cd apps/desktop/src-tauri && cargo test    # 6 more, for the hook server and pet index
 ```
 
+## Where this is going
+
+[`docs/ROADMAP.md`](docs/ROADMAP.md) has the current state, what is waiting on a
+decision rather than on work, and the one gap that shapes the rest: our pets
+have one drawing each where a petdex pet has nine.
+
 ## Licence
 
 MIT. Pet art belongs to its authors.
