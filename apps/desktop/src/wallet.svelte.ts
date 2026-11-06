@@ -174,9 +174,15 @@ export async function watchConnect() {
   await listen<{ accountId: string; publicKey: string }>('wallet-connected', async (event) => {
     const waiting = pending.get(event.payload.publicKey);
     if (!waiting) {
+      session.connecting = false;
+
+      // The same grant delivered twice is not a failure. It happened by
+      // design once — the gallery both fetched and navigated — and reporting
+      // it as an error on a connect that worked is worse than saying nothing.
+      if (session.current?.publicKey === event.payload.publicKey) return;
+
       // A grant for a key this app does not hold. Saving the session anyway is
       // what produced keys on disk that were never on chain.
-      session.connecting = false;
       session.error =
         'A wallet granted a key this app was not waiting for. Press Connect and finish in one go.';
       return;

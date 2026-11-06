@@ -98,8 +98,13 @@
 
     try {
       await fetch(url, { mode: 'no-cors' });
+      // It landed. Navigating as well would call the app a second time, and
+      // the second call arrives with nothing waiting for it — which the app
+      // then reports as a failure, on a grant that worked.
+      return;
     } catch {
-      // The app may not be listening. The navigation below still tries.
+      // Nothing listening on that port, or the request was blocked. The
+      // navigation is the fallback.
     }
 
     window.location.href = url;

@@ -73,9 +73,16 @@
 
     const url = target.toString();
     returnUrl = url;
-    // Reaches the app without a navigation, which https → http can block.
-    await fetch(url, { mode: 'no-cors' }).catch(() => {});
-    window.location.href = url;
+
+    // One call, not two: a fetch reaches the app without a navigation, which
+    // https → http can block. Navigating as well would deliver the same
+    // result twice, and the second arrival has nothing waiting for it.
+    try {
+      await fetch(url, { mode: 'no-cors' });
+      return;
+    } catch {
+      window.location.href = url;
+    }
   }
 
   async function sign() {
