@@ -2,6 +2,7 @@
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import type { AgentEvent } from '@joygotchi/pet';
+  import PetPanel from './PetPanel.svelte';
   import Settings from './Settings.svelte';
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
@@ -23,6 +24,7 @@
   let now = $state(Date.now());
   let line = $state<string | null>(null);
   let showSettings = $state(false);
+  let showPanel = $state(false);
   let overPet = $state(false);
 
   const active = $derived(
@@ -123,14 +125,23 @@
       <p class="bubble">{line}</p>
     {/if}
 
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
     <div
       class="pet"
       data-state={pose}
       data-tauri-drag-region
       onmouseenter={() => setClickThrough(false)}
       onmouseleave={() => setClickThrough(true)}
+      onclick={() => (showPanel = true)}
       ondblclick={() => (showSettings = true)}
+      onkeydown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          showPanel = true;
+        }
+      }}
+      role="button"
+      tabindex="0"
+      aria-label="What {active.displayName} is up to"
       style:animation-name={motion}
       style:animation-duration="{motionDuration(pose)}s"
     >
@@ -142,10 +153,15 @@
     {#if overPet}
       <div class="hint">
         <span>{active.displayName}</span>
+        <button title="What this pet is up to" onclick={() => (showPanel = true)}>ⓘ</button>
         <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
         <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
       </div>
     {/if}
+  {/if}
+
+  {#if showPanel && active}
+    <PetPanel pet={active} onclose={() => (showPanel = false)} />
   {/if}
 
   {#if showSettings}

@@ -2,7 +2,6 @@
   import { page } from '$app/state';
   import CopyField from '#lib/components/CopyField.svelte';
   import { SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL, installCommand } from '#lib/cli';
-  import PetActions from '#lib/components/PetActions.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
   import StateViewer from '#lib/components/StateViewer.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
@@ -159,10 +158,6 @@
           </p>
         </div>
       </div>
-
-      {#if mine}
-        <PetActions {pet} onchanged={() => reload()} />
-      {/if}
 
       <StateViewer {pet} />
 
