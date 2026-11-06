@@ -1,4 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
+import { listen } from '@tauri-apps/api/event';
 import { Account, JsonRpcProvider, KeyPair, KeyPairSigner } from 'near-api-js';
 import { stakeContractFor } from './chain';
 
@@ -109,8 +110,73 @@ export async function completeConnect(
   return session;
 }
 
+/**
+ * The connect flow, owned by the module rather than by a panel.
+ *
+ * A wallet grant is a round trip through the browser, and it outlives any
+ * window the player happens to have open. When this state lived in
+ * `Settings.svelte`, closing the panel while the browser was open threw away
+ * both the keypair and the listener — so the grant succeeded, the callback
+ * fired into nothing, and the app went on offering "Connect wallet".
+ */
+export const session = $state<{ current: Session | null; connecting: boolean; error: string | null }>(
+  { current: null, connecting: false, error: null }
+);
+
+let pending: { keyPair: KeyPair; contractId: string } | null = null;
+let listening = false;
+
 export const getSession = () => invoke<Session | null>('get_session');
-export const clearSession = () => invoke('clear_session');
+export const clearSession = async () => {
+  await invoke('clear_session');
+  session.current = null;
+};
+
+/** Register the callback listeners once, for as long as the app runs. */
+export async function watchConnect() {
+  if (listening) return;
+  listening = true;
+
+  session.current = await getSession();
+
+  await listen<{ accountId: string }>('wallet-connected', async (event) => {
+    if (!pending) {
+      // The grant landed with no keypair waiting for it. Nothing can be done
+      // with it, and saying so beats a button that silently does nothing.
+      session.connecting = false;
+      session.error = 'A wallet granted a key, but this app had stopped waiting. Try again.';
+      return;
+    }
+
+    try {
+      session.current = await completeConnect(pending, event.payload.accountId);
+      session.error = null;
+    } catch (cause) {
+      session.error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      pending = null;
+      session.connecting = false;
+    }
+  });
+
+  await listen('wallet-cancelled', () => {
+    pending = null;
+    session.connecting = false;
+    session.error = 'The wallet did not grant anything.';
+  });
+}
+
+/** Start a connect. The result arrives through `watchConnect`. */
+export async function connect(gameContract: string) {
+  session.connecting = true;
+  session.error = null;
+  try {
+    pending = await beginConnect(gameContract);
+  } catch (cause) {
+    session.connecting = false;
+    session.error = cause instanceof Error ? cause.message : String(cause);
+  }
+}
 
 export const sessionExpired = (session: Session, nowSecs = Math.floor(Date.now() / 1000)) =>
   session.expiresAt !== 0 && nowSecs >= session.expiresAt;

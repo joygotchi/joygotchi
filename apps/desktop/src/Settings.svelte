@@ -1,16 +1,13 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
-  import { listen } from '@tauri-apps/api/event';
   import {
     SESSION_DAYS,
     SESSION_METHODS,
-    beginConnect,
     clearSession,
-    completeConnect,
-    getSession,
-    sessionExpired,
-    type Session
-  } from './wallet';
+    connect,
+    session as walletSession,
+    sessionExpired
+  } from './wallet.svelte';
   import type { InstalledPet } from './types';
 
   type Props = {
@@ -39,61 +36,20 @@
     await invoke('set_click_through', { ignore: next }).catch(() => {});
   }
 
-  let session = $state<Session | null>(null);
-  let connecting = $state(false);
-  let walletError = $state<string | null>(null);
+  const session = $derived(walletSession.current);
+  const connecting = $derived(walletSession.connecting);
+  const walletError = $derived(walletSession.error);
 
   const gameContract = $derived(pets[0]?.chain.contract ?? '');
   const expired = $derived(session ? sessionExpired(session) : false);
 
-  /**
-   * The keypair exists only between opening the wallet and hearing back. If
-   * the player closes the tab it is dropped, and nothing was ever written —
-   * an abandoned sign-in should not leave a key on disk.
-   */
-  let pending: Awaited<ReturnType<typeof beginConnect>> | null = null;
-
-  async function connect() {
+  async function startConnect() {
     if (!gameContract) {
-      walletError = 'Install a pet first — the contract comes from its pet.json.';
+      walletSession.error = 'Install a pet first — the contract comes from its pet.json.';
       return;
     }
-    connecting = true;
-    walletError = null;
-    try {
-      pending = await beginConnect(gameContract);
-    } catch (cause) {
-      connecting = false;
-      walletError = cause instanceof Error ? cause.message : String(cause);
-    }
+    await connect(gameContract);
   }
-
-  $effect(() => {
-    void getSession().then((found) => (session = found));
-
-    const connected = listen<{ accountId: string }>('wallet-connected', async (event) => {
-      if (!pending) return;
-      try {
-        session = await completeConnect(pending, event.payload.accountId);
-      } catch (cause) {
-        walletError = cause instanceof Error ? cause.message : String(cause);
-      } finally {
-        pending = null;
-        connecting = false;
-      }
-    });
-
-    const cancelled = listen('wallet-cancelled', () => {
-      pending = null;
-      connecting = false;
-      walletError = 'The wallet did not grant anything.';
-    });
-
-    return () => {
-      void connected.then((off) => off());
-      void cancelled.then((off) => off());
-    };
-  });
 
   $effect(() => {
     void invoke<number>('hook_port').then((value) => (port = value));
@@ -102,6 +58,7 @@
 </script>
 
 <div class="panel">
+
   <header data-tauri-drag-region>
     <span>Pets</span>
     <button data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
@@ -146,7 +103,7 @@
       <p class="fine">
         {session.methodNames.length} methods on {session.contractId}. Cannot move NEAR or pets.
       </p>
-      <button onclick={async () => { await clearSession(); session = null; }}>Forget this key</button>
+      <button onclick={clearSession}>Forget this key</button>
     {:else}
       <div class="row">
         <span class="muted">Wallet</span>
@@ -156,7 +113,7 @@
         Opens your browser once. {SESSION_METHODS.length} methods, {SESSION_DAYS} days — feeding,
         items and claiming then sign here. Staking still asks your wallet.
       </p>
-      <button disabled={connecting} onclick={connect}>
+      <button disabled={connecting} onclick={startConnect}>
         {connecting ? 'Waiting for the wallet…' : 'Connect wallet'}
       </button>
     {/if}

@@ -2,7 +2,7 @@
   import { formatCredits, ITEMS, itemName, type PetStatus, type StakeAccount } from '@joygotchi/pet';
   import { ACTION_PRICE } from '@joygotchi/pet';
   import { getInventory, getPetStatus, getStakeAccount, stakeContractFor } from './chain';
-  import { getSession, signAndSend, type Session } from './wallet';
+  import { session as walletSession, signAndSend } from './wallet.svelte';
   import type { InstalledPet } from './types';
 
   /**
@@ -22,10 +22,10 @@
   let inventory = $state<Array<[number, number]>>([]);
   let error = $state<string | null>(null);
   let loading = $state(true);
-  let session = $state<Session | null>(null);
   let busy = $state<string | null>(null);
   let note = $state<string | null>(null);
 
+  const session = $derived(walletSession.current);
   const mine = $derived(session?.accountId === pet.chain.owner);
   const credits = $derived(Number(account ? formatCredits(account.credit_balance, 6) : 0));
   const canFeed = $derived(mine && credits >= ACTION_PRICE.ai_feed);
@@ -46,7 +46,6 @@
       account = acc;
       status = st;
       inventory = inv;
-      session = await getSession();
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {

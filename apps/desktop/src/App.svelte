@@ -5,6 +5,7 @@
   import PetPanel from './PetPanel.svelte';
   import Settings from './Settings.svelte';
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
+  import { watchConnect } from './wallet.svelte';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -83,6 +84,9 @@
   }
 
   $effect(() => {
+    // Registered for the app's lifetime: a wallet grant is a round trip
+    // through the browser and must not depend on a panel staying open.
+    void watchConnect();
     void load();
 
     const ticker = setInterval(() => (now = Date.now()), 250);
