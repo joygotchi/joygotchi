@@ -101,9 +101,9 @@
 </script>
 
 <div class="panel">
-  <header>
+  <header data-tauri-drag-region>
     <span>{pet.displayName} <small>#{pet.petId}</small></span>
-    <button onclick={onclose} title="Close">✕</button>
+    <button data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
   </header>
 
   {#if loading}
@@ -201,6 +201,7 @@
   }
 
   header {
+    cursor: grab;
     position: sticky;
     top: 0;
     display: flex;
@@ -216,6 +217,7 @@
   }
 
   header button {
+    cursor: pointer;
     background: none;
     border: 1px solid #242a33;
     color: inherit;

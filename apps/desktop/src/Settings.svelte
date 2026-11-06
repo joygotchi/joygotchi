@@ -102,9 +102,9 @@
 </script>
 
 <div class="panel">
-  <header>
+  <header data-tauri-drag-region>
     <span>Pets</span>
-    <button onclick={onclose} title="Close">✕</button>
+    <button data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
   </header>
 
   {#if pets.length === 0}
@@ -183,6 +183,7 @@
   }
 
   header {
+    cursor: grab;
     display: flex;
     justify-content: space-between;
     align-items: center;
@@ -196,6 +197,7 @@
   /* Its own rule. It used to share one with `.wallet`, which gave the close
      button a top border and section padding — the grey box in the corner. */
   header button {
+    cursor: pointer;
     background: none;
     border: 0;
     color: #8b95a3;
