@@ -174,6 +174,49 @@ export async function connectedAccount(): Promise<string | null> {
   return waitForAccount();
 }
 
+/**
+ * Add the same key to a second contract.
+ *
+ * A function-call key is bound to one contract, so playing from the desktop
+ * takes two — the lab and the game. The wallet signs the first during sign-in
+ * and this one as an ordinary `AddKey`, which keeps both grants inside one
+ * visit rather than sending somebody round twice.
+ */
+export async function addKeyForContract(request: FunctionCallKeyRequest): Promise<void> {
+  const active = await getActiveWallet();
+  if (!active || !wallet.accountId) throw new Error('No wallet connected');
+
+  await (
+    active as unknown as {
+      signAndSendTransaction: (tx: {
+        signerId: string;
+        receiverId: string;
+        actions: unknown[];
+      }) => Promise<unknown>;
+    }
+  ).signAndSendTransaction({
+    signerId: wallet.accountId,
+    // An AddKey acts on your own account, not on the contract it permits.
+    receiverId: wallet.accountId,
+    actions: [
+      {
+        type: 'AddKey',
+        params: {
+          publicKey: request.publicKey,
+          accessKey: {
+            permission: {
+              receiverId: request.contractId,
+              methodNames: request.allowMethods.methodNames,
+              allowance:
+                request.gasAllowance?.kind === 'limited' ? request.gasAllowance.amount : undefined
+            }
+          }
+        }
+      }
+    ]
+  });
+}
+
 export async function grantFunctionCallKey(
   request: FunctionCallKeyRequest
 ): Promise<string> {

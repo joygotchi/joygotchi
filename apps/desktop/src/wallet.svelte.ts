@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
+import { GAME_METHODS, STAKE_METHODS, contractForMethod } from '@joygotchi/pet';
 import { Account, JsonRpcProvider, KeyPair, KeyPairSigner } from 'near-api-js';
 import { stakeContractFor } from './chain';
 
@@ -18,21 +19,13 @@ import { stakeContractFor } from './chain';
  * in or out of the lab.
  */
 
-/** Everything the desktop needs, and nothing that spends what it should not. */
-export const SESSION_METHODS = [
-  'claim_credits',
-  'spend_credits',
-  'buy_credit_item',
-  'use_item',
-  'claim_mining',
-  'claim_faucet'
-] as const;
-
 /**
- * Deliberately absent: `list_item` and `buy_listing`. A key that can sell
- * your items at a price it chooses is a key that can empty your inventory,
- * and nothing on the desktop needs to trade.
+ * The two keys a session needs, because a function-call key is bound to one
+ * contract: the lab for credits and items, the game for fighting and evolving.
+ * The lists live in `@joygotchi/pet` so the gallery grants exactly what the
+ * app will try to call.
  */
+export const SESSION_METHODS = [...STAKE_METHODS, ...GAME_METHODS] as const;
 
 export const SESSION_DAYS = 30;
 
@@ -57,7 +50,10 @@ const RPC_URL = {
 export type Session = {
   accountId: string;
   publicKey: string;
+  /** The lab. Kept under its old name so an existing session still loads. */
   contractId: string;
+  /** The game contract, granted alongside it. Absent on older sessions. */
+  gameContractId?: string;
   methodNames: string[];
   /** Unix seconds; 0 means never. */
   expiresAt: number;
@@ -81,23 +77,28 @@ export async function beginConnect(gameContract: string) {
   const url = new URL('/connect', SITE());
   url.searchParams.set('public_key', keyPair.getPublicKey().toString());
   url.searchParams.set('contract_id', contractId);
-  url.searchParams.set('methods', SESSION_METHODS.join(','));
+  url.searchParams.set('methods', STAKE_METHODS.join(','));
+  // The same public key, granted twice: once per contract, because that is
+  // the only shape NEAR allows.
+  url.searchParams.set('game_contract_id', gameContract);
+  url.searchParams.set('game_methods', GAME_METHODS.join(','));
   url.searchParams.set('callback', callback);
 
   await invoke('open_url', { url: url.toString() });
 
-  return { keyPair, contractId };
+  return { keyPair, contractId, gameContract };
 }
 
 /** Called once the wallet redirects back with the account it granted for. */
 export async function completeConnect(
-  pending: { keyPair: KeyPair; contractId: string },
+  pending: { keyPair: KeyPair; contractId: string; gameContract: string },
   accountId: string
 ): Promise<Session> {
   const session: Session = {
     accountId,
     publicKey: pending.keyPair.getPublicKey().toString(),
     contractId: pending.contractId,
+    gameContractId: pending.gameContract,
     methodNames: [...SESSION_METHODS],
     expiresAt: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400
   };
@@ -123,7 +124,7 @@ export const session = $state<{ current: Session | null; connecting: boolean; er
   { current: null, connecting: false, error: null }
 );
 
-let pending: { keyPair: KeyPair; contractId: string } | null = null;
+let pending: { keyPair: KeyPair; contractId: string; gameContract: string } | null = null;
 let listening = false;
 
 export const getSession = () => invoke<Session | null>('get_session');
@@ -262,6 +263,14 @@ export async function signAndSend(
   const secret = await invoke<string | null>('session_secret_key');
   if (!secret) throw new NoSessionError();
 
+  const receiver = contractForMethod(method, {
+    stake: session.contractId,
+    game: session.gameContractId ?? ''
+  });
+  if (!receiver) {
+    throw new MethodNotInSessionError(method);
+  }
+
   const keyPair = KeyPair.fromString(secret as Parameters<typeof KeyPair.fromString>[0]);
   const provider = new JsonRpcProvider({ url: RPC_URL[network(net)] });
   const account = new Account(session.accountId, provider, new KeyPairSigner(keyPair));
@@ -274,7 +283,7 @@ export async function signAndSend(
   // No deposit, ever: a function-call key cannot attach one, so passing a
   // non-zero value would produce a transaction the protocol refuses.
   const outcome = await account.callFunction({
-    contractId: session.contractId,
+    contractId: receiver,
     methodName: method,
     args,
     gas,

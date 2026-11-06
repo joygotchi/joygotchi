@@ -113,3 +113,39 @@ export function toMicroCredits(credits: number): string {
   const padded = (fraction + '0'.repeat(CREDIT_DECIMALS)).slice(0, CREDIT_DECIMALS);
   return String(BigInt(whole) * 10n ** BigInt(CREDIT_DECIMALS) + BigInt(padded));
 }
+
+/**
+ * What a desktop session key may call, split by the contract it lives on.
+ *
+ * A NEAR function-call key is bound to exactly one contract, so playing from
+ * the desktop needs two of them: the lab, where credits are spent, and the
+ * game, where pets fight and evolve. Both are granted in one trip through the
+ * wallet; this is the list both ends agree on.
+ */
+export const STAKE_METHODS = [
+  'claim_credits',
+  'spend_credits',
+  'buy_credit_item',
+  'use_item',
+  'claim_mining',
+  'claim_faucet'
+] as const;
+
+/**
+ * Deliberately short. `list_pet` and `buy_pet` are payable and could not be
+ * called anyway; `nft_transfer` is payable for the same reason, which is the
+ * protocol keeping a session key from giving your pet away.
+ */
+export const GAME_METHODS = ['attack', 'evolve'] as const;
+
+export type SessionMethod = (typeof STAKE_METHODS)[number] | (typeof GAME_METHODS)[number];
+
+/** Which of the two contracts a method belongs to. */
+export const contractForMethod = (
+  method: string,
+  contracts: { stake: string; game: string }
+): string | null => {
+  if ((STAKE_METHODS as readonly string[]).includes(method)) return contracts.stake;
+  if ((GAME_METHODS as readonly string[]).includes(method)) return contracts.game;
+  return null;
+};

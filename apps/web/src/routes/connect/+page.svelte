@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { connectedAccount, grantFunctionCallKey } from '#lib/near/wallet.svelte';
+  import { addKeyForContract, connectedAccount, grantFunctionCallKey } from '#lib/near/wallet.svelte';
 
   /**
    * The desktop app's way in to a wallet.
@@ -46,6 +46,8 @@
   const publicKey = $derived(params.get('public_key') ?? '');
   const contractId = $derived(params.get('contract_id') ?? '');
   const methods = $derived((params.get('methods') ?? '').split(',').filter(Boolean));
+  const gameContractId = $derived(params.get('game_contract_id') ?? '');
+  const gameMethods = $derived((params.get('game_methods') ?? '').split(',').filter(Boolean));
   const callback = $derived(params.get('callback') ?? '');
 
   /**
@@ -117,8 +119,20 @@
         gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
       });
 
+      // The second key, for the game contract. Asked for separately because
+      // NEAR binds a key to one contract, and after the first so a refusal
+      // here leaves a usable session rather than none.
+      if (gameContractId && gameMethods.length > 0) {
+        await addKeyForContract({
+          contractId: gameContractId,
+          publicKey,
+          allowMethods: { anyMethod: false, methodNames: gameMethods },
+          gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
+        });
+      }
+
       phase = 'done';
-      handBack({ account_id: accountId, public_key: publicKey });
+      await handBack({ account_id: accountId, public_key: publicKey });
     } catch (cause) {
       phase = 'error';
       message = cause instanceof Error ? cause.message : String(cause);
@@ -186,6 +200,15 @@
           <dt class="shrink-0 text-muted">And only these</dt>
           <dd class="text-right break-all">{methods.join(', ')}</dd>
         </div>
+        {#if gameContractId && gameMethods.length > 0}
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="shrink-0 text-muted">And on the game</dt>
+            <dd class="text-right break-all">
+              {gameContractId}: {gameMethods.join(', ')}
+              <span class="block text-muted">a second signature, for the same key</span>
+            </dd>
+          </div>
+        {/if}
         <div class="flex justify-between gap-3 px-4 py-2">
           <dt class="text-muted">It cannot</dt>
           <dd class="text-right text-accent">move NEAR, or touch any other contract</dd>
