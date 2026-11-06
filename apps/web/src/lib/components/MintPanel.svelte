@@ -1,6 +1,7 @@
 <script lang="ts">
   import { goto } from '$app/navigation';
   import CopyField from '#lib/components/CopyField.svelte';
+  import { installCommand } from '#lib/cli';
   import { NETWORK, explorerToken } from '#lib/config';
   import { wallet } from '#lib/near/wallet.svelte';
   import { KINDS, getPet, mintPriceNear, mintPet } from '#lib/pets';
@@ -65,10 +66,10 @@
       </p>
 
       <CopyField label="Install code" value={minted.installCode} />
-      <CopyField label="Install it" prefix="$ " value={`npx joygotchi install ${minted.installCode}`} />
-      <p class="text-[0.65rem] text-warn">
-        The CLI is not on npm yet, so that command 404s today.
-        <a class="underline" href="/download">Build it from source</a> in the meantime.
+      <CopyField label="Install it" prefix="$ " value={installCommand(minted.installCode)} />
+      <p class="text-[0.65rem] text-muted">
+        First time on this machine? Its page has the two one-time commands that point npm at
+        GitHub Packages.
       </p>
 
       <div class="flex flex-wrap gap-2 text-xs">

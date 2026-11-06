@@ -47,12 +47,19 @@ pnpm install
 pnpm dev          # the gallery on http://localhost:5173
 ```
 
-Either way, then:
+Either way, then install the pet and run the desktop app:
 
 ```sh
-node packages/cli/dist/index.js install jg1_06vwqsthtnk0
+npm config set @joygotchi:registry https://npm.pkg.github.com
+npm config set //npm.pkg.github.com/:_authToken <a github token with read:packages>
+npx @joygotchi/joygotchi install jg1_06vwqsthtnk0
 pnpm desktop
 ```
+
+The first two lines are once per machine. They are needed because the CLI is published to
+**GitHub Packages**, not npmjs: npm resolves a scoped name against registry.npmjs.org unless the
+scope is pointed elsewhere, and that stays true whatever the package's visibility is. The token is
+the part that goes away when the repository — and with it the package — becomes public.
 
 The pet lands in `~/.joygotchi/pets/<slug>/` and the desktop app picks it up.
 
@@ -106,7 +113,9 @@ joygotchi/
 **Web**: SvelteKit 3, Svelte 5 runes, Tailwind 4, `@hot-labs/near-connect` for wallets.<br />
 **Desktop**: Tauri 2 — Rust for the window, the hook server and the pet index; Svelte for what is
 drawn.<br />
-**CLI**: Node 20+, TypeScript, one dependency (the shared package).<br />
+**CLI**: Node 20+, TypeScript, bundled by esbuild into one file with no runtime dependencies,
+published as [`@joygotchi/joygotchi`](https://github.com/joygotchi/joygotchi/pkgs/npm/joygotchi) on
+GitHub Packages.<br />
 **Contracts**: near-sdk 5, built through `cargo near build`.
 
 ## The contracts
