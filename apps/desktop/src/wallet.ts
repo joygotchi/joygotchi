@@ -35,10 +35,18 @@ export const SESSION_METHODS = [
 
 export const SESSION_DAYS = 30;
 
-const WALLET_URL = {
-  testnet: 'https://testnet.mynearwallet.com',
-  mainnet: 'https://app.mynearwallet.com'
-} as const;
+/**
+ * The gallery brokers the wallet, rather than one wallet being wired in here.
+ *
+ * This used to link straight at MyNearWallet, which announced its shutdown for
+ * 31 October 2026 — a desktop app wired to one wallet's redirect scheme dies
+ * with that wallet. `/connect` on the site puts a selector in front instead,
+ * so HOT, Meteor or whatever comes next all work without this file changing.
+ *
+ * Override it for a local gallery with
+ * `localStorage.setItem('joygotchi:api', 'http://localhost:5173')`.
+ */
+const SITE = () => localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
 
 const RPC_URL = {
   testnet: 'https://test.rpc.fastnear.com',
@@ -64,17 +72,16 @@ const network = (value: string) => (value === 'mainnet' ? 'mainnet' : 'testnet')
  * one of theirs. The secret is kept until the wallet reports back; storing it
  * before then would leave a key on disk for an account that never granted it.
  */
-export async function beginConnect(gameContract: string, net: string) {
+export async function beginConnect(gameContract: string) {
   const keyPair = KeyPair.fromRandom('ed25519');
   const contractId = stakeContractFor(gameContract);
   const callback = await invoke<string>('wallet_callback_url');
 
-  const url = new URL('/login/', WALLET_URL[network(net)]);
-  url.searchParams.set('contract_id', contractId);
+  const url = new URL('/connect', SITE());
   url.searchParams.set('public_key', keyPair.getPublicKey().toString());
-  url.searchParams.set('success_url', callback);
-  url.searchParams.set('failure_url', callback);
-  for (const method of SESSION_METHODS) url.searchParams.append('methodNames', method);
+  url.searchParams.set('contract_id', contractId);
+  url.searchParams.set('methods', SESSION_METHODS.join(','));
+  url.searchParams.set('callback', callback);
 
   await invoke('open_url', { url: url.toString() });
 

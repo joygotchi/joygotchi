@@ -43,7 +43,6 @@
   let connecting = $state(false);
   let walletError = $state<string | null>(null);
 
-  const network = $derived(pets[0]?.chain.network ?? 'testnet');
   const gameContract = $derived(pets[0]?.chain.contract ?? '');
   const expired = $derived(session ? sessionExpired(session) : false);
 
@@ -62,7 +61,7 @@
     connecting = true;
     walletError = null;
     try {
-      pending = await beginConnect(gameContract, network);
+      pending = await beginConnect(gameContract);
     } catch (cause) {
       connecting = false;
       walletError = cause instanceof Error ? cause.message : String(cause);
