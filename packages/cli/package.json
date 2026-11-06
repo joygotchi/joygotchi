@@ -2,7 +2,7 @@
   "name": "joygotchi",
   "version": "0.1.0",
   "type": "module",
-  "description": "Install on-chain JOYGOTCHI pets on your machine.",
+  "description": "Install on-chain JOYGOTCHI pets on your machine. One command, no account, no server.",
   "license": "MIT",
   "bin": {
     "joygotchi": "./dist/index.js"
@@ -12,20 +12,36 @@
     "assets"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
-    "prepare": "tsc -p tsconfig.build.json",
+    "build": "node build.js",
+    "prepare": "node build.js",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {
-    "@joygotchi/pet": "workspace:*"
-  },
   "devDependencies": {
+    "@joygotchi/pet": "workspace:*",
     "@types/node": "^24.0.0",
+    "esbuild": "^0.25.0",
     "typescript": "^6.0.0",
     "vitest": "^5.1.0"
   },
   "engines": {
     "node": ">=20"
+  },
+  "keywords": [
+    "near",
+    "nft",
+    "pet",
+    "cli",
+    "desktop-pet",
+    "coding-agent"
+  ],
+  "homepage": "https://joygotchi.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/joygotchi/joygotchi.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/joygotchi/joygotchi/issues"
   }
 }

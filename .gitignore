@@ -10,3 +10,4 @@ target/
 contracts/res/
 *.wasm
 .DS_Store
+*.tgz
