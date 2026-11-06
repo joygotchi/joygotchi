@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { decodeInstallCode } from './install-code.js';
 import {
+  HOLD_MS,
+  MOTION_CSS,
   PET_STATES,
+  STATE_INFO,
   artPath,
+  motionDuration,
+  stateForEvent,
   isStarving,
   petSlug,
   toPetPackage,
@@ -94,5 +99,54 @@ describe('isStarving', () => {
   it('treats a missing deadline as "not starving", not as 1970', () => {
     expect(isStarving({ ...pet, starves_at: undefined })).toBe(false);
     expect(isStarving({ ...pet, starves_at: '0' })).toBe(false);
+  });
+});
+
+describe('the state vocabulary', () => {
+  it('keeps petdex order for the first nine, so their atlases drop in', () => {
+    // A petdex spritesheet is rows in this order. Reordering silently remaps
+    // every imported pet's animations.
+    expect(PET_STATES.slice(0, 9)).toEqual([
+      'idle',
+      'running-right',
+      'running-left',
+      'waving',
+      'jumping',
+      'failed',
+      'waiting',
+      'running',
+      'review'
+    ]);
+  });
+
+  it('describes every state, including the two that are ours', () => {
+    for (const state of PET_STATES) {
+      const info = STATE_INFO[state];
+      expect(info, state).toBeTruthy();
+      expect(info.label, state).toBeTruthy();
+      expect(info.trigger, state).toBeTruthy();
+      expect(MOTION_CSS, state).toContain(`@keyframes ${info.motion}`);
+    }
+  });
+
+  it('holds idle forever and everything else for a while', () => {
+    expect(HOLD_MS.idle).toBe(0);
+    for (const state of PET_STATES.filter((s) => s !== 'idle')) {
+      expect(HOLD_MS[state], state).toBeGreaterThan(0);
+    }
+  });
+
+  it('shows a failure longer than a success, since it is the one you missed', () => {
+    expect(HOLD_MS.failed).toBeGreaterThan(HOLD_MS.waving);
+  });
+
+  it('maps a game event to a game state', () => {
+    expect(stateForEvent({ kind: 'game', what: 'fed' })).toBe('feeding');
+    expect(stateForEvent({ kind: 'game', what: 'battled' })).toBe('battling');
+  });
+
+  it('gives a lunge a shorter cycle than an amble', () => {
+    expect(motionDuration('battling')).toBeLessThan(motionDuration('idle'));
+    expect(motionDuration('feeding')).toBeLessThan(motionDuration('idle'));
   });
 });

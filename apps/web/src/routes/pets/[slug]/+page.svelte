@@ -4,6 +4,7 @@
   import { SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL, installCommand } from '#lib/cli';
   import PetActions from '#lib/components/PetActions.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
+  import StateViewer from '#lib/components/StateViewer.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
   import { truncateAccount } from '#lib/near/amount';
   import { wallet } from '#lib/near/wallet.svelte';
@@ -162,6 +163,8 @@
       {#if mine}
         <PetActions {pet} onchanged={() => reload()} />
       {/if}
+
+      <StateViewer {pet} />
 
       <PetChat {pet} {mine} />
     </div>

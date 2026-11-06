@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter};
 /// machine. Do not change the bind address without adding one.
 pub const HOOK_PORT: u16 = 7777;
 
-/// What an agent tells us. Matches `AgentEvent` in `@joygotchi/pet`.
+/// What the pet is told about. Matches `AgentEvent` in `@joygotchi/pet`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(tag = "kind", rename_all = "kebab-case")]
 pub enum AgentEvent {
@@ -24,6 +24,17 @@ pub enum AgentEvent {
     ToolEnd { tool: String, ok: bool },
     Prompt,
     Idle,
+    /// From the game rather than from a coding agent: feeding a pet on the web
+    /// should make the pet on the desktop react, and it comes in the same way
+    /// so there is one door.
+    Game { what: GameEvent },
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum GameEvent {
+    Fed,
+    Battled,
 }
 
 #[derive(Serialize)]
@@ -99,6 +110,19 @@ mod tests {
 
         let prompt: AgentEvent = serde_json::from_str(r#"{"kind":"prompt"}"#).unwrap();
         assert!(matches!(prompt, AgentEvent::Prompt));
+    }
+
+    #[test]
+    fn parses_the_game_events_the_web_app_sends() {
+        let fed: AgentEvent = serde_json::from_str(r#"{"kind":"game","what":"fed"}"#).unwrap();
+        assert!(matches!(fed, AgentEvent::Game { what: GameEvent::Fed }));
+
+        let battled: AgentEvent =
+            serde_json::from_str(r#"{"kind":"game","what":"battled"}"#).unwrap();
+        assert!(matches!(battled, AgentEvent::Game { what: GameEvent::Battled }));
+
+        // A `game` with no `what` is a caller bug, not a pet that does nothing.
+        assert!(serde_json::from_str::<AgentEvent>(r#"{"kind":"game"}"#).is_err());
     }
 
     #[test]

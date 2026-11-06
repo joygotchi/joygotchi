@@ -3,6 +3,7 @@
   import { listen } from '@tauri-apps/api/event';
   import type { AgentEvent } from '@joygotchi/pet';
   import Settings from './Settings.svelte';
+  import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -91,6 +92,10 @@
   });
 </script>
 
+<svelte:head>
+  {@html `<style>${MOTION_CSS}</style>`}
+</svelte:head>
+
 <svelte:window
   onkeydown={(event) => {
     // The same shortcut petdex uses, because muscle memory is a feature.
@@ -127,6 +132,7 @@
       onmouseleave={() => setClickThrough(true)}
       ondblclick={() => (showSettings = true)}
       style:animation-name={motion}
+      style:animation-duration="{motionDuration(pose)}s"
     >
       {#if artSrc}
         <img alt={active.displayName} draggable="false" src={artSrc} />
@@ -181,7 +187,6 @@
     height: 170px;
     display: grid;
     place-items: center;
-    animation-duration: 1.8s;
     animation-iteration-count: infinite;
     animation-timing-function: ease-in-out;
   }
@@ -260,44 +265,4 @@
     cursor: pointer;
   }
 
-  /*
-   * One keyframe set per state. The art is a single idle loop, so "running"
-   * is this layer's job; a real nine-row atlas would replace these with frame
-   * rows and nothing else would change.
-   */
-  @keyframes breathe {
-    0%, 100% { transform: translateY(0) scale(1); }
-    50% { transform: translateY(-2px) scale(1.02); }
-  }
-  @keyframes bob {
-    0%, 100% { transform: translateY(0); }
-    50% { transform: translateY(-8px); }
-  }
-  @keyframes hop {
-    0%, 100% { transform: translateY(0); }
-    30% { transform: translateY(-26px); }
-    60% { transform: translateY(0) scaleY(0.92); }
-  }
-  @keyframes wave {
-    0%, 100% { transform: rotate(0deg); }
-    25% { transform: rotate(-7deg); }
-    75% { transform: rotate(7deg); }
-  }
-  @keyframes shake {
-    0%, 100% { transform: translateX(0); }
-    20% { transform: translateX(-6px) rotate(-3deg); }
-    60% { transform: translateX(6px) rotate(3deg); }
-  }
-  @keyframes lean {
-    0%, 100% { transform: translateX(0) rotate(0deg); }
-    50% { transform: translateX(6px) rotate(4deg); }
-  }
-  @keyframes scurry-right {
-    0%, 100% { transform: translateX(-18px); }
-    50% { transform: translateX(18px); }
-  }
-  @keyframes scurry-left {
-    0%, 100% { transform: translateX(18px) scaleX(-1); }
-    50% { transform: translateX(-18px) scaleX(-1); }
-  }
 </style>

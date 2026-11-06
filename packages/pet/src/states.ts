@@ -15,17 +15,30 @@ export const PET_STATES = [
   'failed',
   'waiting',
   'running',
-  'review'
+  'review',
+  // Beyond petdex's nine: these come from the game rather than from a coding
+  // agent, so a petdex atlas simply has no row for them and the renderer falls
+  // back to idle. Keeping the first nine in petdex's order is what lets one of
+  // their spritesheets drop in unchanged.
+  'feeding',
+  'battling'
 ] as const;
 
 export type PetState = (typeof PET_STATES)[number];
 
-/** What a coding agent is doing, as the desktop app's hook server reports it. */
+/**
+ * What the pet is told about, as the desktop app's hook server reports it.
+ *
+ * The first four come from a coding agent's hooks. `game` comes from the game
+ * itself — feeding a pet on the web should make the pet on your desktop react,
+ * and it travels through the same endpoint so there is one way in.
+ */
 export type AgentEvent =
   | { kind: 'tool-start'; tool: string }
   | { kind: 'tool-end'; tool: string; ok: boolean }
   | { kind: 'prompt' }
-  | { kind: 'idle' };
+  | { kind: 'idle' }
+  | { kind: 'game'; what: 'fed' | 'battled' };
 
 /**
  * Map an agent's activity onto a pet state.
@@ -43,5 +56,7 @@ export function stateForEvent(event: AgentEvent): PetState {
       return event.ok ? 'waving' : 'failed';
     case 'idle':
       return 'idle';
+    case 'game':
+      return event.what === 'fed' ? 'feeding' : 'battling';
   }
 }
