@@ -132,7 +132,9 @@
         JOYGOTCHI Desktop is asking your wallet for a key. You are not sending anything, and the
         key stays on the machine that asked.
 
-        {#if checked && signedInAs}
+        {#if !checked}
+          <p class="mt-2 text-muted">Looking for a wallet in this browser…</p>
+        {:else if signedInAs}
           <p class="mt-2 text-accent">
             Signed in here as {signedInAs} — it will sign without asking you to pick again.
           </p>

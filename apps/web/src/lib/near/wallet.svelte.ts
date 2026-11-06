@@ -83,25 +83,37 @@ async function getConnector(): Promise<Connector> {
   return created;
 }
 
-/** Restore a previous session. Safe to call on every mount. */
+/**
+ * Restore a previous session. Safe to call on every mount.
+ *
+ * Deliberately does **not** call `connector.wallet()`. That method is
+ * destructive on failure: when `getAccounts()` throws — which it does if the
+ * wallet has not finished injecting itself into the page yet — near-connect
+ * deletes the stored `selected-wallet` and gives up. Calling it on mount is
+ * therefore a race against the wallet loading, and losing the race wipes the
+ * session rather than reporting it missing.
+ *
+ * Creating the connector is enough: `autoConnect` reconnects on its own once
+ * the wallet announces itself, and the `wallet:signIn` handler above fills in
+ * the account. All this does is start that and wait a moment for it.
+ */
 export async function restoreWallet(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    const active = await (await getConnector()).wallet();
-    if (active && !wallet.accountId) {
-      // near-connect replays `wallet:signIn` for a restored session, so the
-      // handler above usually fills this in; this is the fallback for when it
-      // resolves the wallet without re-emitting.
-      const accounts = await (
-        active as unknown as { getAccounts?: () => Promise<Array<{ accountId: string }>> }
-      ).getAccounts?.();
-      wallet.accountId = accounts?.[0]?.accountId ?? wallet.accountId;
-    }
-  } catch {
-    // No stored session. Not an error worth showing anybody.
+    await getConnector();
+    await waitForAccount();
   } finally {
     wallet.ready = true;
   }
+}
+
+/** Give a wallet that is still injecting itself a moment to arrive. */
+async function waitForAccount(timeoutMs = 2_000): Promise<string | null> {
+  const deadline = Date.now() + timeoutMs;
+  while (!wallet.accountId && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  return wallet.accountId;
 }
 
 export async function connectWallet(): Promise<void> {
@@ -157,22 +169,9 @@ export type FunctionCallKeyRequest = {
  * A page that needs to *say* whether it found a session has to ask directly.
  */
 export async function connectedAccount(): Promise<string | null> {
-  try {
-    const connector = await getConnector();
-    const active = await connector.wallet();
-    if (!active) return null;
-
-    const accounts = await (
-      active as unknown as {
-        getAccounts: (p: { network: string }) => Promise<Array<{ accountId: string }>>;
-      }
-    ).getAccounts({ network: NETWORK });
-
-    return accounts[0]?.accountId ?? null;
-  } catch {
-    // near-connect throws rather than returning null when nothing is stored.
-    return null;
-  }
+  if (typeof window === 'undefined') return null;
+  await getConnector();
+  return waitForAccount();
 }
 
 export async function grantFunctionCallKey(
@@ -180,7 +179,10 @@ export async function grantFunctionCallKey(
 ): Promise<string> {
   const connector = await getConnector();
 
-  const existing = await connector.wallet().catch(() => null);
+  // Only ask for the wallet once something has actually signed in; asking
+  // earlier can delete the stored session, as `restoreWallet` explains.
+  await waitForAccount();
+  const existing = wallet.accountId ? await connector.wallet().catch(() => null) : null;
   const active =
     existing ?? ((await connector.connect({ addFunctionCallKey: request })) as ActiveWallet | null);
 
