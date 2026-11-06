@@ -1,0 +1,26 @@
+# What the web build does not need.
+#
+# The deploy uploads the whole workspace, because `apps/web` depends on
+# `packages/pet` and pnpm resolves that from the root. Without this file the
+# upload also walks the Tauri build directory — three gigabytes of Rust
+# artifacts — and the deploy stalls before it starts.
+#
+# Every package.json stays, so `pnpm install --frozen-lockfile` still sees the
+# same workspace the lockfile was written against.
+
+node_modules
+.git
+
+# Build output, rebuilt on Vercel.
+**/target
+**/dist
+**/.svelte-kit
+**/.vercel
+
+# Not part of the web app.
+apps/desktop/src
+apps/desktop/src-tauri
+apps/desktop/index.html
+contracts
+docs
+.github

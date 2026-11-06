@@ -7,8 +7,14 @@
   import type { InstalledPet } from './types';
 
   const STORAGE_KEY = 'joygotchi:active-pet';
-  /** Where to ask for a line about what just happened. */
-  const API = localStorage.getItem('joygotchi:api') ?? 'http://localhost:5273';
+  /**
+   * Where to ask for a line about what just happened.
+   *
+   * The deployed gallery by default, because that is the one with the NEAR AI
+   * key on it. Point it at a dev server with
+   * `localStorage.setItem('joygotchi:api', 'http://localhost:5173')`.
+   */
+  const API = localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
 
   let pets = $state<InstalledPet[]>([]);
   let activeSlug = $state<string | null>(localStorage.getItem(STORAGE_KEY));

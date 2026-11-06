@@ -10,6 +10,12 @@
   Mint one on NEAR, copy its install code, and it reacts to your coding agent.
 </p>
 
+<p>
+  <a href="https://joygotchi.vercel.app"><strong>joygotchi.vercel.app</strong></a>
+  &nbsp;·&nbsp;
+  <a href="https://joygotchi.vercel.app/api/manifest">Manifest API</a>
+</p>
+
 </div>
 
 ---
@@ -29,6 +35,11 @@ to make.
 
 ## Quick start
 
+Open [joygotchi.vercel.app](https://joygotchi.vercel.app), connect a wallet, and mint a pet for 2
+testnet NEAR. The page hands you a code like `jg1_06vwqsthtnk0`.
+
+Or run it yourself:
+
 ```sh
 git clone https://github.com/joygotchi/joygotchi
 cd joygotchi
@@ -36,8 +47,7 @@ pnpm install
 pnpm dev          # the gallery on http://localhost:5173
 ```
 
-Connect a wallet, mint a pet for 2 testnet NEAR, and the page hands you a code like
-`jg1_06vwqsthtnk0`. Then:
+Either way, then:
 
 ```sh
 node packages/cli/dist/index.js install jg1_06vwqsthtnk0
@@ -130,8 +140,30 @@ something it is not:
 - `POST /api/ai/chat` — talk to a pet on its page.
 - `POST /api/ai/react` — one line about what your agent just did, plus the state to animate.
 
-Both need `NEAR_AI_API_KEY`. Without it they report themselves as unconfigured and everything else
-— gallery, minting, installing, the desktop pet — keeps working.
+Both need `NEAR_AI_API_KEY`. Without it `/api/ai/chat` answers 503 with a sentence saying so, and
+`/api/ai/react` still returns the state to animate and leaves the line `null` — so the desktop pet
+moves either way. Everything else — gallery, minting, installing — never touches the key.
+
+```sh
+vercel env add NEAR_AI_API_KEY production
+```
+
+## Deploying
+
+The web app deploys from the repo root, because `apps/web` depends on `packages/pet` and pnpm
+resolves that from the workspace root. `vercel.json` builds the one package and its dependencies,
+then hands Vercel the SvelteKit adapter's output.
+
+```sh
+vercel deploy --prod
+```
+
+`.vercelignore` is doing real work there: without it the upload also walks the Tauri build
+directory, three gigabytes of Rust artifacts, and the deploy stalls before it starts.
+
+The repo is private and owned by an organisation, which Vercel's Hobby plan will not connect to
+Git — so deploys are from the CLI rather than on push. Making the repo public, or upgrading the
+plan, is what turns `vercel git connect` back on.
 
 ## Development
 
