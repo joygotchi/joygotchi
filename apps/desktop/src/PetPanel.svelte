@@ -12,9 +12,13 @@
     getPetOwner,
     getPetStatus,
     getStakeAccount,
-    stakeContractFor
+    isAttackable,
+    listPets,
+    stakeContractFor,
+    type ChainPetSummary
   } from './chain';
   import {
+    findEvent,
     requestWalletAction,
     session as walletSession,
     signAndSend,
@@ -37,6 +41,8 @@
   let account = $state<StakeAccount | null>(null);
   let status = $state<PetStatus | null>(null);
   let inventory = $state<Array<[number, number]>>([]);
+  let targets = $state<ChainPetSummary[]>([]);
+  let showTargets = $state(false);
   let error = $state<string | null>(null);
   let loading = $state(true);
   let busy = $state<string | null>(null);
@@ -71,6 +77,7 @@
       account = acc;
       status = st;
       inventory = inv;
+      void loadTargets(current);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -100,6 +107,56 @@
   }
 
   const net = () => pet.chain.network;
+
+  /**
+   * Who this pet could pick a fight with.
+   *
+   * Filtered here so the list only holds fights the chain will accept:
+   * somebody else's pet, not at work in the lab, not starved, and not warded
+   * or still wounded. The game contract checks all of this again — these
+   * filters exist so nobody clicks a button that was never going to work.
+   */
+  async function loadTargets(owner: string) {
+    const all = await listPets(net(), pet.chain.contract).catch(() => []);
+    const candidates = all.filter(
+      (other) =>
+        other.pet_id !== pet.petId &&
+        other.owner_id !== owner &&
+        !other.locked &&
+        Number(other.seconds_until_starving ?? 1) > 0
+    );
+
+    const allowed = await Promise.all(
+      candidates.map((other) => isAttackable(net(), stake, other.pet_id))
+    );
+    targets = candidates.filter((_, index) => allowed[index]);
+  }
+
+  /** Attack, and read who won out of the contract's own event. */
+  async function attack(target: ChainPetSummary) {
+    await act(
+      `attack-${target.pet_id}`,
+      async () => {
+        const { logs } = await signAndSend(net(), 'attack', {
+          pet_id: pet.petId,
+          target_pet_id: target.pet_id
+        });
+
+        const settled = findEvent<{ winner_pet_id: number; transferred: string }>(
+          logs,
+          'battle_settled'
+        );
+        if (settled) {
+          const won = settled.winner_pet_id === pet.petId;
+          note = won
+            ? `Won against ${target.name}. +${formatCredits(settled.transferred)} credits.`
+            : `Lost to ${target.name}. −${formatCredits(settled.transferred)} credits.`;
+        }
+      },
+      'Battle settled.'
+    );
+    showTargets = false;
+  }
 
   // A wallet round trip reports back through `walletAction`; when it lands,
   // re-read the chain so the panel shows what actually happened.
@@ -216,6 +273,42 @@
 
       <div class="actions">
         <button
+          disabled={busy !== null || status?.staked}
+          onclick={() => (showTargets = !showTargets)}
+          title={status?.staked
+            ? 'A pet at work in the lab cannot fight'
+            : 'Pick somebody to attack'}
+        >
+          {showTargets ? 'Never mind' : `Battle (${targets.length})`}
+        </button>
+      </div>
+
+      {#if showTargets}
+        <ul class="targets">
+          {#if targets.length === 0}
+            <li class="muted">Nobody to fight: every other pet is at work, warded or hurt.</li>
+          {:else}
+            {#each targets as target (target.pet_id)}
+              <li>
+                <span class="target-name">
+                  {target.name}
+                  <span class="muted">lv {target.level}{target.star ? ` ·${target.star}★` : ''}</span>
+                </span>
+                <button
+                  disabled={busy !== null}
+                  onclick={() => attack(target)}
+                  title="Wager credits against {target.owner_id}"
+                >
+                  {busy === `attack-${target.pet_id}` ? '…' : 'fight'}
+                </button>
+              </li>
+            {/each}
+          {/if}
+        </ul>
+      {/if}
+
+      <div class="actions">
+        <button
           disabled={walletAction.running !== null}
           onclick={() =>
             requestWalletAction(status?.staked ? 'unstake_pet' : 'stake_pet', stake, pet.petId)}
@@ -272,9 +365,8 @@
       {#if note}<p class="ok">{note}</p>{/if}
 
       <p class="note">
-        Staking opens your browser: the contract wants a yoctoNEAR, which a session key may never
-        attach. Battling is not here yet — it lives on the game contract, which this key does not
-        cover.
+        Staking opens your browser — the contract wants a yoctoNEAR, which a session key may never
+        attach. Battling signs here, on the second key granted for the game contract.
       </p>
     {/if}
   {/if}
@@ -407,6 +499,43 @@
   .item-buttons button:disabled {
     opacity: 0.35;
     cursor: default;
+  }
+
+  .targets {
+    margin: 4px 0 0;
+    padding: 4px 8px 0;
+    max-height: 110px;
+    overflow-y: auto;
+    list-style: none;
+    border-top: 1px solid #171b22;
+  }
+
+  .targets li {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 6px;
+    padding: 2px 0;
+  }
+
+  .target-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .targets button {
+    background: none;
+    border: 1px solid #242a33;
+    color: inherit;
+    font: inherit;
+    font-size: 10px;
+    padding: 1px 6px;
+    cursor: pointer;
+  }
+
+  .targets button:disabled {
+    opacity: 0.35;
   }
 
   .actions {

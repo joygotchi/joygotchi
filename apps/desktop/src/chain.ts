@@ -82,6 +82,59 @@ export async function getPetOwner(
   return pet?.owner_id ?? null;
 }
 
+/** A pet as the game contract describes it, for picking a fight. */
+export type ChainPetSummary = {
+  pet_id: number;
+  owner_id: string;
+  name: string;
+  rarity: string;
+  level: number;
+  star: number;
+  locked?: boolean;
+  seconds_until_starving?: string;
+  last_attacked?: string;
+};
+
+/**
+ * Every pet on the contract, for the target list.
+ *
+ * There is no paged view, so this walks the token ids. Fine while the whole
+ * population fits on one screen; when it does not, the contract gets a paged
+ * view rather than this getting clever about it.
+ */
+export async function listPets(
+  network: string,
+  gameContract: string,
+  limit = 24
+): Promise<ChainPetSummary[]> {
+  const supply = Number(
+    await viewFunction<string>(network, gameContract, 'nft_total_supply').catch(() => '0')
+  );
+  if (!Number.isFinite(supply) || supply === 0) return [];
+
+  const ids: number[] = [];
+  for (let id = supply; id >= 1 && ids.length < limit; id--) ids.push(id);
+
+  const pets = await Promise.all(
+    ids.map((pet_id) =>
+      viewFunction<ChainPetSummary | null>(network, gameContract, 'get_pet', { pet_id }).catch(
+        () => null
+      )
+    )
+  );
+  return pets.filter((pet): pet is ChainPetSummary => pet !== null);
+}
+
+/**
+ * Whether the lab will let this pet be attacked.
+ *
+ * The game contract has its own checks on top — cooldowns, starvation, who
+ * owns what — so a true here is necessary and not sufficient. It is enough to
+ * keep obviously impossible targets off the list.
+ */
+export const isAttackable = (network: string, stake: string, petId: number) =>
+  viewFunction<boolean>(network, stake, 'is_attackable', { pet_id: petId }).catch(() => false);
+
 export const getInventory = (network: string, stake: string, accountId: string) =>
   viewFunction<Array<[number, number]>>(network, stake, 'get_inventory', {
     account_id: accountId

@@ -254,7 +254,7 @@ export async function signAndSend(
   method: string,
   args: Record<string, unknown>,
   gas = 100_000_000_000_000n
-): Promise<string> {
+): Promise<{ hash: string; logs: string[] }> {
   const session = await getSession();
   if (!session) throw new NoSessionError();
   if (sessionExpired(session)) throw new Error('This session has expired — connect again');
@@ -300,18 +300,44 @@ export async function signAndSend(
  * so a check inside a cross-contract callback fails silently from here — the
  * same trap the web app hit, worth closing in both places.
  */
-function describeOutcome(outcome: unknown): string {
+function describeOutcome(outcome: unknown): { hash: string; logs: string[] } {
   const result = outcome as {
     transaction?: { hash?: string };
     status?: unknown;
-    receipts_outcome?: Array<{ outcome: { status?: unknown } }>;
+    receipts_outcome?: Array<{ outcome: { status?: unknown; logs?: string[] } }>;
   };
 
   for (const status of [result.status, ...(result.receipts_outcome ?? []).map((r) => r.outcome.status)]) {
     const message = panicMessage(status);
     if (message) throw new Error(message);
   }
-  return result.transaction?.hash ?? '';
+
+  // A battle only says who won in its events, so the logs come back with the
+  // hash rather than being thrown away.
+  return {
+    hash: result.transaction?.hash ?? '',
+    logs: (result.receipts_outcome ?? []).flatMap((r) => r.outcome.logs ?? [])
+  };
+}
+
+/** Pull one NEP-297 event out of a transaction's logs. */
+export function findEvent<T = Record<string, unknown>>(
+  logs: string[],
+  event: string
+): T | null {
+  for (const line of logs) {
+    if (!line.startsWith('EVENT_JSON:')) continue;
+    try {
+      const parsed = JSON.parse(line.slice('EVENT_JSON:'.length)) as {
+        event?: string;
+        data?: T[];
+      };
+      if (parsed.event === event && parsed.data?.[0]) return parsed.data[0];
+    } catch {
+      // A malformed line is the contract's problem, not the window's.
+    }
+  }
+  return null;
 }
 
 /** Pull the contract's own words out of a failure, not the envelope's. */
