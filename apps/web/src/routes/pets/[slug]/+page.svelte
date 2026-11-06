@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import CopyField from '#lib/components/CopyField.svelte';
   import { SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL, installCommand } from '#lib/cli';
+  import PetActions from '#lib/components/PetActions.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
   import { truncateAccount } from '#lib/near/amount';
@@ -15,22 +16,28 @@
 
   const slug = $derived(page.params.slug ?? '');
 
+  /**
+   * Read the pet again. Called on mount and after an action that changes it,
+   * so a stake or a level-up shows without a refresh — and guarded on the slug
+   * so a slow request for the previous pet cannot overwrite the current one.
+   */
+  async function reload(wanted = slug) {
+    try {
+      const found = await getPetBySlug(wanted);
+      if (slug !== wanted) return;
+      pet = found;
+      error = found ? null : 'No pet at this address.';
+    } catch (cause) {
+      if (slug === wanted) error = cause instanceof Error ? cause.message : String(cause);
+    } finally {
+      if (slug === wanted) loading = false;
+    }
+  }
+
   $effect(() => {
-    const wanted = slug;
     loading = true;
     error = null;
-    getPetBySlug(wanted)
-      .then((found) => {
-        if (slug !== wanted) return;
-        pet = found;
-        if (!found) error = 'No pet at this address.';
-      })
-      .catch((cause) => {
-        if (slug === wanted) error = cause instanceof Error ? cause.message : String(cause);
-      })
-      .finally(() => {
-        if (slug === wanted) loading = false;
-      });
+    void reload(slug);
   });
 
   const mine = $derived(Boolean(pet && wallet.accountId === pet.owner_id));
@@ -151,6 +158,10 @@
           </p>
         </div>
       </div>
+
+      {#if mine}
+        <PetActions {pet} onchanged={() => reload()} />
+      {/if}
 
       <PetChat {pet} {mine} />
     </div>

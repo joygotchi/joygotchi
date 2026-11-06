@@ -1,4 +1,5 @@
 <script lang="ts">
+  import CreditBar from '#lib/components/CreditBar.svelte';
   import PetCard from '#lib/components/PetCard.svelte';
   import { wallet } from '#lib/near/wallet.svelte';
   import { petsOf, type GalleryPet } from '#lib/pets';
@@ -31,7 +32,9 @@
   });
 </script>
 
-<h1 class="text-sm tracking-widest text-muted uppercase">My pets</h1>
+<CreditBar />
+
+<h1 class="mt-8 text-sm tracking-widest text-muted uppercase">My pets</h1>
 
 {#if !wallet.accountId}
   <p class="mt-4 border border-line bg-panel p-8 text-sm text-muted">
