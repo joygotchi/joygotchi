@@ -47,14 +47,14 @@
   }
 
   /**
-   * Clicks pass through the window except while the cursor is over the pet.
-   * Without this the invisible rectangle around the sprite swallows clicks
-   * meant for the editor underneath.
+   * Whether the cursor is over the pet, which is all this tracks now.
+   *
+   * It used to also toggle the window's click-through, which is what made the
+   * pet undraggable: a window ignoring cursor events never gets `mouseenter`,
+   * so the flag that was supposed to clear on hover could never clear. The
+   * switch lives in Settings instead, outside the window it silences.
    */
-  async function setClickThrough(ignore: boolean) {
-    overPet = !ignore;
-    await invoke('set_click_through', { ignore }).catch(() => {});
-  }
+  const setOverPet = (over: boolean) => (overPet = over);
 
   async function react(event: AgentEvent) {
     reaction = nextReaction(reaction, event);
@@ -112,8 +112,8 @@
   {#if !active}
     <div
       class="empty"
-      onmouseenter={() => setClickThrough(false)}
-      onmouseleave={() => setClickThrough(true)}
+      onmouseenter={() => setOverPet(true)}
+      onmouseleave={() => setOverPet(false)}
       role="status"
     >
       <p>No pet installed yet.</p>
@@ -129,9 +129,8 @@
       class="pet"
       data-state={pose}
       data-tauri-drag-region
-      onmouseenter={() => setClickThrough(false)}
-      onmouseleave={() => setClickThrough(true)}
-      onclick={() => (showPanel = true)}
+      onmouseenter={() => setOverPet(true)}
+      onmouseleave={() => setOverPet(false)}
       ondblclick={() => (showSettings = true)}
       onkeydown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {
@@ -146,7 +145,7 @@
       style:animation-duration="{motionDuration(pose)}s"
     >
       {#if artSrc}
-        <img alt={active.displayName} draggable="false" src={artSrc} />
+        <img alt={active.displayName} data-tauri-drag-region draggable="false" src={artSrc} />
       {/if}
     </div>
 

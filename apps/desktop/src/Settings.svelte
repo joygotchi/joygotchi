@@ -24,6 +24,20 @@
 
   let port = $state<number | null>(null);
   let root = $state('');
+  let clickThrough = $state(false);
+
+  /**
+   * Let clicks fall through to whatever is behind the pet.
+   *
+   * It has to be switched from here rather than by hovering the pet: a window
+   * that ignores cursor events cannot notice a cursor. Turning it on means the
+   * pet stops being draggable until it is turned off again, so the label says
+   * so.
+   */
+  async function toggleClickThrough(next: boolean) {
+    clickThrough = next;
+    await invoke('set_click_through', { ignore: next }).catch(() => {});
+  }
 
   let session = $state<Session | null>(null);
   let connecting = $state(false);
@@ -113,6 +127,20 @@
   {/if}
 
   <section class="wallet">
+    <label class="row toggle">
+      <span class="muted">Click through the pet</span>
+      <input
+        checked={clickThrough}
+        onchange={(event) => toggleClickThrough(event.currentTarget.checked)}
+        type="checkbox"
+      />
+    </label>
+    <p class="fine">
+      Lets clicks reach the window underneath. The pet stops being draggable while this is on.
+    </p>
+  </section>
+
+  <section class="wallet">
     {#if session && !expired}
       <div class="row">
         <span class="muted">Signing as</span>
@@ -174,6 +202,11 @@
   .wallet {
     border-top: 1px solid #242a33;
     padding: 6px 8px;
+  }
+
+  .toggle {
+    cursor: pointer;
+    align-items: center;
   }
 
   .wallet .row {

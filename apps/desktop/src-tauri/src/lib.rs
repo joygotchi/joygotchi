@@ -22,10 +22,12 @@ fn pets_directory() -> String {
 
 /// Let clicks through to whatever is behind the pet.
 ///
-/// The window covers a rectangle but the pet is a small sprite in the middle of
-/// it; without this, a transparent corner of the window eats clicks meant for
-/// the editor underneath. The frontend turns it off while the cursor is over
-/// the pet itself so the pet stays clickable.
+/// Off by default, and that is the fix for a bug worth remembering: the app
+/// used to turn this *on* at startup and rely on the webview's `mouseenter` to
+/// turn it back off. A window that ignores cursor events never receives
+/// `mouseenter`, so the pet could not be hovered, clicked or dragged — it was
+/// a decoration. The flag can only be driven from outside the window it
+/// silences, which here means a switch in Settings.
 #[tauri::command]
 fn set_click_through(window: tauri::Window, ignore: bool) -> Result<(), String> {
     window.set_ignore_cursor_events(ignore).map_err(|e| e.to_string())
@@ -167,7 +169,6 @@ pub fn run() {
             tauri::async_runtime::spawn(hooks::serve(handle));
 
             if let Some(window) = app.get_webview_window("pet") {
-                let _ = window.set_ignore_cursor_events(true);
                 place_bottom_right(&window);
             }
             Ok(())
