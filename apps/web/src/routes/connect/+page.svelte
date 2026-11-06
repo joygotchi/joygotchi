@@ -177,8 +177,8 @@
   {:else}
     <div class="mt-4 border border-line bg-panel">
       <div class="border-b border-line px-4 py-3 text-xs text-muted">
-        JOYGOTCHI Desktop is asking your wallet for a key. You are not sending anything, and the
-        key stays on the machine that asked.
+        JOYGOTCHI Desktop is asking your wallet for keys. You are not sending anything, and they
+        stay on the machine that asked. Your wallet will ask you to sign once per key.
 
         {#if !checked}
           <p class="mt-2 text-muted">Looking for a wallet in this browser…</p>
@@ -208,7 +208,7 @@
             <dt class="shrink-0 text-muted">And on the game</dt>
             <dd class="text-right break-all">
               {gameContractId}: {gameMethods.join(', ')}
-              <span class="block text-muted">a second key, and a second signature</span>
+              <span class="block text-muted">its own key, and its own signature</span>
             </dd>
           </div>
         {/if}

@@ -217,6 +217,19 @@ export async function addKeyForContract(request: FunctionCallKeyRequest): Promis
   });
 }
 
+/**
+ * Sign in, and grant the key as an explicit `AddKey`.
+ *
+ * Not through sign-in's own `addFunctionCallKey`. That path produced a key
+ * with **no method restriction at all** — on chain the lab key came back with
+ * `method_names: []`, which NEAR reads as "any method on this contract", so it
+ * could call `list_item` and `buy_listing`, the two the app goes out of its
+ * way to exclude. The wallet simply did not carry the list through.
+ *
+ * `AddKey` does carry it: the game key granted the same way came back
+ * restricted to `attack, evolve` exactly. So both keys go through `AddKey`,
+ * and sign-in is only used to establish which wallet is signing.
+ */
 export async function grantFunctionCallKey(
   request: FunctionCallKeyRequest
 ): Promise<string> {
@@ -226,20 +239,9 @@ export async function grantFunctionCallKey(
   // earlier can delete the stored session, as `restoreWallet` explains.
   await waitForAccount();
   const existing = wallet.accountId ? await connector.wallet().catch(() => null) : null;
-  const active =
-    existing ?? ((await connector.connect({ addFunctionCallKey: request })) as ActiveWallet | null);
+  const active = existing ?? ((await connector.connect()) as ActiveWallet | null);
 
   if (!active) throw new Error('No wallet connected');
-
-  // An already-connected wallet still has to sign the AddKey; it just does
-  // not have to be picked again.
-  if (existing) {
-    await (
-      existing as unknown as {
-        signIn: (params: { network: string; addFunctionCallKey: FunctionCallKeyRequest }) => Promise<unknown>;
-      }
-    ).signIn({ network: NETWORK, addFunctionCallKey: request });
-  }
 
   const accounts = await (
     active as unknown as {
@@ -249,5 +251,7 @@ export async function grantFunctionCallKey(
 
   const accountId = accounts[0]?.accountId ?? wallet.accountId;
   if (!accountId) throw new Error('The wallet connected but reported no account.');
+
+  await addKeyForContract(request);
   return accountId;
 }

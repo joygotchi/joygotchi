@@ -138,12 +138,24 @@ export const session = $state<{ current: Session | null; connecting: boolean; er
   { current: null, connecting: false, error: null }
 );
 
-let pending: {
+type Pending = {
   keyPair: KeyPair;
   gameKeyPair: KeyPair;
   contractId: string;
   gameContract: string;
-} | null = null;
+};
+
+/**
+ * Keyed by public key, not a single slot.
+ *
+ * Pressing Connect twice used to overwrite the keypair waiting for the wallet,
+ * so a grant coming back for the *first* attempt was saved against the
+ * *second* pair — a session holding keys that were never granted, and an
+ * `attack` failing with no sign of why. The callback carries the public key
+ * the wallet actually signed for, so the right pair can be found whichever
+ * attempt answers first.
+ */
+const pending = new Map<string, Pending>();
 let listening = false;
 
 export const getSession = () => invoke<Session | null>('get_session');
@@ -159,22 +171,24 @@ export async function watchConnect() {
 
   session.current = await getSession();
 
-  await listen<{ accountId: string }>('wallet-connected', async (event) => {
-    if (!pending) {
-      // The grant landed with no keypair waiting for it. Nothing can be done
-      // with it, and saying so beats a button that silently does nothing.
+  await listen<{ accountId: string; publicKey: string }>('wallet-connected', async (event) => {
+    const waiting = pending.get(event.payload.publicKey);
+    if (!waiting) {
+      // A grant for a key this app does not hold. Saving the session anyway is
+      // what produced keys on disk that were never on chain.
       session.connecting = false;
-      session.error = 'A wallet granted a key, but this app had stopped waiting. Try again.';
+      session.error =
+        'A wallet granted a key this app was not waiting for. Press Connect and finish in one go.';
       return;
     }
 
     try {
-      session.current = await completeConnect(pending, event.payload.accountId);
+      session.current = await completeConnect(waiting, event.payload.accountId);
       session.error = null;
     } catch (cause) {
       session.error = cause instanceof Error ? cause.message : String(cause);
     } finally {
-      pending = null;
+      pending.clear();
       session.connecting = false;
     }
   });
@@ -190,7 +204,7 @@ export async function watchConnect() {
   });
 
   await listen('wallet-cancelled', () => {
-    pending = null;
+    pending.clear();
     session.connecting = false;
     session.error = 'The wallet did not grant anything.';
   });
@@ -254,7 +268,8 @@ export async function connect(gameContract: string) {
   session.connecting = true;
   session.error = null;
   try {
-    pending = await beginConnect(gameContract);
+    const started = await beginConnect(gameContract);
+    pending.set(started.keyPair.getPublicKey().toString(), started);
   } catch (cause) {
     session.connecting = false;
     session.error = cause instanceof Error ? cause.message : String(cause);
