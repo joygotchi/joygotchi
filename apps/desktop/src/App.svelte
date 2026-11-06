@@ -179,14 +179,12 @@
       {/if}
     </div>
 
-    {#if overPet}
-      <div class="hint">
+    <div class="hint" class:dim={!overPet}>
         <span>{active.displayName}</span>
         <button title="What this pet is up to" onclick={() => (showPanel = true)}>ⓘ</button>
         <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
-        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
-      </div>
-    {/if}
+      <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
+    </div>
   {/if}
 
   {#if showPanel && active}
@@ -254,6 +252,7 @@
   }
 
   .hint {
+    transition: opacity 0.15s;
     display: flex;
     align-items: center;
     gap: 6px;
@@ -263,6 +262,11 @@
     color: #8b95a3;
     background: #0b0d10cc;
     border: 1px solid #242a33;
+  }
+
+  /* Visible but out of the way until the cursor is near. */
+  .hint.dim {
+    opacity: 0.45;
   }
 
   .hint button {
