@@ -47,6 +47,7 @@
   <footer>
     <button onclick={onrefresh}>Rescan</button>
     {#if port}<span>hooks on 127.0.0.1:{port}</span>{/if}
+    <button class="quit" onclick={() => invoke('quit')}>Quit</button>
   </footer>
 </div>
 
@@ -73,6 +74,11 @@
   }
 
   header button,
+  footer button.quit {
+    border-color: #4a2a30;
+    color: #f36b7b;
+  }
+
   footer button {
     background: none;
     border: 1px solid #242a33;

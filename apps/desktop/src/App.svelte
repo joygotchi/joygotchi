@@ -134,7 +134,11 @@
     </div>
 
     {#if overPet}
-      <p class="hint">{active.displayName} · ⌘, for settings</p>
+      <div class="hint">
+        <span>{active.displayName}</span>
+        <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
+        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
+      </div>
     {/if}
   {/if}
 
@@ -200,9 +204,34 @@
   }
 
   .hint {
+    display: flex;
+    align-items: center;
+    gap: 6px;
     margin: 2px 0 0;
+    padding: 2px 6px;
     font-size: 9px;
     color: #8b95a3;
+    background: #0b0d10cc;
+    border: 1px solid #242a33;
+  }
+
+  .hint button {
+    background: none;
+    border: 0;
+    color: #8b95a3;
+    font: inherit;
+    font-size: 11px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+  }
+
+  .hint button:hover {
+    color: #e7ebf0;
+  }
+
+  .hint button.close:hover {
+    color: #f36b7b;
   }
 
   .empty {

@@ -1,7 +1,7 @@
 mod hooks;
 mod pets;
 
-use tauri::Manager;
+use tauri::{AppHandle, Manager};
 
 pub use hooks::{AgentEvent, HOOK_PORT};
 pub use pets::{installed_pets, pets_root, InstalledPet};
@@ -34,6 +34,17 @@ fn hook_port() -> u16 {
     HOOK_PORT
 }
 
+/// Quit.
+///
+/// The window has no decorations and stays out of the taskbar, which is what
+/// makes it sit over an editor without looking like an app — and it also means
+/// there is no close button and no Dock icon to right-click. Without this, the
+/// only way out is killing the process.
+#[tauri::command]
+fn quit(app: AppHandle) {
+    app.exit(0);
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -42,7 +53,8 @@ pub fn run() {
             list_pets,
             pets_directory,
             set_click_through,
-            hook_port
+            hook_port,
+            quit
         ])
         .setup(|app| {
             let handle = app.handle().clone();
