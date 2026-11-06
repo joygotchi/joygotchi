@@ -51,7 +51,15 @@
   async function load() {
     const found = await invoke<InstalledPet[]>('list_pets');
     const isNew = found.length > pets.length;
-    pets = found;
+
+    // Only replace the array when it really changed. Reassigning every few
+    // seconds hands the panel a new object for the same pet, which it reads
+    // as "a different pet" and reloads — the window flashing its loading
+    // state forever.
+    const same =
+      found.length === pets.length &&
+      found.every((pet, index) => pet.slug === pets[index]?.slug && pet.level === pets[index]?.level);
+    if (!same) pets = found;
 
     // Installing a pet happens in a terminal while this window is open, so
     // the app looks broken if it only notices at startup. Select the newest

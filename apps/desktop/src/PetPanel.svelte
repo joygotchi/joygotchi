@@ -51,6 +51,7 @@
   let wager = $state<string | null>(null);
   let error = $state<string | null>(null);
   let loading = $state(true);
+  let loadedOnce = $state(false);
   let busy = $state<string | null>(null);
   let note = $state<string | null>(null);
 
@@ -66,7 +67,11 @@
   const warded = $derived(Number(status?.shielded_until ?? 0) / 1e6 > Date.now());
 
   async function load() {
-    loading = true;
+    // Only the first read shows a loading state; a refresh leaves what is on
+    // screen and swaps it when the answer arrives. Keyed on having loaded at
+    // all, not on having an account — a new player has no account yet, and
+    // would otherwise sit in a loading state forever.
+    loading = !loadedOnce;
     error = null;
     try {
       // The owner comes first: the credits and inventory shown belong to
@@ -88,6 +93,7 @@
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
       loading = false;
+      loadedOnce = true;
     }
   }
 
@@ -286,10 +292,18 @@
           {busy === 'feed' ? 'Feeding…' : `Feed · ${ACTION_PRICE.ai_feed}`}
         </button>
         <button
-          disabled={busy !== null}
+          disabled={busy !== null || Number(account?.pending_credits ?? 0) === 0}
           onclick={() => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.')}
+          title="Move earned credits into the spendable balance"
         >
           {busy === 'claim' ? 'Claiming…' : 'Claim'}
+        </button>
+        <button
+          disabled={busy !== null}
+          onclick={() => act('faucet', () => signAndSend(net(), 'claim_faucet', {}), 'Ten credits, once ever.')}
+          title="Ten free credits, once per account"
+        >
+          {busy === 'faucet' ? '…' : 'Faucet'}
         </button>
         <button
           disabled={busy !== null || (account?.staked_pets.length ?? 0) === 0}
@@ -575,13 +589,14 @@
 
   .actions {
     display: flex;
+    flex-wrap: wrap;
     gap: 4px;
     padding: 6px 8px 0;
     border-top: 1px solid #171b22;
   }
 
   .actions button {
-    flex: 1;
+    flex: 1 1 60px;
     background: none;
     border: 1px solid #242a33;
     color: inherit;
