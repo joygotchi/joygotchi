@@ -27,7 +27,8 @@
         value="git clone https://github.com/joygotchi/joygotchi && cd joygotchi && pnpm install && pnpm desktop"
       />
       <p class="text-[0.65rem] text-muted">
-        macOS, Linux and Windows. The window is click-through except over the pet itself.
+        macOS, Linux and Windows. It starts in the bottom-right corner and you can drag it
+        anywhere; Settings has a switch to let clicks fall through to the window underneath.
       </p>
     </div>
   </div>
@@ -48,8 +49,9 @@
         value={`curl -s localhost:7777/event -d '{"kind":"tool-start","tool":"Bash"}'`}
       />
       <p class="text-[0.65rem] text-muted">
-        Settings in the app installs this for Claude Code and Codex with one click each. Everything
-        stays on your machine: the port is bound to loopback.
+        Wire it into your agent's hooks yourself for now — there is no one-click installer yet.
+        Everything stays on your machine: the port is bound to loopback and nothing authenticates,
+        because nothing off this machine can reach it.
       </p>
     </div>
   </div>
