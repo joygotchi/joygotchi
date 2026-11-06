@@ -93,8 +93,9 @@ pub fn installed_pets() -> Vec<InstalledPet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
 
-    fn write_pet(root: &PathBuf, slug: &str, body: &str) {
+    fn write_pet(root: &Path, slug: &str, body: &str) {
         let dir = root.join(slug);
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("pet.json"), body).unwrap();
