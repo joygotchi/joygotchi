@@ -1,10 +1,12 @@
 mod hooks;
 mod pets;
+mod session;
 
 use tauri::{AppHandle, Manager};
 
 pub use hooks::{AgentEvent, HOOK_PORT};
 pub use pets::{installed_pets, pets_root, InstalledPet};
+pub use session::Session;
 
 /// Pets on this machine, for the Settings list.
 #[tauri::command]
@@ -34,6 +36,70 @@ fn hook_port() -> u16 {
     HOOK_PORT
 }
 
+/// Open a URL in the player's own browser.
+///
+/// Their browser, not a window of ours: the wallet sign-in should happen
+/// wherever they are already signed in, and a webview we control is the last
+/// place anyone should be asked to type a seed phrase.
+#[tauri::command]
+fn open_url(app: AppHandle, url: String) -> Result<(), String> {
+    use tauri_plugin_opener::OpenerExt;
+    // Only ever a wallet sign-in, and only ever https.
+    if !url.starts_with("https://") {
+        return Err("refusing to open a non-https URL".into());
+    }
+    app.opener()
+        .open_url(url, None::<&str>)
+        .map_err(|error| error.to_string())
+}
+
+/// Where the wallet should send the browser back to.
+///
+/// Built here rather than in the webview so the port can only ever be the one
+/// the server is actually listening on.
+#[tauri::command]
+fn wallet_callback_url() -> String {
+    format!("http://127.0.0.1:{HOOK_PORT}/wallet-callback")
+}
+
+/// Record a session the wallet just granted.
+///
+/// The secret key goes to the operating system's keychain; the rest goes to a
+/// plain file, because the account id and the public key are not secrets and
+/// keeping them readable makes the app's state inspectable.
+#[tauri::command]
+fn save_session(app: AppHandle, session: Session, secret_key: String) -> Result<(), String> {
+    session::save_secret_key(&secret_key)?;
+    session::save_session(&app_dir(&app)?, &session)
+}
+
+#[tauri::command]
+fn get_session(app: AppHandle) -> Result<Option<Session>, String> {
+    Ok(session::load_session(&app_dir(&app)?))
+}
+
+/// Hand the secret key to the webview for one signing.
+///
+/// It crosses the boundary on purpose: NEAR transaction signing is borsh plus
+/// ed25519, and the well-tested implementation of both is the JavaScript one.
+/// Reimplementing it in Rust to avoid this would trade a real risk for a
+/// larger one.
+#[tauri::command]
+fn session_secret_key() -> Option<String> {
+    session::load_secret_key()
+}
+
+#[tauri::command]
+fn clear_session(app: AppHandle) -> Result<(), String> {
+    session::clear_session(&app_dir(&app)?)
+}
+
+fn app_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map_err(|error| format!("no app data directory: {error}"))
+}
+
 /// Quit.
 ///
 /// The window has no decorations and stays out of the taskbar, which is what
@@ -45,6 +111,37 @@ fn quit(app: AppHandle) {
     app.exit(0);
 }
 
+/// Put the pet in the bottom-right corner of the screen it is on.
+///
+/// Not a fixed x/y in the config: that lands in a different place on every
+/// monitor and off-screen entirely on a smaller one. The margin keeps it clear
+/// of a macOS Dock or a Windows taskbar without needing to know which is
+/// there, and the whole thing is a best effort — a window in the wrong corner
+/// is better than a window that failed to open.
+fn place_bottom_right(window: &tauri::WebviewWindow) {
+    const MARGIN_RIGHT: i32 = 24;
+    // Taller than it looks it needs: the pet sits at the bottom of its own
+    // window, and a macOS Dock or a Windows taskbar eats the last ~80px of the
+    // screen. Clearing both is what keeps the pet from being half-hidden on a
+    // machine nobody tested on.
+    const MARGIN_BOTTOM: i32 = 110;
+
+    let Ok(Some(monitor)) = window.current_monitor() else {
+        return;
+    };
+    let Ok(size) = window.outer_size() else {
+        return;
+    };
+
+    let screen = monitor.size();
+    let origin = monitor.position();
+
+    let x = origin.x + screen.width as i32 - size.width as i32 - MARGIN_RIGHT;
+    let y = origin.y + screen.height as i32 - size.height as i32 - MARGIN_BOTTOM;
+
+    let _ = window.set_position(tauri::PhysicalPosition::new(x.max(origin.x), y.max(origin.y)));
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -54,7 +151,13 @@ pub fn run() {
             pets_directory,
             set_click_through,
             hook_port,
-            quit
+            quit,
+            open_url,
+            wallet_callback_url,
+            save_session,
+            get_session,
+            session_secret_key,
+            clear_session
         ])
         .setup(|app| {
             let handle = app.handle().clone();
@@ -65,6 +168,7 @@ pub fn run() {
 
             if let Some(window) = app.get_webview_window("pet") {
                 let _ = window.set_ignore_cursor_events(true);
+                place_bottom_right(&window);
             }
             Ok(())
         })

@@ -1,5 +1,16 @@
 <script lang="ts">
   import { invoke } from '@tauri-apps/api/core';
+  import { listen } from '@tauri-apps/api/event';
+  import {
+    SESSION_DAYS,
+    SESSION_METHODS,
+    beginConnect,
+    clearSession,
+    completeConnect,
+    getSession,
+    sessionExpired,
+    type Session
+  } from './wallet';
   import type { InstalledPet } from './types';
 
   type Props = {
@@ -13,6 +24,63 @@
 
   let port = $state<number | null>(null);
   let root = $state('');
+
+  let session = $state<Session | null>(null);
+  let connecting = $state(false);
+  let walletError = $state<string | null>(null);
+
+  const network = $derived(pets[0]?.chain.network ?? 'testnet');
+  const gameContract = $derived(pets[0]?.chain.contract ?? '');
+  const expired = $derived(session ? sessionExpired(session) : false);
+
+  /**
+   * The keypair exists only between opening the wallet and hearing back. If
+   * the player closes the tab it is dropped, and nothing was ever written —
+   * an abandoned sign-in should not leave a key on disk.
+   */
+  let pending: Awaited<ReturnType<typeof beginConnect>> | null = null;
+
+  async function connect() {
+    if (!gameContract) {
+      walletError = 'Install a pet first — the contract comes from its pet.json.';
+      return;
+    }
+    connecting = true;
+    walletError = null;
+    try {
+      pending = await beginConnect(gameContract, network);
+    } catch (cause) {
+      connecting = false;
+      walletError = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
+  $effect(() => {
+    void getSession().then((found) => (session = found));
+
+    const connected = listen<{ accountId: string }>('wallet-connected', async (event) => {
+      if (!pending) return;
+      try {
+        session = await completeConnect(pending, event.payload.accountId);
+      } catch (cause) {
+        walletError = cause instanceof Error ? cause.message : String(cause);
+      } finally {
+        pending = null;
+        connecting = false;
+      }
+    });
+
+    const cancelled = listen('wallet-cancelled', () => {
+      pending = null;
+      connecting = false;
+      walletError = 'The wallet did not grant anything.';
+    });
+
+    return () => {
+      void connected.then((off) => off());
+      void cancelled.then((off) => off());
+    };
+  });
 
   $effect(() => {
     void invoke<number>('hook_port').then((value) => (port = value));
@@ -44,6 +112,35 @@
     </ul>
   {/if}
 
+  <section class="wallet">
+    {#if session && !expired}
+      <div class="row">
+        <span class="muted">Signing as</span>
+        <span class="accent">{session.accountId}</span>
+      </div>
+      <p class="fine">
+        A key limited to {session.methodNames.length} methods on {session.contractId}. It cannot
+        move NEAR or your pets. Remove it in your wallet to revoke it.
+      </p>
+      <button onclick={async () => { await clearSession(); session = null; }}>Forget this key</button>
+    {:else}
+      <div class="row">
+        <span class="muted">Wallet</span>
+        <span>{expired ? 'session expired' : 'not connected'}</span>
+      </div>
+      <p class="fine">
+        Opens your browser once. Your wallet grants a key for
+        {SESSION_METHODS.length} methods, good for {SESSION_DAYS} days — feeding, items and
+        claiming sign here with no popups. Staking still asks your wallet, by design.
+      </p>
+      <button disabled={connecting} onclick={connect}>
+        {connecting ? 'Waiting for the wallet…' : 'Connect wallet'}
+      </button>
+    {/if}
+
+    {#if walletError}<p class="bad">{walletError}</p>{/if}
+  </section>
+
   <footer>
     <button onclick={onrefresh}>Rescan</button>
     {#if port}<span>hooks on 127.0.0.1:{port}</span>{/if}
@@ -74,6 +171,53 @@
   }
 
   header button,
+  .wallet {
+    border-top: 1px solid #242a33;
+    padding: 6px 8px;
+  }
+
+  .wallet .row {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+
+  .wallet button {
+    margin-top: 4px;
+    width: 100%;
+    background: none;
+    border: 1px solid #242a33;
+    color: inherit;
+    font: inherit;
+    padding: 3px 8px;
+    cursor: pointer;
+  }
+
+  .wallet button:disabled {
+    opacity: 0.5;
+  }
+
+  .fine {
+    margin: 4px 0 0;
+    color: #8b95a3;
+    font-size: 10px;
+    line-height: 1.5;
+  }
+
+  .accent {
+    color: #b6f36b;
+  }
+
+  .muted {
+    color: #8b95a3;
+  }
+
+  .bad {
+    margin: 4px 0 0;
+    color: #f36b7b;
+    font-size: 10px;
+  }
+
   footer button.quit {
     border-color: #4a2a30;
     color: #f36b7b;

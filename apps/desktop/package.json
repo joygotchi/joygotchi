@@ -12,7 +12,8 @@
   },
   "dependencies": {
     "@joygotchi/pet": "workspace:*",
-    "@tauri-apps/api": "^2.1.1"
+    "@tauri-apps/api": "^2.1.1",
+    "near-api-js": "^7.4.0"
   },
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^7.3.1",

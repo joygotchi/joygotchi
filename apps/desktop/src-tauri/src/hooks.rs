@@ -1,6 +1,12 @@
 use std::net::SocketAddr;
 
-use axum::{extract::State, http::StatusCode, routing::{get, post}, Json, Router};
+use axum::{
+    extract::{Query, State},
+    http::StatusCode,
+    response::Html,
+    routing::{get, post},
+    Json, Router,
+};
 use serde::{Deserialize, Serialize};
 use tauri::{AppHandle, Emitter};
 
@@ -67,10 +73,66 @@ async fn event(
     (StatusCode::OK, Json(serde_json::json!({ "ok": true })))
 }
 
+/// What the wallet puts on the redirect after a sign-in.
+#[derive(Debug, Deserialize)]
+pub struct WalletCallback {
+    pub account_id: Option<String>,
+    pub public_key: Option<String>,
+    /// Present but unused: every key on the account, which we do not need.
+    #[allow(dead_code)]
+    pub all_keys: Option<String>,
+    pub error_code: Option<String>,
+}
+
+/// Where the wallet sends the browser back to.
+///
+/// The loopback server was already here for agent hooks, so connecting a
+/// wallet needs no deep link, no custom URL scheme and no registration with
+/// the operating system — the wallet just redirects to a port on this machine
+/// and the window hears about it.
+///
+/// A refusal is reported as a refusal rather than left to time out: closing
+/// the wallet tab is a normal thing to do.
+async fn wallet_callback(
+    State(app): State<AppHandle>,
+    Query(params): Query<WalletCallback>,
+) -> Html<&'static str> {
+    match (params.account_id, params.public_key, params.error_code) {
+        (Some(account_id), Some(public_key), _) => {
+            let _ = app.emit(
+                "wallet-connected",
+                serde_json::json!({ "accountId": account_id, "publicKey": public_key }),
+            );
+            Html(CONNECTED_PAGE)
+        }
+        (_, _, Some(_)) | (None, _, None) | (_, None, None) => {
+            let _ = app.emit("wallet-cancelled", serde_json::json!({}));
+            Html(CANCELLED_PAGE)
+        }
+    }
+}
+
+const CONNECTED_PAGE: &str = r#"<!doctype html><meta charset=utf-8>
+<title>JOYGOTCHI</title>
+<body style="background:#0b0d10;color:#e7ebf0;font:14px ui-monospace,monospace;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center">
+<p style="color:#b6f36b;font-size:18px">Connected.</p>
+<p style="color:#8b95a3">Your pet is waiting. You can close this tab.</p>
+</div>"#;
+
+const CANCELLED_PAGE: &str = r#"<!doctype html><meta charset=utf-8>
+<title>JOYGOTCHI</title>
+<body style="background:#0b0d10;color:#e7ebf0;font:14px ui-monospace,monospace;display:grid;place-items:center;height:100vh;margin:0">
+<div style="text-align:center">
+<p style="color:#f3a66b;font-size:18px">Not connected.</p>
+<p style="color:#8b95a3">Nothing was granted. You can close this tab and try again.</p>
+</div>"#;
+
 pub fn router(app: AppHandle) -> Router {
     Router::new()
         .route("/health", get(health))
         .route("/event", post(event))
+        .route("/wallet-callback", get(wallet_callback))
         .with_state(app)
 }
 
