@@ -134,9 +134,7 @@
         type="checkbox"
       />
     </label>
-    <p class="fine">
-      Lets clicks reach the window underneath. The pet stops being draggable while this is on.
-    </p>
+    <p class="fine">Clicks reach what is behind. The pet stops being draggable.</p>
   </section>
 
   <section class="wallet">
@@ -146,8 +144,7 @@
         <span class="accent">{session.accountId}</span>
       </div>
       <p class="fine">
-        A key limited to {session.methodNames.length} methods on {session.contractId}. It cannot
-        move NEAR or your pets. Remove it in your wallet to revoke it.
+        {session.methodNames.length} methods on {session.contractId}. Cannot move NEAR or pets.
       </p>
       <button onclick={async () => { await clearSession(); session = null; }}>Forget this key</button>
     {:else}
@@ -156,9 +153,8 @@
         <span>{expired ? 'session expired' : 'not connected'}</span>
       </div>
       <p class="fine">
-        Opens your browser once. Your wallet grants a key for
-        {SESSION_METHODS.length} methods, good for {SESSION_DAYS} days — feeding, items and
-        claiming sign here with no popups. Staking still asks your wallet, by design.
+        Opens your browser once. {SESSION_METHODS.length} methods, {SESSION_DAYS} days — feeding,
+        items and claiming then sign here. Staking still asks your wallet.
       </p>
       <button disabled={connecting} onclick={connect}>
         {connecting ? 'Waiting for the wallet…' : 'Connect wallet'}
@@ -197,7 +193,23 @@
     color: #8b95a3;
   }
 
-  header button,
+  /* Its own rule. It used to share one with `.wallet`, which gave the close
+     button a top border and section padding — the grey box in the corner. */
+  header button {
+    background: none;
+    border: 0;
+    color: #8b95a3;
+    font: inherit;
+    font-size: 13px;
+    line-height: 1;
+    padding: 0 2px;
+    cursor: pointer;
+  }
+
+  header button:hover {
+    color: #f36b7b;
+  }
+
   .wallet {
     border-top: 1px solid #242a33;
     padding: 6px 8px;
@@ -265,7 +277,9 @@
   }
 
   ul {
-    flex: 1;
+    flex: 1 1 auto;
+    min-height: 72px;
+    max-height: 140px;
     margin: 0;
     padding: 0;
     list-style: none;
@@ -309,6 +323,8 @@
 
   footer {
     display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
     justify-content: space-between;
     align-items: center;
     padding: 5px 8px;

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { NETWORK } from '#lib/config';
+  import { grantFunctionCallKey } from '#lib/near/wallet.svelte';
 
   /**
    * The desktop app's way in to a wallet.
@@ -66,28 +66,14 @@
     message = null;
 
     try {
-      const { NearConnector } = await import('@hot-labs/near-connect');
-      const connector = new NearConnector({ network: NETWORK });
-
-      // `connect` returns the wallet the player picked, having already asked
-      // it to add the key; the account comes from the wallet itself.
-      const wallet = await connector.connect({
-        // The connector filters the picker down to wallets that can add a
-        // function-call key during sign-in, so anything offered here can
-        // actually complete the grant.
-        addFunctionCallKey: {
-          contractId,
-          publicKey,
-          allowMethods: { anyMethod: false, methodNames: methods },
-          // A quarter of a NEAR of gas, which is near-connect's own default.
-          // It caps gas only — never what the key can spend in the game.
-          gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
-        }
+      const accountId = await grantFunctionCallKey({
+        contractId,
+        publicKey,
+        allowMethods: { anyMethod: false, methodNames: methods },
+        // A quarter of a NEAR of gas, which is near-connect's own default.
+        // It caps gas only — never what the key can spend in the game.
+        gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
       });
-
-      const accounts = await wallet.getAccounts({ network: NETWORK });
-      const accountId = accounts[0]?.accountId;
-      if (!accountId) throw new Error('The wallet connected but reported no account.');
 
       phase = 'done';
       handBack({ account_id: accountId, public_key: publicKey });

@@ -32,7 +32,7 @@ export const wallet = $state<WalletState>({
 /** The shape of near-connect we rely on, so its types stay out of ours. */
 type Connector = {
   on: (event: string, handler: (payload: unknown) => void) => void;
-  connect: () => Promise<unknown>;
+  connect: (options?: { addFunctionCallKey?: FunctionCallKeyRequest }) => Promise<unknown>;
   disconnect: () => Promise<void>;
   wallet: () => Promise<ActiveWallet | null>;
 };
@@ -128,4 +128,55 @@ export async function disconnectWallet(): Promise<void> {
 
 export async function getActiveWallet(): Promise<ActiveWallet | null> {
   return (await getConnector()).wallet();
+}
+
+export type FunctionCallKeyRequest = {
+  contractId: string;
+  publicKey: string;
+  allowMethods: { anyMethod: false; methodNames: string[] };
+  gasAllowance?: { kind: 'limited'; amount: string } | { kind: 'unlimited' };
+};
+
+/**
+ * Ask the player's wallet to add a function-call key.
+ *
+ * Reuses the connector the rest of the app already holds, and asks the wallet
+ * that is *already* connected rather than opening the picker again — the
+ * first version of this made its own connector and always called `connect()`,
+ * so somebody who had just signed in on the gallery was asked to choose a
+ * wallet a second time to grant a key to the one they had chosen.
+ *
+ * The picker still appears when nobody is connected, which is the only time
+ * there is a choice to make.
+ */
+export async function grantFunctionCallKey(
+  request: FunctionCallKeyRequest
+): Promise<string> {
+  const connector = await getConnector();
+
+  const existing = await connector.wallet().catch(() => null);
+  const active =
+    existing ?? ((await connector.connect({ addFunctionCallKey: request })) as ActiveWallet | null);
+
+  if (!active) throw new Error('No wallet connected');
+
+  // An already-connected wallet still has to sign the AddKey; it just does
+  // not have to be picked again.
+  if (existing) {
+    await (
+      existing as unknown as {
+        signIn: (params: { network: string; addFunctionCallKey: FunctionCallKeyRequest }) => Promise<unknown>;
+      }
+    ).signIn({ network: NETWORK, addFunctionCallKey: request });
+  }
+
+  const accounts = await (
+    active as unknown as {
+      getAccounts: (p: { network: string }) => Promise<Array<{ accountId: string }>>;
+    }
+  ).getAccounts({ network: NETWORK });
+
+  const accountId = accounts[0]?.accountId ?? wallet.accountId;
+  if (!accountId) throw new Error('The wallet connected but reported no account.');
+  return accountId;
 }

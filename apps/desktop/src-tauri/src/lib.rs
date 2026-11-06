@@ -38,6 +38,35 @@ fn hook_port() -> u16 {
     HOOK_PORT
 }
 
+/// Grow the window while a panel is open, and shrink it back after.
+///
+/// The pet needs a small window; Settings and the pet panel do not fit in one.
+/// Overlaying them on 260x300 produced exactly what it sounds like — the pet
+/// list behind the wallet section, text wrapping four words at a time. The
+/// window stays anchored to its bottom-right corner so it grows upward and
+/// leftward rather than walking off the screen.
+#[tauri::command]
+fn set_panel_open(window: tauri::Window, open: bool) -> Result<(), String> {
+    const PET: (u32, u32) = (260, 300);
+    const PANEL: (u32, u32) = (340, 460);
+
+    let (width, height) = if open { PANEL } else { PET };
+
+    let anchor = window.outer_position().map_err(|e| e.to_string())?;
+    let before = window.outer_size().map_err(|e| e.to_string())?;
+
+    window
+        .set_size(tauri::LogicalSize::new(width, height))
+        .map_err(|e| e.to_string())?;
+
+    let after = window.outer_size().map_err(|e| e.to_string())?;
+    let x = anchor.x + before.width as i32 - after.width as i32;
+    let y = anchor.y + before.height as i32 - after.height as i32;
+    window
+        .set_position(tauri::PhysicalPosition::new(x, y))
+        .map_err(|e| e.to_string())
+}
+
 /// Open a URL in the player's own browser.
 ///
 /// Their browser, not a window of ours: the wallet sign-in should happen
@@ -155,6 +184,7 @@ pub fn run() {
             hook_port,
             quit,
             open_url,
+            set_panel_open,
             wallet_callback_url,
             save_session,
             get_session,

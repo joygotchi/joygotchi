@@ -25,6 +25,11 @@
   let line = $state<string | null>(null);
   let showSettings = $state(false);
   let showPanel = $state(false);
+
+  // The window is pet-sized until something needs room.
+  $effect(() => {
+    void invoke('set_panel_open', { open: showSettings || showPanel }).catch(() => {});
+  });
   let overPet = $state(false);
 
   const active = $derived(
