@@ -88,11 +88,11 @@ model text. This matters more than usual here because the pet reads on-chain
 data and agent output, so a pet *name* is attacker-controlled input.
 
 ### 5. Submit your own pet (art)
-The creator flow from the second screenshot: upload a sprite, get a pet other
-people can mint, with attribution and stats. Needs asset storage, a review
-step, and a contract that can take a new category — today `CATEGORIES` is two
-hardcoded dragons. The largest item here and the one that most needs its own
-design pass.
+The creator flow from the second screenshot. Designed now in
+[`CREATE.md`](CREATE.md), from reading how petdex does it: the thing a creator
+submits here is not a pet but a **species** others mint, and `CATEGORIES` is a
+two-element `const` in the game contract, so nothing uploaded can be minted
+until that becomes stored state. Still the largest item.
 
 ## Loose ends
 
