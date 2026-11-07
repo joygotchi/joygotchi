@@ -302,6 +302,16 @@
       <p class="bubble">{line}</p>
     {/if}
 
+    {#if backdropArt}
+      <!--
+        A card the pet stands in front of, sized to the stage so it lines up
+        with the name plate below it. Outside `.pet` on purpose: in there it
+        bobbed with the sprite, and scenery that moves with the actor is not
+        scenery.
+      -->
+      <img class="backdrop" alt="" data-tauri-drag-region draggable="false" src={backdropArt} />
+    {/if}
+
     <div
       class="pet"
       data-state={pose}
@@ -321,14 +331,6 @@
       style:animation-name={motion}
       style:animation-duration="{motionDuration(pose)}s"
     >
-      {#if backdropArt}
-        <!--
-          Behind the sprite and nothing else. The window is transparent on
-          purpose, so a backdrop is a card the pet stands on rather than a
-          sheet over the whole thing.
-        -->
-        <img class="backdrop" alt="" data-tauri-drag-region draggable="false" src={backdropArt} />
-      {/if}
       {#if artSrc}
         <img
           class="sprite"
@@ -401,9 +403,20 @@
             <img class="jg-px" alt="Feed" src="/assets/items/beef.png" />
           </button>
         {/if}
-        <button title="What this pet is up to" onclick={() => (showPanel = true)}>ⓘ</button>
-        <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
-        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
+        <!--
+          Drawn icons rather than ⓘ ⚙ ✕. At eight pixels those glyphs were
+          three indistinguishable grey marks, and they were the only things
+          on screen not made of pixels.
+        -->
+        <button title="What this pet is up to" onclick={() => (showPanel = true)}>
+          <img class="jg-px" alt="Status" src="/assets/ui/info.svg" />
+        </button>
+        <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>
+          <img class="jg-px" alt="Settings" src="/assets/ui/gear.svg" />
+        </button>
+        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>
+          <img class="jg-px" alt="Quit" src="/assets/ui/close.svg" />
+        </button>
       </div>
 
       {#if chainSelf}
@@ -496,6 +509,7 @@
   }
 
   .stage {
+    position: relative;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -555,12 +569,20 @@
    */
   .backdrop {
     position: absolute;
-    top: 8px;
-    left: 50%;
-    width: 150%;
-    aspect-ratio: 4 / 3;
-    transform: translateX(-50%);
+    left: 8px;
+    bottom: 36px;
+    /*
+     * Stated, not inferred. `width: auto` between a left and a right offset
+     * stretches a div and does not stretch an image: a replaced element
+     * falls back to its intrinsic ratio, so the card came out square and
+     * sat in the corner.
+     */
+    width: calc(100% - 16px);
+    height: 172px;
+    /* So the border lands inside and the two boxes measure the same. */
+    box-sizing: border-box;
     object-fit: cover;
+    image-rendering: pixelated;
     border: 2px solid var(--jg-edge);
     z-index: 0;
   }
@@ -657,11 +679,13 @@
   }
 
   .plate {
+    position: relative;
+    z-index: 2;
     transition: opacity 0.15s;
     display: flex;
     flex-direction: column;
     gap: 2px;
-    width: 172px;
+    align-self: stretch;
     margin: 2px 0 0;
     padding: 3px 4px;
     font-size: 8px;
@@ -687,7 +711,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 58px;
+    max-width: 92px;
   }
 
   .lv {
@@ -706,20 +730,25 @@
   .plate button {
     background: none;
     border: 0;
-    color: var(--jg-muted);
-    font: inherit;
-    font-size: 9px;
-    line-height: 1;
     padding: 0 1px;
+    line-height: 0;
     cursor: pointer;
   }
 
-  .plate button:hover {
-    color: var(--jg-ink);
+  .plate button img {
+    width: 14px;
+    height: 14px;
+    object-fit: contain;
+    opacity: 0.75;
+    transition: opacity 0.1s;
   }
 
-  .plate button.close:hover {
-    color: var(--jg-bad);
+  .plate button:hover img {
+    opacity: 1;
+  }
+
+  .plate button:active img {
+    transform: translateY(1px);
   }
 
   .meter img {
@@ -768,9 +797,9 @@
   }
 
   .plate button.feed img {
-    width: 13px;
-    height: 13px;
-    object-fit: contain;
+    width: 16px;
+    height: 16px;
+    opacity: 1;
   }
 
   .plate button.feed:not(:disabled):hover img {
