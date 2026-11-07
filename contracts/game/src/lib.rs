@@ -434,7 +434,9 @@ impl Game {
             }),
         );
 
-        if levelled {
+        // A shield is weight now, and a Shield grants no XP — syncing only on
+        // a level change would have left the bonus bought and never applied.
+        if levelled || item.shield > 0 {
             self.sync_weight(&pet);
         }
     }
@@ -1233,6 +1235,25 @@ impl NonFungibleTokenMetadataProvider for Game {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn attrs_carry_the_shield_the_lab_now_prices() {
+        // pet-stake reads this across the contract boundary to work out
+        // staking weight, so a shield that stops here is a bonus the player
+        // paid for and never receives.
+        let mut contract = deploy();
+        let id = mint(&mut contract, alice(), 0);
+
+        let (_, before) = contract.get_pet_attrs(id);
+        assert_eq!(before.shield, 0);
+
+        let mut pet = contract.pets.get(&id).unwrap();
+        pet.shield = 2;
+        contract.pets.insert(&id, &pet);
+
+        let (_, after) = contract.get_pet_attrs(id);
+        assert_eq!(after.shield, 2);
+    }
+
     use super::*;
     use near_sdk::test_utils::VMContextBuilder;
     use near_sdk::testing_env;

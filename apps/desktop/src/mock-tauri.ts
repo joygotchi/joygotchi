@@ -77,6 +77,26 @@ const PETS = [
     },
     states: { idle: 'blackdragon/1.gif' },
     directory: '/mock/sparring-7'
+  },
+  {
+    // Staked and carrying a shield on testnet, which is the only way to look
+    // at the accessory and the weight bonus without buying one each time.
+    format: 'joygotchi/1',
+    slug: 'ringer-8',
+    displayName: 'RINGER',
+    petId: 8,
+    installCode: 'jg1_mock00000008',
+    kind: 'greendragon',
+    rarity: 'rare',
+    level: 0,
+    star: 0,
+    chain: {
+      network: 'testnet',
+      contract: 'jg-game-5656.testnet',
+      owner: 'jg-p3-72362.testnet'
+    },
+    states: { idle: 'greendragon/1.gif' },
+    directory: '/mock/ringer-8'
   }
 ];
 

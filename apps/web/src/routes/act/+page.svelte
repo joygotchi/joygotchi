@@ -2,6 +2,8 @@
   import { page } from '$app/state';
   import { getActiveWallet, connectedAccount, wallet } from '#lib/near/wallet.svelte';
   import { GAS } from '#lib/config';
+  import { formatNear } from '#lib/near/amount';
+  import { viewFunction } from '#lib/near/rpc';
 
   /**
    * Sign one transaction for the desktop app.
@@ -25,8 +27,29 @@
     unstake_pet: {
       label: 'Bring this pet home',
       blurb: 'It stops earning. Credits it has already earned stay yours.'
+    },
+    buy_item: {
+      label: 'Buy this and use it now',
+      blurb: 'Paid in NEAR, and applied to the pet in the same transaction.'
     }
   } as const;
+
+  /** Which contract each method is allowed to be aimed at. */
+  const HOME = {
+    stake_pet: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
+    unstake_pet: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
+    buy_item: /^jg-game-[a-z0-9-]+\.(testnet|near)$/
+  } as const;
+
+  type ShopItem = {
+    item_id: number;
+    name: string;
+    price: string;
+    time_extension: number;
+    xp: number;
+    shield: number;
+    is_revival: boolean;
+  };
 
   type Method = keyof typeof ALLOWED;
 
@@ -41,6 +64,28 @@
   const contractId = $derived(params.get('contract') ?? '');
   const petId = $derived(Number(params.get('pet_id') ?? '0'));
   const callback = $derived(params.get('callback') ?? '');
+  const itemId = $derived(Number(params.get('item_id') ?? '0'));
+
+  /**
+   * What the item costs, read from the contract rather than from the link.
+   *
+   * The price is the one number here that moves money, so taking it from a
+   * URL would make this page sign for whatever a link asked. The link may
+   * choose *which* item; the chain says what it costs, and that is the figure
+   * shown and the figure attached.
+   */
+  let item = $state<ShopItem | null>(null);
+  let itemError = $state<string | null>(null);
+
+  $effect(() => {
+    if (method !== 'buy_item' || !contractOk || itemId <= 0) return;
+    void viewFunction<ShopItem[]>(contractId, 'get_shop', {})
+      .then((shop) => {
+        item = shop.find((x) => x.item_id === itemId) ?? null;
+        if (!item) itemError = `${contractId} has no item ${itemId}`;
+      })
+      .catch((error) => (itemError = error instanceof Error ? error.message : String(error)));
+  });
 
   /** Only loopback, for the same reason as `/connect`. */
   function loopbackOnly(raw: string): URL | null {
@@ -55,9 +100,18 @@
 
   const target = $derived(loopbackOnly(callback));
   const known = $derived(method in ALLOWED ? ALLOWED[method as Method] : null);
-  /** The staking contract and nothing else: these two methods live there. */
-  const contractOk = $derived(/^jg-stake-[a-z0-9-]+\.(testnet|near)$/.test(contractId));
-  const valid = $derived(known !== null && contractOk && petId > 0 && target !== null);
+  /** Each method may only be aimed at the contract it actually lives on. */
+  const contractOk = $derived(
+    known !== null && HOME[method as Method].test(contractId)
+  );
+  const needsItem = $derived(method === 'buy_item');
+  const valid = $derived(
+    known !== null &&
+      contractOk &&
+      petId > 0 &&
+      target !== null &&
+      (!needsItem || item !== null)
+  );
 
   $effect(() => {
     void connectedAccount().then((account) => {
@@ -102,11 +156,12 @@
             type: 'FunctionCall',
             params: {
               methodName: method,
-              args: { pet_id: petId },
+              args: needsItem ? { pet_id: petId, item_id: itemId } : { pet_id: petId },
               gas: GAS.heavy,
-              // None. The method is not payable any more, and a non-payable
-              // method rejects an attached deposit instead of ignoring it.
-              deposit: '0'
+              // Staking takes none — the method is not payable any more, and a
+              // non-payable method rejects a deposit rather than ignoring it.
+              // Shop items cost exactly what the contract says they cost.
+              deposit: needsItem ? (item?.price ?? '0') : '0'
             }
           }
         ]
@@ -134,6 +189,9 @@
         {#if !known}<li>· "{method || 'nothing'}" is not something this page will sign</li>{/if}
         {#if !contractOk}<li>· it names a contract this page does not act on</li>{/if}
         {#if petId <= 0}<li>· no pet named</li>{/if}
+        {#if needsItem && item === null}
+          <li>· {itemError ?? 'the item it names could not be read from the contract'}</li>
+        {/if}
         {#if target === null}<li>· it would report somewhere other than this machine</li>{/if}
       </ul>
     </div>
@@ -173,9 +231,27 @@
           <dt class="text-muted">Pet</dt>
           <dd>#{petId}</dd>
         </div>
+        {#if item}
+          <!-- Read from the contract, not from the link: see `item` above. -->
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Item</dt>
+            <dd>{item.name}</dd>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">It does</dt>
+            <dd class="text-right">
+              {#if item.time_extension}+{Math.round(item.time_extension / 3600)}h food{/if}
+              {#if item.xp}{item.time_extension ? ', ' : ''}+{item.xp} XP{/if}
+              {#if item.shield}, +{item.shield} shield{/if}
+              {#if item.is_revival}, revives a starved pet{/if}
+            </dd>
+          </div>
+        {/if}
         <div class="flex justify-between gap-3 px-4 py-2">
           <dt class="text-muted">It costs</dt>
-          <dd class="text-accent">Nothing but gas</dd>
+          <dd class="text-accent">
+            {#if item}{formatNear(item.price, 24)} NEAR{:else}Nothing but gas{/if}
+          </dd>
         </div>
       </dl>
 

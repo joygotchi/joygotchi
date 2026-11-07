@@ -100,6 +100,8 @@ export type ChainPetSummary = {
    */
   category?: string;
   evolution_phase?: number;
+  /** Shields carried. Each one absorbs a hit before anything else does. */
+  shield?: number;
   /**
    * Set on whoever **won** the last fight, not on whoever started it. Both
    * this and `last_attacked` are stamped with the same block timestamp, which
@@ -147,6 +149,26 @@ export async function listPets(
  */
 export const isAttackable = (network: string, stake: string, petId: number) =>
   viewFunction<boolean>(network, stake, 'is_attackable', { pet_id: petId }).catch(() => false);
+
+/**
+ * The game's own shop — the one paid in NEAR.
+ *
+ * Separate from the credit items on the staking contract, and the only thing
+ * in the system that moves a pet's starvation deadline. `spend_credits`
+ * records a meal and charges for it; this is what actually feeds.
+ */
+export type ShopItem = {
+  item_id: number;
+  name: string;
+  price: string;
+  time_extension: number;
+  xp: number;
+  shield: number;
+  is_revival: boolean;
+};
+
+export const getShop = (network: string, gameContract: string) =>
+  viewFunction<ShopItem[]>(network, gameContract, 'get_shop', {});
 
 export const getInventory = (network: string, stake: string, accountId: string) =>
   viewFunction<Array<[number, number]>>(network, stake, 'get_inventory', {

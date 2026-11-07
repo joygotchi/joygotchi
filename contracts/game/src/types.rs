@@ -83,6 +83,13 @@ pub struct PetAttrs {
     pub level: u32,
     pub star: u32,
     pub evolution_phase: u8,
+    /// Shields the pet is carrying.
+    ///
+    /// `#[serde(default)]` because this crosses a contract boundary as JSON:
+    /// whichever side is redeployed second must still read what the other
+    /// sends, and an absent field has to mean none rather than a failed call.
+    #[serde(default)]
+    pub shield: u32,
 }
 
 /// What `pet-stake::report_battle` returns.
@@ -145,6 +152,7 @@ impl Pet {
             level: self.level,
             star: self.star,
             evolution_phase: self.evolution_phase,
+            shield: self.shield,
         }
     }
 

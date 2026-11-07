@@ -248,9 +248,10 @@ export const walletAction = $state<{ running: string | null; error: string | nul
 );
 
 export async function requestWalletAction(
-  method: 'stake_pet' | 'unstake_pet',
+  method: 'stake_pet' | 'unstake_pet' | 'buy_item',
   contractId: string,
-  petId: number
+  petId: number,
+  itemId?: number
 ) {
   walletAction.running = method;
   walletAction.error = null;
@@ -261,6 +262,9 @@ export async function requestWalletAction(
   url.searchParams.set('method', method);
   url.searchParams.set('contract', contractId);
   url.searchParams.set('pet_id', String(petId));
+  // Which item, not what it costs: the page reads the price off the contract,
+  // so a link can choose the purchase but never the amount.
+  if (itemId !== undefined) url.searchParams.set('item_id', String(itemId));
   url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
 
   try {

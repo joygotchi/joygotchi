@@ -323,6 +323,27 @@
           what makes the bobbing read as the pet leaving the ground.
         -->
         <span class="shadow" data-tauri-drag-region></span>
+
+        {#if chainSelf?.shield}
+          <!--
+            What the pet is carrying, carried visibly. Shields are weight in
+            the lab now, so a player who paid for one should be able to see it
+            on the pet rather than take the plate's word for it. They orbit
+            the sprite instead of sitting on it: there is no art of a dragon
+            holding a shield, and faking one would look worse than not.
+          -->
+          <span class="guard" data-tauri-drag-region>
+            {#each { length: Math.min(3, chainSelf.shield) } as _, i (i)}
+              <img
+                class="jg-px"
+                alt=""
+                src="/assets/items/shield.png"
+                style:animation-delay="{i * 0.35}s"
+              />
+            {/each}
+            {#if chainSelf.shield > 3}<small>+{chainSelf.shield - 3}</small>{/if}
+          </span>
+        {/if}
       {/if}
     </div>
 
@@ -365,6 +386,15 @@
             <span class="fill" style:width="{Math.max(3, foodFull * 100)}%"></span>
           </span>
           <span class="food" data-level={hunger}>{foodLabel}</span>
+          {#if chainSelf.shield}
+            <!-- What the pet is carrying, not what it could buy. -->
+            <span class="carry" title="{chainSelf.shield} shield — each absorbs one hit">
+              {#each { length: Math.min(3, chainSelf.shield) } as _, i (i)}
+                <img class="jg-px" alt="" src="/assets/items/shield.png" />
+              {/each}
+              {#if chainSelf.shield > 3}<small>×{chainSelf.shield}</small>{/if}
+            </span>
+          {/if}
           {#if chainSelf.locked}<span class="chip work">LAB</span>{/if}
           {#if account}
             <!--
@@ -486,6 +516,36 @@
    * it floats over the editor: a dark box there reads as another window, and
    * the one thing this should look like is the pet talking.
    */
+  /*
+   * The shields float beside the pet on their own gentle bob, offset from
+   * each other so three of them read as three rather than as one thick one.
+   */
+  .guard {
+    position: absolute;
+    right: 2px;
+    bottom: 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 1px;
+    pointer-events: none;
+  }
+
+  .guard img {
+    width: 13px;
+    height: 22px;
+    object-fit: contain;
+    animation: jg-bob 2.6s ease-in-out infinite;
+  }
+
+  .guard small {
+    font-size: 7px;
+    color: var(--jg-ink);
+    background: #ffffffcc;
+    border: 1px solid var(--jg-edge);
+    padding: 0 2px;
+  }
+
   .bubble {
     position: relative;
     max-width: 220px;
@@ -661,6 +721,23 @@
 
   .plate-note.bad {
     color: var(--jg-bad);
+  }
+
+  .carry {
+    display: inline-flex;
+    align-items: center;
+    gap: 1px;
+  }
+
+  .carry img {
+    width: 7px;
+    height: 9px;
+    object-fit: contain;
+  }
+
+  .carry small {
+    font-size: 7px;
+    color: var(--jg-muted);
   }
 
   .chip {

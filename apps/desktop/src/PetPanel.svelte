@@ -12,10 +12,12 @@
     getPetOwner,
     getPetStatus,
     getStakeAccount,
+    getShop,
     isAttackable,
     listPets,
     stakeContractFor,
-    type ChainPetSummary
+    type ChainPetSummary,
+    type ShopItem
   } from './chain';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
@@ -125,6 +127,9 @@
       status = st;
       inventory = inv;
       void loadTargets(current);
+      void getShop(pet.chain.network, pet.chain.contract)
+        .then((items) => (shop = items))
+        .catch(() => {});
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -240,6 +245,29 @@
     );
   }
 
+  /**
+   * The shop's art, by the contract's own item ids.
+   *
+   * These four sprites were drawn for this shop and had never reached the
+   * app — the only place in the product that can feed a pet was unreachable
+   * from it, so `Feed` charged credits and the starvation clock ran on.
+   */
+  const SHOP_ART: Record<number, string> = {
+    1: '/assets/items/beef.png',
+    2: '/assets/items/water.png',
+    3: '/assets/items/shield.png',
+    4: '/assets/items/holy_water.png'
+  };
+
+  let shop = $state<ShopItem[]>([]);
+  let showShop = $state(false);
+
+  /** NEAR, from yoctoNEAR, short enough for a 340px panel. */
+  const inNear = (yocto: string) => {
+    const n = Number(BigInt(yocto) / 10n ** 18n) / 1e6;
+    return n < 1 ? n.toFixed(2).replace(/0$/, '') : String(n);
+  };
+
   /** The drawn item for each id, so the bag reads as a bag. */
   const ITEM_ART: Record<number, string> = {
     101: '/assets/items/holy_water.png',
@@ -347,6 +375,42 @@
       </ul>
       <button class="jg-btn wide" onclick={() => (showTargets = false)}>Back</button>
     </div>
+  {:else if showShop}
+    <div class="view">
+      <p class="lead">
+        Paid in NEAR, applied straight away. This is the only thing that moves
+        {pet.displayName}'s hunger.
+      </p>
+      <ul class="bag jg-screen">
+        {#each shop as item (item.item_id)}
+          <li title={item.is_revival ? 'Also revives a starved pet' : ''}>
+            <img class="jg-px" alt="" src={SHOP_ART[item.item_id] ?? '/assets/items/food.png'} />
+            <span class="item-name">
+              {item.name}
+              <small>
+                {#if item.time_extension}+{Math.round(item.time_extension / 3600)}h{/if}
+                {#if item.xp} +{item.xp}xp{/if}
+                {#if item.shield} +{item.shield}🛡{/if}
+                {#if item.is_revival} revive{/if}
+              </small>
+            </span>
+            <button
+              class="jg-btn primary"
+              disabled={walletAction.running !== null}
+              onclick={() =>
+                requestWalletAction('buy_item', pet.chain.contract, pet.petId, item.item_id)}
+              title="Opens your browser — this is paid in NEAR, so it needs a real signature"
+            >
+              {inNear(item.price)} ↗
+            </button>
+          </li>
+        {/each}
+        {#if shop.length === 0}
+          <li class="muted">The shop could not be read from the contract.</li>
+        {/if}
+      </ul>
+      <button class="jg-btn wide" onclick={() => (showShop = false)}>Back</button>
+    </div>
   {:else if showBag}
     <div class="view">
       <p class="lead">{pet.displayName}'s bag</p>
@@ -433,12 +497,28 @@
       {/if}
     {:else}
       <div class="tiles">
+        <!--
+          Feed opens the shop rather than spending credits. `spend_credits`
+          with `ai_feed` records a meal and charges for it, and never touches
+          `starves_at` — the deadline only moves on the game contract's
+          `buy_item`. A button named Feed that does not feed is worse than no
+          button, so this one goes where the food is.
+        -->
         {@render tile(
           'Feed',
           '/assets/items/beef.png',
+          () => (showShop = true),
+          busy !== null,
+          'Food and revival items, paid in NEAR'
+        )}
+        {@render tile(
+          'AI meal',
+          '/assets/items/food.png',
           feed,
           busy !== null || !canFeed,
-          canFeed ? `Costs ${ACTION_PRICE.ai_feed} credits` : 'Not enough credits',
+          canFeed
+            ? `Costs ${ACTION_PRICE.ai_feed} credits — earns XP, does not move the hunger clock`
+            : 'Not enough credits',
           busy === 'feed' ? '…' : undefined
         )}
         {@render tile(
