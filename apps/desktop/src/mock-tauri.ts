@@ -56,6 +56,27 @@ const PETS = [
     },
     states: { idle: 'greendragon/2.gif' },
     directory: '/mock/kuro-6'
+  },
+  {
+    // A pet that really exists on jg-game-5656.testnet, so the battle watcher
+    // has something to watch: the fixtures drive the window, but the watcher
+    // polls the chain by this id.
+    format: 'joygotchi/1',
+    slug: 'sparring-7',
+    displayName: 'SPARRING',
+    petId: 7,
+    installCode: 'jg1_mock00000007',
+    kind: 'blackdragon',
+    rarity: 'rare',
+    level: 0,
+    star: 0,
+    chain: {
+      network: 'testnet',
+      contract: 'jg-game-5656.testnet',
+      owner: 'jg-p2-72362.testnet'
+    },
+    states: { idle: 'blackdragon/1.gif' },
+    directory: '/mock/sparring-7'
   }
 ];
 

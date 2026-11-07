@@ -39,7 +39,6 @@
    */
   let chainPets = $state<ChainPetSummary[]>([]);
   let spectating = $state<SpectatedBattle | null>(null);
-  let spectateTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The window is pet-sized until something needs room.
   $effect(() => {
@@ -137,11 +136,10 @@
     reaction = nextReaction(reaction, { kind: 'game', what: 'battled' });
     // Only a known opponent gets the arena; otherwise the pet still reacts
     // and the stats refresh, which is all the chain actually told us.
-    if (seen.opponent) {
-      spectating = seen;
-      if (spectateTimer) clearTimeout(spectateTimer);
-      spectateTimer = setTimeout(() => (spectating = null), 15_000);
-    }
+    // Stays until it is dismissed. An overlay that times out is no use for
+    // the one thing this exists for: finding out what happened while you
+    // were not watching.
+    if (seen.opponent) spectating = seen;
     void load();
   }
 
@@ -164,7 +162,6 @@
       clearInterval(ticker);
       clearInterval(rescan);
       clearInterval(battles);
-      if (spectateTimer) clearTimeout(spectateTimer);
       void unlisten.then((off) => off());
     };
   });
