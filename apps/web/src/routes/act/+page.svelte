@@ -1,17 +1,17 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { formatNear } from '#lib/near/amount';
   import { getActiveWallet, connectedAccount, wallet } from '#lib/near/wallet.svelte';
   import { GAS } from '#lib/config';
 
   /**
    * Sign one transaction for the desktop app.
    *
-   * Some things a session key cannot do. `stake_pet` and `unstake_pet` require
-   * one yoctoNEAR, and a function-call key may never attach a deposit — that
-   * requirement *is* the check, and it means a real wallet signature. So the
-   * app sends the player here for those, the same way it sends them here to
-   * connect, and the result comes home over loopback.
+   * The desktop app signs staking itself now: the contract dropped the
+   * yoctoNEAR that made a real wallet signature mandatory. This page stays
+   * for the sessions granted before that — their key does not list the
+   * method, and nothing the app can do will add it — so they come here, the
+   * same way they come here to connect, and the result goes home over
+   * loopback.
    *
    * Nothing here is generic on purpose. A page that signs whatever a link asks
    * for is a page that signs whatever a link asks for, so the whitelist below
@@ -104,9 +104,9 @@
               methodName: method,
               args: { pet_id: petId },
               gas: GAS.heavy,
-              // The yoctoNEAR the contract asks for, and the reason this page
-              // exists rather than the app signing it.
-              deposit: '1'
+              // None. The method is not payable any more, and a non-payable
+              // method rejects an attached deposit instead of ignoring it.
+              deposit: '0'
             }
           }
         ]
@@ -175,7 +175,7 @@
         </div>
         <div class="flex justify-between gap-3 px-4 py-2">
           <dt class="text-muted">It costs</dt>
-          <dd class="text-accent">{formatNear('1', 24)} NEAR — one yoctoNEAR, plus gas</dd>
+          <dd class="text-accent">Nothing but gas</dd>
         </div>
       </dl>
 

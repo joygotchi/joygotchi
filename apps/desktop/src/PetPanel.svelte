@@ -33,10 +33,10 @@
    * What this pet is up to, and what you can do about it.
    *
    * Only the actions the session key may sign appear here. Staking is absent
-   * on purpose rather than broken: `stake_pet` wants one yoctoNEAR, a
-   * function-call key cannot attach any deposit, and that is the whole reason
-   * the contract asks for it — moving a pet in or out of the lab should take
-   * a real wallet signature.
+   * on purpose rather than broken: minting and buying are payable, and a
+   * function-call key can never attach a deposit — that is the protocol
+   * keeping a session key from spending a player's NEAR. Staking used to sit
+   * in that group and no longer does.
    */
   type Props = { pet: InstalledPet; onclose: () => void };
   let { pet, onclose }: Props = $props();
@@ -63,6 +63,10 @@
   const canFeed = $derived(mine && credits >= ACTION_PRICE.ai_feed);
 
   const stake = $derived(stakeContractFor(pet.chain.contract));
+  /** Whether this session's key covers staking, or predates it being granted. */
+  const stakeSignsHere = $derived(
+    (session?.methodNames ?? []).includes(status?.staked ? 'unstake_pet' : 'stake_pet')
+  );
   const wounded = $derived(Number(status?.wounded_until ?? 0) / 1e6 > Date.now());
   const warded = $derived(Number(status?.shielded_until ?? 0) / 1e6 > Date.now());
 
@@ -205,6 +209,28 @@
       opponent = null;
       fight = 'ready';
     }
+  }
+
+  /**
+   * Put the pet in or out of the lab.
+   *
+   * Signs here now: the contract dropped the yoctoNEAR it used to demand, so
+   * a function-call key can carry this. A session granted before that change
+   * does not list the method, and no amount of retrying will fix it — so that
+   * case keeps the old browser route rather than failing, until the player
+   * grants a key again.
+   */
+  function toggleStake() {
+    const method = status?.staked ? 'unstake_pet' : 'stake_pet';
+    if (!stakeSignsHere) {
+      void requestWalletAction(method, stake, pet.petId);
+      return;
+    }
+    void act(
+      'stake',
+      () => signAndSend(net(), method, { pet_id: pet.petId }),
+      status?.staked ? 'Out of the lab.' : 'At work in the lab.'
+    );
   }
 
   function closeFight() {
@@ -367,17 +393,18 @@
 
       <div class="actions">
         <button
-          disabled={walletAction.running !== null}
-          onclick={() =>
-            requestWalletAction(status?.staked ? 'unstake_pet' : 'stake_pet', stake, pet.petId)}
-          title="Opens your browser — the contract wants a real signature for this"
+          disabled={busy !== null || walletAction.running !== null}
+          onclick={toggleStake}
+          title={stakeSignsHere
+            ? 'Signs here, with your session key'
+            : 'Opens your browser — this session key predates staking being granted'}
         >
-          {#if walletAction.running}
+          {#if busy === 'stake'}
+            …
+          {:else if walletAction.running}
             In your browser…
-          {:else if status?.staked}
-            Unstake ↗
           {:else}
-            Stake ↗
+            {status?.staked ? 'Unstake' : 'Stake'}{stakeSignsHere ? '' : ' ↗'}
           {/if}
         </button>
       </div>
@@ -423,8 +450,13 @@
       {#if note}<p class="ok">{note}</p>{/if}
 
       <p class="note">
-        Staking opens your browser — the contract wants a yoctoNEAR, which a session key may never
-        attach. Battling signs here, on the second key granted for the game contract.
+        {#if stakeSignsHere}
+          Everything here signs on this machine. Minting and buying still need your wallet: those
+          move NEAR, and a session key may never attach a deposit.
+        {:else}
+          Staking still opens your browser because this session key was granted before staking
+          could be signed here. Connect again in Settings to sign it locally.
+        {/if}
       </p>
     {/if}
   {/if}

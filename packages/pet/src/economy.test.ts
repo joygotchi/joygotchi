@@ -22,7 +22,12 @@ describe('session methods', () => {
 
   it('refuses a method neither key covers, rather than guessing', () => {
     expect(contractForMethod('nft_transfer', contracts)).toBeNull();
-    expect(contractForMethod('stake_pet', contracts)).toBeNull();
+    expect(contractForMethod('buy_pet', contracts)).toBeNull();
+  });
+
+  it('routes staking to the lab, now that it takes no deposit', () => {
+    expect(contractForMethod('stake_pet', contracts)).toBe(contracts.stake);
+    expect(contractForMethod('unstake_pet', contracts)).toBe(contracts.stake);
   });
 
   it('keeps the two lists disjoint', () => {
@@ -31,10 +36,11 @@ describe('session methods', () => {
   });
 
   it('grants nothing payable, because a session key cannot attach a deposit', () => {
+    // `stake_pet` and `unstake_pet` are absent from this list on purpose:
+    // they are the two the contract made non-payable so they could be granted.
+    // Everything here still takes NEAR, so a session key could not call it.
     for (const method of [...STAKE_METHODS, ...GAME_METHODS]) {
-      expect(['stake_pet', 'unstake_pet', 'list_pet', 'buy_pet', 'nft_transfer']).not.toContain(
-        method
-      );
+      expect(['list_pet', 'buy_pet', 'nft_transfer', 'nft_mint']).not.toContain(method);
     }
   });
 

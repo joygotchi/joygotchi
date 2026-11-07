@@ -45,4 +45,3 @@ export const GAS = {
   heavy: '100000000000000'
 } as const;
 
-export const ONE_YOCTO = '1';

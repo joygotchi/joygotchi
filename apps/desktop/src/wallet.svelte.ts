@@ -14,8 +14,9 @@ import { stakeContractFor } from './chain';
  *
  * What that key cannot do is the protocol's guarantee rather than ours: one
  * contract, the methods below, and never any attached NEAR. That last part is
- * why `stake_pet` and `unstake_pet` are missing from the list — they require
- * one yoctoNEAR precisely so that only a real wallet signature can move a pet
+ * why `list_pet`, `buy_pet` and `nft_transfer` are missing from the list —
+ * they are payable precisely so that only a real wallet signature can part a
+ * player from a pet or from NEAR
  * in or out of the lab.
  */
 
@@ -217,12 +218,13 @@ export async function watchConnect() {
 }
 
 /**
- * One wallet-signed action, for the things a session key may not do.
+ * One wallet-signed action, over the browser and back through loopback.
  *
- * `stake_pet` and `unstake_pet` require a yoctoNEAR, and a function-call key
- * can never attach one — that requirement is the contract asking for a real
- * signature. So these go out to the gallery and come back over loopback, the
- * same path a grant takes.
+ * Staking no longer needs this: the contract dropped its yoctoNEAR, so the
+ * session key carries it. What still needs it is a session granted before
+ * that change — a function-call key's method list is fixed when the key is
+ * made, so those sessions can never call staking and nothing but a new grant
+ * will change that. They take this path instead of failing.
  */
 /**
  * What the player just did to their pet, for the window to act out.

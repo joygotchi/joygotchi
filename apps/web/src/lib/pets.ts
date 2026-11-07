@@ -1,4 +1,4 @@
-import { GAME_CONTRACT, GAS, MINT_PRICE_NEAR, NETWORK, ONE_YOCTO } from '#lib/config';
+import { GAME_CONTRACT, GAS, MINT_PRICE_NEAR, NETWORK } from '#lib/config';
 import { parseNear } from '#lib/near/amount';
 import { viewFunction } from '#lib/near/rpc';
 import { callFunction, txEvents } from '#lib/near/tx';
@@ -112,14 +112,15 @@ export async function mintPet(name: string, kind: PetKind): Promise<number> {
   throw new Error('The mint went through but the contract reported no pet id');
 }
 
-/** Put a pet to work earning AI credit. Needs 1 yoctoNEAR as confirmation. */
+/**
+ * Put a pet to work earning AI credit.
+ *
+ * No deposit. It used to send one yoctoNEAR, and now that the contract is not
+ * payable, sending any would make the call fail outright — a non-payable
+ * method rejects an attached deposit rather than ignoring it.
+ */
 export async function stakePet(stakeContract: string, petId: number) {
-  return callFunction(
-    stakeContract,
-    'stake_pet',
-    { pet_id: petId },
-    { gas: GAS.heavy, deposit: ONE_YOCTO }
-  );
+  return callFunction(stakeContract, 'stake_pet', { pet_id: petId }, { gas: GAS.heavy });
 }
 
 export const mintPriceNear = MINT_PRICE_NEAR;

@@ -128,7 +128,15 @@ export const STAKE_METHODS = [
   'buy_credit_item',
   'use_item',
   'claim_mining',
-  'claim_faucet'
+  'claim_faucet',
+  // Both of these used to demand one yoctoNEAR and so could not be here at
+  // all: a function-call key may never attach a deposit. The contract gave
+  // that up, because the guard bought less than it cost — neither call moves
+  // the NFT or any balance, so a stolen key can only put a pet in or out of
+  // the lab, while the deposit put a browser round trip in front of the
+  // action players take most.
+  'stake_pet',
+  'unstake_pet'
 ] as const;
 
 /**
