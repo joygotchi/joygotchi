@@ -5,7 +5,7 @@
   "identifier": "dev.joygotchi.desktop",
   "build": {
     "frontendDist": "../dist",
-    "devUrl": "http://localhost:5275",
+    "devUrl": "http://localhost:5290",
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },

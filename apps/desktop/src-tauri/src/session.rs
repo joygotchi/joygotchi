@@ -178,3 +178,74 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+/// Sign bytes with a session key, without the key leaving this process.
+///
+/// The webview builds the transaction and asks for a signature over its hash;
+/// it never holds the secret. That is the whole reason the keys are in the
+/// keychain rather than in the window's `localStorage`: localStorage is a file
+/// on disk that any process running as this user can read, and anything that
+/// ever executes inside the webview can read it with one line. Here the secret
+/// is reachable only through this function.
+///
+/// A NEAR secret key is `ed25519:<base58>` over 64 bytes — the 32-byte seed
+/// followed by the public key. Only the seed goes into the signer; the rest is
+/// checked so a truncated or pasted-wrong key fails here rather than as an
+/// invalid signature the chain rejects.
+pub fn sign_with_session_key(secret: &str, message: &[u8]) -> Result<Vec<u8>, String> {
+    use ed25519_dalek::{Signer as _, SigningKey};
+
+    let encoded = secret.strip_prefix("ed25519:").unwrap_or(secret);
+    let bytes = bs58::decode(encoded)
+        .into_vec()
+        .map_err(|_| "the stored key is not base58".to_string())?;
+
+    if bytes.len() != 64 {
+        return Err(format!(
+            "expected a 64-byte NEAR secret key, found {} bytes",
+            bytes.len()
+        ));
+    }
+
+    let seed: [u8; 32] = bytes[..32]
+        .try_into()
+        .map_err(|_| "could not read the key's seed".to_string())?;
+
+    Ok(SigningKey::from_bytes(&seed).sign(message).to_bytes().to_vec())
+}
+
+#[cfg(test)]
+mod signing_tests {
+    use super::*;
+
+    /// A known NEAR-format key, its public half, and a signature over "hello"
+    /// checked with the public key — so this test fails if the seed is read
+    /// from the wrong half of the 64 bytes.
+    #[test]
+    fn signs_with_the_seed_half_of_a_near_secret_key() {
+        use ed25519_dalek::{Signature, SigningKey, Verifier, VerifyingKey};
+
+        let signing = SigningKey::from_bytes(&[7u8; 32]);
+        let verifying: VerifyingKey = signing.verifying_key();
+
+        // NEAR stores seed || public, which is what the wallet hands over.
+        let mut combined = Vec::with_capacity(64);
+        combined.extend_from_slice(&[7u8; 32]);
+        combined.extend_from_slice(verifying.as_bytes());
+        let encoded = format!("ed25519:{}", bs58::encode(&combined).into_string());
+
+        let sig = sign_with_session_key(&encoded, b"hello").unwrap();
+        let sig = Signature::from_slice(&sig).unwrap();
+
+        verifying.verify(b"hello", &sig).expect("the signature should verify");
+    }
+
+    #[test]
+    fn refuses_a_key_of_the_wrong_length_rather_than_signing_rubbish() {
+        let short = format!("ed25519:{}", bs58::encode([1u8; 32]).into_string());
+        let error = sign_with_session_key(&short, b"x").unwrap_err();
+        assert!(error.contains("64-byte"), "{error}");
+
+        assert!(sign_with_session_key("ed25519:not-base58-0OIl", b"x").is_err());
+    }
+}

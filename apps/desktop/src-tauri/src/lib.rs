@@ -117,20 +117,33 @@ fn get_session(app: AppHandle) -> Result<Option<Session>, String> {
     Ok(session::load_session(&app_dir(&app)?))
 }
 
-/// Hand the secret key to the webview for one signing.
+/// Sign bytes with a session key. The key stays here.
 ///
-/// It crosses the boundary on purpose: NEAR transaction signing is borsh plus
-/// ed25519, and the well-tested implementation of both is the JavaScript one.
-/// Reimplementing it in Rust to avoid this would trade a real risk for a
-/// larger one.
+/// The webview builds the transaction and sends the bytes to be signed, so the
+/// secret never crosses into the window — which is the point of keeping it in
+/// the keychain rather than in `localStorage`. Only borsh and nonce handling
+/// stay in JavaScript, where the tested implementation is; the ed25519 half is
+/// thirty lines and worth owning.
 #[tauri::command]
-fn session_secret_key() -> Option<String> {
-    session::load_secret_key()
+fn sign_bytes(message: Vec<u8>, on_game: bool) -> Result<Vec<u8>, String> {
+    let secret = if on_game {
+        session::load_game_secret_key()
+    } else {
+        session::load_secret_key()
+    }
+    .ok_or_else(|| "no session key for that contract".to_string())?;
+
+    session::sign_with_session_key(&secret, &message)
 }
 
+/// Whether a key exists, without handing it over.
 #[tauri::command]
-fn session_game_secret_key() -> Option<String> {
-    session::load_game_secret_key()
+fn has_session_key(on_game: bool) -> bool {
+    if on_game {
+        session::load_game_secret_key().is_some()
+    } else {
+        session::load_secret_key().is_some()
+    }
 }
 
 #[tauri::command]
@@ -201,8 +214,8 @@ pub fn run() {
             wallet_callback_url,
             save_session,
             get_session,
-            session_secret_key,
-            session_game_secret_key,
+            sign_bytes,
+            has_session_key,
             clear_session
         ])
         .setup(|app| {

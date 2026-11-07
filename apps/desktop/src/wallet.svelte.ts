@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { GAME_METHODS, STAKE_METHODS, contractForMethod } from '@joygotchi/pet';
-import { Account, JsonRpcProvider, KeyPair, KeyPairSigner } from 'near-api-js';
+import { Account, JsonRpcProvider, KeyPair, PublicKey, Signer } from 'near-api-js';
 import { stakeContractFor } from './chain';
 
 /**
@@ -285,6 +285,38 @@ export async function connect(gameContract: string) {
 export const sessionExpired = (session: Session, nowSecs = Math.floor(Date.now() / 1000)) =>
   session.expiresAt !== 0 && nowSecs >= session.expiresAt;
 
+/**
+ * A signer whose key lives in the operating system's keychain.
+ *
+ * `near-api-js` builds the transaction and borsh-encodes it; the only thing it
+ * asks of a signer is a signature over the bytes, which goes to Rust. So the
+ * secret never enters the webview at all — not at startup, not at signing
+ * time. That is what keeping it out of `localStorage` is *for*: localStorage
+ * is a file any process running as this user can read, and anything executing
+ * inside the window can read it in one line, whereas this key is reachable
+ * only through a command.
+ */
+class KeychainSigner extends Signer {
+  constructor(
+    private readonly publicKey: string,
+    private readonly onGame: boolean
+  ) {
+    super();
+  }
+
+  async getPublicKey(): Promise<PublicKey> {
+    return PublicKey.fromString(this.publicKey);
+  }
+
+  protected async signBytes(bytes: Uint8Array): Promise<Uint8Array> {
+    const signature = await invoke<number[]>('sign_bytes', {
+      message: Array.from(bytes),
+      onGame: this.onGame
+    });
+    return new Uint8Array(signature);
+  }
+}
+
 export class NoSessionError extends Error {
   constructor() {
     super('Connect a wallet first');
@@ -329,10 +361,9 @@ export async function signAndSend(
   // signed by the lab key and sent to the game contract is refused by the
   // node, not by the contract.
   const onGame = receiver === session.gameContractId;
-  const secret = await invoke<string | null>(
-    onGame ? 'session_game_secret_key' : 'session_secret_key'
-  );
-  if (!secret) {
+  const publicKey = onGame ? session.gamePublicKey : session.publicKey;
+
+  if (!publicKey || !(await invoke<boolean>('has_session_key', { onGame }))) {
     throw new Error(
       onGame
         ? 'This session has no key for the game contract — connect again to grant one'
@@ -340,9 +371,12 @@ export async function signAndSend(
     );
   }
 
-  const keyPair = KeyPair.fromString(secret as Parameters<typeof KeyPair.fromString>[0]);
   const provider = new JsonRpcProvider({ url: RPC_URL[network(net)] });
-  const account = new Account(session.accountId, provider, new KeyPairSigner(keyPair));
+  const account = new Account(
+    session.accountId,
+    provider,
+    new KeychainSigner(publicKey, onGame)
+  );
 
   // `callFunctionRaw`, not `callFunction`: the latter returns the method's
   // decoded return value, and `attack` returns a promise, so it hands back an

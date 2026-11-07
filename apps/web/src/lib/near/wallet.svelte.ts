@@ -100,8 +100,31 @@ async function getConnector(): Promise<Connector> {
 export async function restoreWallet(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
-    await getConnector();
-    await waitForAccount();
+    const connector = await getConnector();
+
+    // First, give `autoConnect` its chance: when the wallet announces itself
+    // the connector reconnects and the `wallet:signIn` handler fills this in,
+    // with nothing destructive on the way.
+    if (await waitForAccount()) return;
+
+    // Nothing replayed. Ask directly — but only now, after the wait, because
+    // `connector.wallet()` deletes the stored session when it fails, and on a
+    // freshly loaded page it fails simply because the wallet has not finished
+    // injecting itself yet. Asking first is what logged people out on every
+    // refresh; not asking at all is what left them logged out when no event
+    // came.
+    const active = await connector.wallet().catch(() => null);
+    if (!active) return;
+
+    const accounts = await (
+      active as unknown as {
+        getAccounts?: (p: { network: string }) => Promise<Array<{ accountId: string }>>;
+      }
+    )
+      .getAccounts?.({ network: NETWORK })
+      .catch(() => []);
+
+    wallet.accountId = accounts?.[0]?.accountId ?? wallet.accountId;
   } finally {
     wallet.ready = true;
   }
