@@ -20,6 +20,7 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
+  import { canAfford, feedPet } from './actions';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
@@ -85,8 +86,12 @@
   let chainOwner = $state<string | null>(null);
   const owner = $derived(chainOwner ?? pet.chain.owner);
   const mine = $derived(session?.accountId === owner);
-  const credits = $derived(Number(account ? formatCredits(account.credit_balance, 6) : 0));
-  const canFeed = $derived(mine && credits >= ACTION_PRICE.ai_feed);
+  /*
+   * Balance *and* claimable, because feeding claims on the way. Checking the
+   * balance alone greyed out Feed while there were earned credits sitting
+   * one call away — the very case the claim-first step exists for.
+   */
+  const canFeed = $derived(mine && canAfford(account));
 
   const stake = $derived(stakeContractFor(pet.chain.contract));
   const heroArt = $derived(convertFileSrc(`${pet.directory}/${pet.states.idle ?? ''}`));
@@ -128,12 +133,7 @@
     }
   }
 
-  /**
-   * Claim first when the balance alone will not cover it. Earned credits sit
-   * in `pending` until `claim_credits` moves them, and the contract only ever
-   * spends the balance — so "not enough credits" while the panel shows plenty
-   * is a thing that happens unless this does.
-   */
+  /** Run one action with the panel's busy, error and note handling around it. */
   async function act(label: string, run: () => Promise<unknown>, after: string) {
     busy = label;
     error = null;
@@ -151,30 +151,7 @@
 
   const net = () => pet.chain.network;
 
-  /**
-   * Feed, claiming first when the balance alone will not cover it.
-   *
-   * Earned credits sit in `pending` until `claim_credits` moves them, and the
-   * contract only ever spends the balance — so "not enough credits" while the
-   * panel shows plenty is a thing that happens unless this does.
-   */
-  const feed = () =>
-    act(
-      'feed',
-      async () => {
-        const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
-        if (credits < ACTION_PRICE.ai_feed && pending > 0) {
-          await signAndSend(net(), 'claim_credits', {});
-        }
-        await signAndSend(net(), 'spend_credits', {
-          action: 'ai_feed',
-          pet_id: pet.petId,
-          amount: String(Math.round(ACTION_PRICE.ai_feed * 1e6))
-        });
-        reactToGame('fed');
-      },
-      'Fed.'
-    );
+  const feed = () => act('feed', () => feedPet(net(), pet.petId, account), 'Fed.');
 
   /**
    * Who this pet could pick a fight with.

@@ -8,7 +8,10 @@
   import { detectBattle, startedHere, type SpectatedBattle } from './battle-watch';
   import Settings from './Settings.svelte';
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
-  import { petReaction, watchConnect } from './wallet.svelte';
+  import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
+  import { canAfford, feedPet } from './actions';
+  import { getStakeAccount, stakeContractFor } from './chain';
+  import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -39,6 +42,9 @@
    */
   let chainPets = $state<ChainPetSummary[]>([]);
   let spectating = $state<SpectatedBattle | null>(null);
+  let account = $state<StakeAccount | null>(null);
+  let feeding = $state(false);
+  let feedError = $state<string | null>(null);
 
   // The window is pet-sized until something needs room.
   $effect(() => {
@@ -87,6 +93,47 @@
     if (foodLeft < 86_400) return `${Math.floor(foodLeft / 3_600)}h`;
     return `${Math.floor(foodLeft / 86_400)}d`;
   });
+
+  const signedIn = $derived(walletSession.current);
+  const ownsActive = $derived(
+    !!signedIn && !!active && signedIn.accountId === (chainSelf?.owner_id ?? active.chain.owner)
+  );
+  const canFeed = $derived(ownsActive && canAfford(account) && !feeding);
+
+  /**
+   * Feed without opening anything.
+   *
+   * Feeding is the one action with a deadline — the pet starves on a clock —
+   * so it is the one that should not cost two clicks and a panel. Same
+   * `feedPet` the panel calls, claim-first and all.
+   */
+  async function quickFeed() {
+    if (!active || !canFeed) return;
+    feeding = true;
+    feedError = null;
+    try {
+      await feedPet(active.chain.network, active.petId, account);
+      await Promise.all([loadAccount(), pollBattles()]);
+    } catch (cause) {
+      feedError = cause instanceof Error ? cause.message : String(cause);
+      setTimeout(() => (feedError = null), 6_000);
+    } finally {
+      feeding = false;
+    }
+  }
+
+  async function loadAccount() {
+    const who = walletSession.current?.accountId;
+    if (!who || !active) {
+      account = null;
+      return;
+    }
+    account = await getStakeAccount(
+      active.chain.network,
+      stakeContractFor(active.chain.contract),
+      who
+    ).catch(() => null);
+  }
 
   const pose = $derived(visibleState(reaction, now));
   const motion = $derived(MOTION[pose]);
@@ -183,13 +230,17 @@
     void watchConnect();
     void load();
     void pollBattles();
+    void loadAccount();
 
     const ticker = setInterval(() => (now = Date.now()), 250);
     // Cheap: reading a couple of small files every few seconds.
     const rescan = setInterval(() => void load(), 5_000);
     // Slower than the file rescan: this one is a round trip to an RPC for
     // every pet on the contract, not a couple of local reads.
-    const battles = setInterval(() => void pollBattles(), 12_000);
+    const battles = setInterval(() => {
+      void pollBattles();
+      void loadAccount();
+    }, 12_000);
     const unlisten = listen<AgentEvent>('agent-event', (event) => void react(event.payload));
 
     return () => {
@@ -290,6 +341,18 @@
           {/each}
         {/if}
         <span class="spacer"></span>
+        {#if ownsActive}
+          <button
+            class="feed"
+            disabled={!canFeed}
+            onclick={quickFeed}
+            title={canAfford(account)
+              ? `Feed ${active.displayName} · ${ACTION_PRICE.ai_feed} credits`
+              : 'Not enough credits to feed'}
+          >
+            <img class="jg-px" alt="Feed" src="/assets/items/beef.png" />
+          </button>
+        {/if}
         <button title="What this pet is up to" onclick={() => (showPanel = true)}>ⓘ</button>
         <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
         <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
@@ -303,7 +366,26 @@
           </span>
           <span class="food" data-level={hunger}>{foodLabel}</span>
           {#if chainSelf.locked}<span class="chip work">LAB</span>{/if}
+          {#if account}
+            <!--
+              Balance and claimable together, because that is what the feed
+              button can actually spend: it claims on the way. Showing the
+              balance alone put a "0" next to an enabled Feed, which reads as
+              a bug rather than as credits waiting one call away.
+            -->
+            <span class="coins" title="Credits you can spend — earned ones are claimed on use">
+              {formatCredits(
+                (BigInt(account.credit_balance) + BigInt(account.pending_credits)).toString()
+              )}
+            </span>
+          {/if}
         </div>
+      {/if}
+
+      {#if feeding}
+        <p class="plate-note">Feeding…</p>
+      {:else if feedError}
+        <p class="plate-note bad">{feedError}</p>
       {/if}
     </div>
   {/if}
@@ -444,7 +526,7 @@
     display: flex;
     flex-direction: column;
     gap: 2px;
-    width: 150px;
+    width: 172px;
     margin: 2px 0 0;
     padding: 3px 4px;
     font-size: 8px;
@@ -470,7 +552,7 @@
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
-    max-width: 62px;
+    max-width: 58px;
   }
 
   .lv {
@@ -542,6 +624,42 @@
 
   .food[data-level='urgent'],
   .food[data-level='starved'] {
+    color: var(--jg-bad);
+  }
+
+  .plate button.feed {
+    padding: 0;
+    line-height: 0;
+  }
+
+  .plate button.feed img {
+    width: 13px;
+    height: 13px;
+    object-fit: contain;
+  }
+
+  .plate button.feed:not(:disabled):hover img {
+    transform: translateY(-1px);
+  }
+
+  .plate button.feed:disabled {
+    cursor: default;
+    opacity: 0.35;
+    filter: grayscale(1);
+  }
+
+  .coins {
+    color: var(--jg-ink);
+  }
+
+  .plate-note {
+    margin: 0;
+    font-size: 7px;
+    line-height: 1.5;
+    color: var(--jg-muted);
+  }
+
+  .plate-note.bad {
     color: var(--jg-bad);
   }
 
