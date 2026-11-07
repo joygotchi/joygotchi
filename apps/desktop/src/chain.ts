@@ -252,6 +252,15 @@ export type ShopItem = {
 export const getShop = (network: string, gameContract: string) =>
   viewFunction<ShopItem[]>(network, gameContract, 'get_shop', {});
 
+/**
+ * When mining is allowed again, in nanoseconds; 0 means now.
+ *
+ * The contract has had this view all along and the app never asked, so it
+ * offered Mine on a six-hour cooldown and let the contract do the refusing.
+ */
+export const miningAvailableAt = (network: string, stake: string, accountId: string) =>
+  viewFunction<string>(network, stake, 'mining_available_at', { account_id: accountId });
+
 export const getInventory = (network: string, stake: string, accountId: string) =>
   viewFunction<Array<[number, number]>>(network, stake, 'get_inventory', {
     account_id: accountId

@@ -18,6 +18,7 @@
     forgetReads,
     getShop,
     isAttackable,
+    miningAvailableAt,
     listPets,
     stakeContractFor,
     type ChainPetSummary,
@@ -83,6 +84,18 @@
   let fight = $state<'ready' | 'fighting' | 'won' | 'lost'>('ready');
   let wager = $state<string | null>(null);
   let error = $state<string | null>(null);
+  /**
+   * What an action was refused for, kept apart from `error`.
+   *
+   * They used to share one. A contract saying "mining is still on cooldown"
+   * — a correct, expected answer — replaced the whole panel with a red line
+   * and a Try again button, as if the chain had fallen over. `error` is for
+   * a read that failed and left nothing to draw; this is for an answer.
+   */
+  let refused = $state<string | null>(null);
+  let miningAt = $state(0);
+  /** Ticks so the mining countdown moves between loads. */
+  let now = $state(Date.now());
   let loading = $state(true);
   let loadedOnce = $state(false);
   let busy = $state<string | null>(null);
@@ -100,6 +113,12 @@
   const canFeed = $derived(mine && canAfford(account));
 
   const stake = $derived(stakeContractFor(pet.chain.contract));
+  /** Seconds until mining is allowed, and the same as "4h" or "12m". */
+  const minesIn = $derived(Math.max(0, Math.round((miningAt - now) / 1000)));
+  const untilMine = $derived(
+    minesIn >= 3600 ? `${Math.floor(minesIn / 3600)}h` : `${Math.max(1, Math.ceil(minesIn / 60))}m`
+  );
+
   const heroArt = $derived(convertFileSrc(`${pet.directory}/${pet.states.idle ?? ''}`));
   /** Whether this session's key covers staking, or predates it being granted. */
   const stakeSignsHere = $derived(
@@ -122,14 +141,16 @@
         pet.chain.owner;
       chainOwner = current;
 
-      const [acc, st, inv] = await Promise.all([
+      const [acc, st, inv, minesAt] = await Promise.all([
         getStakeAccount(pet.chain.network, stake, current),
         getPetStatus(pet.chain.network, stake, pet.petId),
-        getInventory(pet.chain.network, stake, current)
+        getInventory(pet.chain.network, stake, current),
+        miningAvailableAt(pet.chain.network, stake, current).catch(() => '0')
       ]);
       account = acc;
       status = st;
       inventory = inv;
+      miningAt = Number(minesAt) / 1e6;
       void loadTargets(current);
       void getShop(pet.chain.network, pet.chain.contract)
         .then((items) => (shop = items))
@@ -145,7 +166,7 @@
   /** Run one action with the panel's busy, error and note handling around it. */
   async function act(label: string, run: () => Promise<unknown>, after: string) {
     busy = label;
-    error = null;
+    refused = null;
     note = null;
     try {
       await run();
@@ -155,7 +176,7 @@
       forgetReads();
       await load();
     } catch (cause) {
-      error = readableError(cause);
+      refused = readableError(cause);
     } finally {
       busy = null;
     }
@@ -317,6 +338,8 @@
   $effect(() => {
     void pet.petId;
     void load();
+    const tick = setInterval(() => (now = Date.now()), 30_000);
+    return () => clearInterval(tick);
   });
 </script>
 
@@ -619,13 +642,15 @@
           busy === 'faucet' ? '…' : undefined
         )}
         {@render tile(
-          'Mine',
+          minesIn > 0 ? `Mine ${untilMine}` : 'Mine',
           '/assets/button/mining.png',
           () => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.'),
-          busy !== null || (account?.staked_pets.length ?? 0) === 0,
+          busy !== null || (account?.staked_pets.length ?? 0) === 0 || minesIn > 0,
           (account?.staked_pets.length ?? 0) === 0
             ? 'Mining needs a pet at work in the lab'
-            : 'A small top-up every six hours',
+            : minesIn > 0
+              ? `On cooldown for another ${untilMine}`
+              : 'A small top-up every six hours',
           busy === 'mine' ? '…' : undefined
         )}
         {@render tile(
@@ -655,6 +680,7 @@
       </div>
 
       {#if note}<p class="ok">{note}</p>{/if}
+      {#if refused}<p class="bad">{refused}</p>{/if}
 
       <!--
         Silkscreen is all caps at this size, so three lines of prose reads as
