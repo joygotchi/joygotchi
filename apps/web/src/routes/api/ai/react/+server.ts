@@ -46,14 +46,33 @@ export const POST: RequestHandler = async ({ request }) => {
 
   if (!pet) return json({ error: `No pet ${petId} on ${GAME_CONTRACT}` }, { status: 404 });
 
-  const what =
-    event.kind === 'tool-start'
-      ? `Your owner's coding agent just started running ${event.tool}.`
-      : event.kind === 'tool-end'
-        ? `Your owner's ${event.tool} just ${event.ok ? 'succeeded' : 'failed'}.`
-        : event.kind === 'prompt'
-          ? 'Your owner just asked their coding agent for something.'
-          : 'Your owner has gone quiet.';
+  /*
+   * `game` was missing here, so feeding your pet reached the final branch and
+   * it answered "have you gone quiet?" — right after you had just done
+   * something to it. The chain of ternaries hid that: adding a kind to the
+   * union did not break it, it just silently fell through to the last line.
+   * A switch makes the next kind a type error instead.
+   */
+  const what = ((): string => {
+    switch (event.kind) {
+      case 'tool-start':
+        return `Your owner's coding agent just started running ${event.tool}.`;
+      case 'tool-end':
+        return `Your owner's ${event.tool} just ${event.ok ? 'succeeded' : 'failed'}.`;
+      case 'prompt':
+        return 'Your owner just asked their coding agent for something.';
+      case 'game':
+        return event.what === 'fed'
+          ? 'Your owner just fed you.'
+          : 'You have just come out of a fight.';
+      case 'idle':
+        return 'Your owner has gone quiet.';
+      default: {
+        const never: never = event;
+        return never;
+      }
+    }
+  })();
 
   try {
     const line = await complete(

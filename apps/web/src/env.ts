@@ -52,9 +52,11 @@ export const variables = defineEnvVars({
     description: 'NEAR AI Cloud base URL.'
   },
   NEAR_AI_MODEL: {
-    schema: withDefault('zai-org/GLM-5.1-FP8'),
+    schema: withDefault('google/gemini-3.1-flash-lite'),
     description:
       'Model used for pet reactions and chat. Must be an exact id from the NEAR AI catalogue; ' +
-      'a name that is close but not exact fails at call time, not at startup.'
+      'a name that is close but not exact fails at call time, not at startup. Prefer a model ' +
+      'that does not reason: a pet says one line, and a reasoning model spends hundreds of ' +
+      'tokens deciding what that line should be before writing it.'
   }
 });

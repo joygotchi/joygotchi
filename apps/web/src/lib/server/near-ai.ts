@@ -38,7 +38,9 @@ export async function complete(
     body: JSON.stringify({
       model: NEAR_AI_MODEL,
       messages,
-      max_tokens: options.maxTokens ?? 160,
+      // Generous for one line, because a reasoning model spends this budget
+      // on thinking first and only then writes — see the check below.
+      max_tokens: options.maxTokens ?? 400,
       temperature: options.temperature ?? 0.9
     })
   });
@@ -49,9 +51,31 @@ export async function complete(
   }
 
   const body = (await response.json()) as {
-    choices?: Array<{ message?: { content?: string } }>;
+    choices?: Array<{ message?: { content?: string | null }; finish_reason?: string }>;
   };
-  return body.choices?.[0]?.message?.content?.trim() ?? '';
+
+  const choice = body.choices?.[0];
+  const line = choice?.message?.content?.trim() ?? '';
+
+  /*
+   * A reasoning model answers in two parts: `reasoning_content` first, then
+   * `content`. Run out of budget during the thinking and it returns content
+   * `null` with `finish_reason: "length"` — a perfectly successful HTTP 200
+   * that says nothing. Returning '' for that looked exactly like a pet with
+   * nothing to say, so the speech bubble stayed empty and no error was ever
+   * raised to explain it.
+   *
+   * Setting `reasoning_effort: "none"` is not the fix: on this endpoint it
+   * leaves the reasoning in `content`, which is worse than silence.
+   */
+  if (!line && choice?.finish_reason === 'length') {
+    throw new Error(
+      'NEAR AI spent the whole token budget before writing anything — ' +
+        'raise maxTokens, or point NEAR_AI_MODEL at a model that does not reason.'
+    );
+  }
+
+  return line;
 }
 
 /**
