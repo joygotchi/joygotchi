@@ -100,6 +100,12 @@ export type ChainPetSummary = {
    */
   category?: string;
   evolution_phase?: number;
+  /**
+   * Set on whoever **won** the last fight, not on whoever started it. Both
+   * this and `last_attacked` are stamped with the same block timestamp, which
+   * is what lets `detectBattle` pair the two sides without an indexer.
+   */
+  last_attack_used?: string;
 };
 
 /**

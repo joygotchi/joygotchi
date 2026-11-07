@@ -2,7 +2,10 @@
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import type { AgentEvent } from '@joygotchi/pet';
+  import BattleScene from './BattleScene.svelte';
   import PetPanel from './PetPanel.svelte';
+  import { listPets, type ChainPetSummary } from './chain';
+  import { detectBattle, startedHere, type SpectatedBattle } from './battle-watch';
   import Settings from './Settings.svelte';
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { petReaction, watchConnect } from './wallet.svelte';
@@ -27,9 +30,22 @@
   let showSettings = $state(false);
   let showPanel = $state(false);
 
+  /**
+   * Fights your pet was in, including the ones you did not start.
+   *
+   * `chainPets` is the previous read, kept apart from `pets` on purpose: that
+   * array drives the whole window, and reassigning it every few seconds is
+   * what once made the panel reload forever.
+   */
+  let chainPets = $state<ChainPetSummary[]>([]);
+  let spectating = $state<SpectatedBattle | null>(null);
+  let spectateTimer: ReturnType<typeof setTimeout> | null = null;
+
   // The window is pet-sized until something needs room.
   $effect(() => {
-    void invoke('set_panel_open', { open: showSettings || showPanel }).catch(() => {});
+    void invoke('set_panel_open', {
+      open: showSettings || showPanel || spectating !== null
+    }).catch(() => {});
   });
   let overPet = $state(false);
 
@@ -100,20 +116,55 @@
     }
   }
 
+  /**
+   * Watch the chain for fights involving this pet.
+   *
+   * Lives here rather than in the panel because being attacked is not
+   * something you are present for: the point is to see it when you are doing
+   * something else, with the panel closed.
+   */
+  async function pollBattles() {
+    if (!active) return;
+    const found = await listPets(active.chain.network, active.chain.contract).catch(() => []);
+    if (found.length === 0) return;
+
+    const seen = detectBattle(active.petId, chainPets, found);
+    chainPets = found;
+    if (!seen) return;
+    // The panel is already showing this one.
+    if (startedHere()) return;
+
+    reaction = nextReaction(reaction, { kind: 'game', what: 'battled' });
+    // Only a known opponent gets the arena; otherwise the pet still reacts
+    // and the stats refresh, which is all the chain actually told us.
+    if (seen.opponent) {
+      spectating = seen;
+      if (spectateTimer) clearTimeout(spectateTimer);
+      spectateTimer = setTimeout(() => (spectating = null), 15_000);
+    }
+    void load();
+  }
+
   $effect(() => {
     // Registered for the app's lifetime: a wallet grant is a round trip
     // through the browser and must not depend on a panel staying open.
     void watchConnect();
     void load();
+    void pollBattles();
 
     const ticker = setInterval(() => (now = Date.now()), 250);
     // Cheap: reading a couple of small files every few seconds.
     const rescan = setInterval(() => void load(), 5_000);
+    // Slower than the file rescan: this one is a round trip to an RPC for
+    // every pet on the contract, not a couple of local reads.
+    const battles = setInterval(() => void pollBattles(), 12_000);
     const unlisten = listen<AgentEvent>('agent-event', (event) => void react(event.payload));
 
     return () => {
       clearInterval(ticker);
       clearInterval(rescan);
+      clearInterval(battles);
+      if (spectateTimer) clearTimeout(spectateTimer);
       void unlisten.then((off) => off());
     };
   });
@@ -195,7 +246,22 @@
     </div>
   {/if}
 
-  {#if showPanel && active}
+  {#if spectating?.opponent && active}
+    <!-- Somebody picked a fight with this pet. Show it, do not report it. -->
+    <div class="spectate">
+      <p class="spectate-title">
+        {spectating.outcome === 'lost' ? 'Attacked' : 'Defended'}
+      </p>
+      <BattleScene
+        mine={active}
+        target={spectating.opponent}
+        phase={spectating.outcome}
+        transferred={null}
+        onfight={() => {}}
+        onclose={() => (spectating = null)}
+      />
+    </div>
+  {:else if showPanel && active}
     <PetPanel pet={active} onclose={() => (showPanel = false)} />
   {/if}
 
@@ -294,6 +360,23 @@
 
   .hint button.close:hover {
     color: #f36b7b;
+  }
+
+  .spectate {
+    position: absolute;
+    inset: 4px;
+    background: #0b0d10f7;
+    border: 1px solid #39414d;
+    overflow-y: auto;
+  }
+
+  .spectate-title {
+    margin: 0;
+    padding: 6px 8px;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    color: #f36b7b;
+    border-bottom: 1px solid #242a33;
   }
 
   .empty {

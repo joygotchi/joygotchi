@@ -18,6 +18,7 @@
     type ChainPetSummary
   } from './chain';
   import BattleScene from './BattleScene.svelte';
+  import { markSelfFight } from './battle-watch';
   import {
     findEvent,
     readableError,
@@ -184,6 +185,9 @@
     if (!opponent) return;
     const target = opponent;
 
+    // This window is about to show the fight itself, so the chain watcher
+    // must not open its spectator overlay over the top of it.
+    markSelfFight();
     fight = 'fighting';
     error = null;
     note = null;
