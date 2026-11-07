@@ -204,7 +204,7 @@
     >
       <p>No pet installed yet.</p>
       <code>npx joygotchi install &lt;code&gt;</code>
-      <button onclick={load}>Look again</button>
+      <button class="jg-btn" onclick={load}>Look again</button>
     </div>
   {:else}
     {#if line}
@@ -245,7 +245,7 @@
 
   {#if spectating?.opponent && active}
     <!-- Somebody picked a fight with this pet. Show it, do not report it. -->
-    <div class="spectate">
+    <div class="spectate jg jg-frame">
       <p class="spectate-title">
         {spectating.outcome === 'lost' ? 'Attacked' : 'Defended'}
       </p>
@@ -286,8 +286,8 @@
     margin: 0;
     background: transparent;
     overflow: hidden;
-    font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-    color: #e7ebf0;
+    font-family: var(--jg-pixel);
+    color: var(--jg-ink);
     user-select: none;
   }
 
@@ -316,28 +316,57 @@
     -webkit-user-drag: none;
   }
 
+  /*
+   * What the pet says, as a speech bubble rather than a toast. Light, because
+   * it floats over the editor: a dark box there reads as another window, and
+   * the one thing this should look like is the pet talking.
+   */
   .bubble {
+    position: relative;
     max-width: 220px;
-    margin: 0 0 6px;
-    padding: 6px 8px;
-    font-size: 11px;
-    line-height: 1.35;
-    background: #12151aee;
-    border: 1px solid #39414d;
+    margin: 0 0 10px;
+    padding: 5px 7px;
+    font-size: 8px;
+    line-height: 1.6;
+    color: var(--jg-ink);
+    background: #fff;
+    border: 3px solid var(--jg-edge);
     text-align: center;
+  }
+
+  /* The tail, in two squares, so it stays pixel art at any zoom. */
+  .bubble::after,
+  .bubble::before {
+    content: '';
+    position: absolute;
+    left: 50%;
+    width: 6px;
+    height: 6px;
+  }
+
+  .bubble::before {
+    bottom: -9px;
+    margin-left: -4px;
+    background: var(--jg-edge);
+  }
+
+  .bubble::after {
+    bottom: -6px;
+    margin-left: -3px;
+    background: #fff;
   }
 
   .hint {
     transition: opacity 0.15s;
     display: flex;
     align-items: center;
-    gap: 6px;
+    gap: 5px;
     margin: 2px 0 0;
-    padding: 2px 6px;
-    font-size: 9px;
-    color: #8b95a3;
-    background: #0b0d10cc;
-    border: 1px solid #242a33;
+    padding: 2px 5px;
+    font-size: 8px;
+    color: var(--jg-ink);
+    background: var(--jg-bevel);
+    border: 2px solid var(--jg-edge);
   }
 
   /* Visible but out of the way until the cursor is near. */
@@ -348,37 +377,34 @@
   .hint button {
     background: none;
     border: 0;
-    color: #8b95a3;
+    color: var(--jg-muted);
     font: inherit;
-    font-size: 11px;
+    font-size: 10px;
     line-height: 1;
     padding: 0 2px;
     cursor: pointer;
   }
 
   .hint button:hover {
-    color: #e7ebf0;
+    color: var(--jg-ink);
   }
 
   .hint button.close:hover {
-    color: #f36b7b;
+    color: var(--jg-bad);
   }
 
   .spectate {
     position: absolute;
-    inset: 4px;
-    background: #0b0d10f7;
-    border: 1px solid #39414d;
+    inset: 2px;
     overflow-y: auto;
   }
 
   .spectate-title {
     margin: 0;
-    padding: 6px 8px;
-    font-size: 10px;
+    padding: 4px 6px;
+    font-size: 9px;
     letter-spacing: 0.08em;
-    color: #f36b7b;
-    border-bottom: 1px solid #242a33;
+    color: var(--jg-bad);
   }
 
   .empty {
@@ -386,25 +412,17 @@
     flex-direction: column;
     gap: 6px;
     align-items: center;
-    padding: 12px;
-    font-size: 11px;
-    background: #12151aee;
-    border: 1px solid #39414d;
+    padding: 10px;
+    font-size: 9px;
+    text-align: center;
+    color: var(--jg-ink);
+    background: var(--jg-screen);
+    border: 3px solid var(--jg-edge);
   }
 
   .empty code {
-    color: #b6f36b;
-    font-size: 10px;
-  }
-
-  .empty button {
-    background: none;
-    border: 1px solid #39414d;
-    color: inherit;
-    font: inherit;
-    font-size: 10px;
-    padding: 3px 8px;
-    cursor: pointer;
+    color: var(--jg-good);
+    font-size: 8px;
   }
 
 </style>

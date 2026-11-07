@@ -80,9 +80,17 @@ const PETS = [
   }
 ];
 
-/** A session for the pet's owner, so the panel renders its real controls. */
+/**
+ * A session for the pet's owner, so the panel renders its real controls.
+ *
+ * Which account is signing decides most of what the panel draws: a pet that
+ * is not yours hides every tile. Overridable, because checking that half of
+ * the UI otherwise means editing this file and putting it back.
+ *
+ *     localStorage.setItem('joygotchi:mock-account', 'jg-p2-72362.testnet')
+ */
 const SESSION = {
-  accountId: 'kurodenjiro2.testnet',
+  accountId: localStorage.getItem('joygotchi:mock-account') ?? 'kurodenjiro2.testnet',
   publicKey: 'ed25519:mock',
   contractId: 'jg-stake-5656.testnet',
   gameContractId: 'jg-game-5656.testnet',

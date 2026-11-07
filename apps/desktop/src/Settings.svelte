@@ -57,7 +57,7 @@
   });
 </script>
 
-<div class="panel">
+<div class="panel jg jg-frame">
 
   <header data-tauri-drag-region>
     <span>Pets</span>
@@ -129,14 +129,14 @@
 </div>
 
 <style>
+  /* Settings shares the panel's frame; only its own rules live here. */
   .panel {
     position: absolute;
-    inset: 4px;
+    inset: 2px;
     display: flex;
     flex-direction: column;
-    background: #0b0d10f2;
-    border: 1px solid #39414d;
-    font-size: 11px;
+    padding: 4px;
+    font-size: 10px;
   }
 
   header {
@@ -144,11 +144,11 @@
     display: flex;
     justify-content: space-between;
     align-items: center;
-    padding: 6px 8px;
-    border-bottom: 1px solid #242a33;
-    letter-spacing: 0.1em;
+    padding: 2px 2px 4px;
+    letter-spacing: 0.08em;
     text-transform: uppercase;
-    color: #8b95a3;
+    font-size: 9px;
+    color: var(--jg-muted);
   }
 
   /* Its own rule. It used to share one with `.wallet`, which gave the close
@@ -157,21 +157,22 @@
     cursor: pointer;
     background: none;
     border: 0;
-    color: #8b95a3;
+    color: var(--jg-muted);
     font: inherit;
-    font-size: 13px;
+    font-size: 12px;
     line-height: 1;
     padding: 0 2px;
-    cursor: pointer;
   }
 
   header button:hover {
-    color: #f36b7b;
+    color: var(--jg-bad);
   }
 
   .wallet {
-    border-top: 1px solid #242a33;
-    padding: 6px 8px;
+    padding: 5px;
+    margin-top: 4px;
+    background: var(--jg-screen);
+    border: 3px solid var(--jg-edge);
   }
 
   .toggle {
@@ -188,61 +189,71 @@
   .wallet button {
     margin-top: 4px;
     width: 100%;
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
-    padding: 3px 8px;
+    font-family: var(--jg-pixel);
+    font-size: 9px;
+    color: var(--jg-ink);
+    background: var(--jg-bevel);
+    border: 3px solid var(--jg-edge);
+    box-shadow: inset -2px -2px 0 #c3d2da;
+    padding: 4px 8px;
     cursor: pointer;
+  }
+
+  .wallet button:active:not(:disabled) {
+    box-shadow: inset 2px 2px 0 #c3d2da;
+    transform: translateY(1px);
   }
 
   .wallet button:disabled {
     opacity: 0.5;
+    cursor: default;
   }
 
   .fine {
     margin: 4px 0 0;
-    color: #8b95a3;
-    font-size: 10px;
-    line-height: 1.5;
+    color: var(--jg-muted);
+    font-size: 8px;
+    line-height: 1.6;
   }
 
   .accent {
-    color: #b6f36b;
+    color: var(--jg-good);
   }
 
   .muted {
-    color: #8b95a3;
+    color: var(--jg-muted);
   }
 
   .bad {
     margin: 4px 0 0;
-    color: #f36b7b;
-    font-size: 10px;
+    color: var(--jg-bad);
+    font-size: 8px;
   }
 
   footer button.quit {
-    border-color: #4a2a30;
-    color: #f36b7b;
+    color: var(--jg-bad);
   }
 
   footer button {
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
+    font-family: var(--jg-pixel);
+    font-size: 8px;
+    background: var(--jg-bevel);
+    border: 2px solid var(--jg-edge);
+    color: var(--jg-ink);
     cursor: pointer;
-    padding: 1px 6px;
+    padding: 2px 6px;
   }
 
   ul {
     flex: 1 1 auto;
-    min-height: 72px;
-    max-height: 140px;
-    margin: 0;
-    padding: 0;
+    min-height: 60px;
+    max-height: 150px;
+    margin: 4px 0 0;
+    padding: 2px;
     list-style: none;
     overflow-y: auto;
+    background: var(--jg-screen);
+    border: 3px solid var(--jg-edge);
   }
 
   li button {
@@ -250,45 +261,53 @@
     justify-content: space-between;
     gap: 6px;
     width: 100%;
-    padding: 6px 8px;
+    padding: 4px 5px;
     background: none;
     border: 0;
-    border-bottom: 1px solid #171b22;
-    color: inherit;
+    color: var(--jg-ink);
     font: inherit;
+    font-size: 9px;
     text-align: left;
     cursor: pointer;
   }
 
+  li button:hover {
+    background: #ffffffaa;
+  }
+
   li button.active {
-    color: #b6f36b;
+    color: var(--jg-good);
+    background: #ffffffcc;
   }
 
   .meta {
-    color: #8b95a3;
+    color: var(--jg-muted);
   }
 
   .empty {
     flex: 1;
-    margin: 0;
-    padding: 10px 8px;
-    color: #8b95a3;
-    line-height: 1.5;
+    margin: 4px 0 0;
+    padding: 8px;
+    font-size: 9px;
+    color: var(--jg-muted);
+    line-height: 1.6;
+    background: var(--jg-screen);
+    border: 3px solid var(--jg-edge);
   }
 
   .empty code {
-    color: #b6f36b;
+    color: var(--jg-good);
+    font-size: 8px;
   }
 
   footer {
     display: flex;
     flex-wrap: wrap;
-    gap: 6px;
+    gap: 5px;
     justify-content: space-between;
     align-items: center;
-    padding: 5px 8px;
-    border-top: 1px solid #242a33;
-    color: #8b95a3;
-    font-size: 10px;
+    padding: 5px 2px 0;
+    color: var(--jg-muted);
+    font-size: 8px;
   }
 </style>

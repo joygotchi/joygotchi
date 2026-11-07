@@ -38,7 +38,7 @@
   );
 </script>
 
-<div class="scene">
+<div class="scene jg">
   <div class="arena">
     <div class="side">
       <img
@@ -50,7 +50,7 @@
       <span class="name">{mine.displayName}</span>
     </div>
 
-    <span class="versus" class:clash={phase === 'fighting'}>vs</span>
+    <span class="versus" class:clash={phase === 'fighting'}>VS</span>
 
     <div class="side">
       <!--
@@ -72,25 +72,25 @@
   </div>
 
   {#if phase === 'ready'}
-    <p class="line">
-      Winner takes the wager. The odds swing ±15%, so this is not a free win.
-    </p>
-    <div class="buttons">
-      <button class="go" onclick={onfight}>Fight</button>
-      <button onclick={onclose}>Back</button>
-    </div>
+    <p class="line">Winner takes the wager. The odds swing ±15%.</p>
+    <!--
+      The drawn button is the button. It carries its own label, so putting
+      text over it would say "ATTACK NOW" twice.
+    -->
+    <button class="attack" onclick={onfight} aria-label="Attack now">
+      <img alt="" src="/assets/button/button-attack.png" />
+    </button>
+    <button class="jg-btn wide" onclick={onclose}>Back</button>
   {:else if phase === 'fighting'}
     <p class="line pulse">Settling on chain…</p>
   {:else}
     <p class="result" class:won={phase === 'won'} class:lost={phase === 'lost'}>
-      {phase === 'won' ? 'Won' : 'Lost'}
+      {phase === 'won' ? 'WON' : 'LOST'}
       {#if transferred}
         <span class="amount">{phase === 'won' ? '+' : '−'}{transferred}</span>
       {/if}
     </p>
-    <div class="buttons">
-      <button onclick={onclose}>Back</button>
-    </div>
+    <button class="jg-btn wide" onclick={onclose}>Back</button>
   {/if}
 </div>
 
@@ -98,19 +98,28 @@
   .scene {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 8px;
+    gap: 5px;
+    padding: 4px;
+    font-family: var(--jg-pixel);
+    color: var(--jg-ink);
   }
 
+  /*
+   * The drawn arena, with the fighters standing on it. It is a scene rather
+   * than a panel: a fight reported in a grey box is the thing this screen
+   * exists to stop being.
+   */
   .arena {
+    position: relative;
     display: grid;
     grid-template-columns: 1fr auto 1fr;
-    align-items: center;
-    gap: 4px;
-    min-height: 92px;
-    background: #0b0d10;
-    border: 1px solid #242a33;
-    padding: 6px 4px;
+    align-items: end;
+    gap: 2px;
+    min-height: 110px;
+    padding: 10px 6px 14px;
+    background: url('/assets/background/battle.png') center / cover no-repeat;
+    border: 3px solid var(--jg-edge);
+    image-rendering: pixelated;
   }
 
   .side {
@@ -118,11 +127,11 @@
     flex-direction: column;
     align-items: center;
     gap: 2px;
-    overflow: hidden;
+    min-width: 0;
   }
 
   .sprite {
-    height: 56px;
+    height: 62px;
     image-rendering: pixelated;
   }
 
@@ -132,29 +141,53 @@
   }
 
   .name {
-    font-size: 9px;
-    color: #8b95a3;
     max-width: 100%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    padding: 0 3px;
+    font-size: 8px;
+    color: var(--jg-ink);
+    background: #ffffffcc;
+    border: 1px solid var(--jg-edge);
   }
 
   .versus {
+    align-self: center;
     font-size: 10px;
-    color: #39414d;
+    color: #fff;
+    text-shadow: 1px 1px 0 var(--jg-edge), -1px -1px 0 var(--jg-edge),
+      1px -1px 0 var(--jg-edge), -1px 1px 0 var(--jg-edge);
   }
 
   .versus.clash {
-    color: #f36b7b;
+    color: var(--jg-bad);
     animation: jg-shake 0.5s ease-in-out infinite;
+  }
+
+  /* The art is the whole control: no frame, no background, no label. */
+  .attack {
+    border: 0;
+    background: none;
+    padding: 0;
+    cursor: pointer;
+    line-height: 0;
+  }
+
+  .attack img {
+    width: 100%;
+    image-rendering: pixelated;
+  }
+
+  .attack:active img {
+    transform: translateY(2px);
   }
 
   .line {
     margin: 0;
-    font-size: 10px;
-    line-height: 1.5;
-    color: #8b95a3;
+    font-size: 8px;
+    line-height: 1.6;
+    color: var(--jg-muted);
   }
 
   .pulse {
@@ -163,42 +196,27 @@
 
   .result {
     margin: 0;
-    font-size: 14px;
+    font-size: 16px;
     text-align: center;
+    letter-spacing: 0.1em;
   }
 
   .result.won {
-    color: #b6f36b;
+    color: var(--jg-good);
   }
 
   .result.lost {
-    color: #f36b7b;
+    color: var(--jg-bad);
   }
 
   .amount {
     display: block;
-    font-size: 10px;
-    color: #8b95a3;
+    font-size: 9px;
+    letter-spacing: 0;
+    color: var(--jg-muted);
   }
 
-  .buttons {
-    display: flex;
-    gap: 4px;
-  }
-
-  .buttons button {
-    flex: 1;
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
-    font-size: 10px;
-    padding: 3px 6px;
-    cursor: pointer;
-  }
-
-  .buttons button.go {
-    border-color: #b6f36b;
-    color: #b6f36b;
+  .wide {
+    width: 100%;
   }
 </style>
