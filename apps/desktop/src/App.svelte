@@ -10,7 +10,7 @@
   import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
   import { canAfford, feedPet } from './actions';
-  import { getStakeAccount, stakeContractFor } from './chain';
+  import { forgetReads, getStakeAccount, stakeContractFor } from './chain';
   import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
@@ -113,6 +113,7 @@
     feedError = null;
     try {
       await feedPet(active.chain.network, active.petId, account);
+      forgetReads();
       await Promise.all([loadAccount(), pollBattles()]);
     } catch (cause) {
       feedError = cause instanceof Error ? cause.message : String(cause);

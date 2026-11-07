@@ -20,14 +20,36 @@ const RPC = {
 export const stakeContractFor = (gameContract: string) =>
   gameContract.replace(/^jg-game-/, 'jg-stake-');
 
-export async function viewFunction<T>(
-  network: string,
+/**
+ * How long an identical read is reused.
+ *
+ * The window polls every pet on the contract every twelve seconds for the
+ * battle watcher, and the panel asks for the same list again to build its
+ * target list. Two callers wanting the same answer a moment apart is the
+ * normal case here, not an edge one.
+ */
+const CACHE_MS = 4_000;
+
+type Entry = { at: number; value: Promise<unknown> };
+const inFlight = new Map<string, Entry>();
+
+/** Transient: worth another go. A contract panic is not. */
+function isTransient(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/panic|Cannot deserialize|Unknown|not enough|require/i.test(message)) return false;
+  return /HTTP (408|425|429|5\d\d)|returned nothing|refused|fetch|network|timeout|aborted/i.test(
+    message
+  );
+}
+
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+async function rawView<T>(
+  url: string,
   contractId: string,
   method: string,
-  args: Record<string, unknown> = {}
+  args: Record<string, unknown>
 ): Promise<T> {
-  const url = RPC[network as keyof typeof RPC] ?? RPC.testnet;
-
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -57,6 +79,58 @@ export async function viewFunction<T>(
 
   const text = new TextDecoder().decode(new Uint8Array(body.result.result));
   return (text === '' ? null : JSON.parse(text)) as T;
+}
+
+/**
+ * Read the chain, with the two things a public RPC makes necessary.
+ *
+ * **Retry.** A rate-limited or momentarily unreachable node used to surface
+ * as a red error in the panel, indistinguishable from a contract that had
+ * genuinely broken — which cost a real hour of debugging once. Only
+ * transient failures are retried: a contract panic is an answer, and
+ * repeating the question does not change it.
+ *
+ * **Coalescing.** Identical reads inside a few seconds share one request and
+ * one answer. The window and the panel both want every pet on the contract,
+ * on their own timers, and before this they each asked.
+ */
+export async function viewFunction<T>(
+  network: string,
+  contractId: string,
+  method: string,
+  args: Record<string, unknown> = {}
+): Promise<T> {
+  const url = RPC[network as keyof typeof RPC] ?? RPC.testnet;
+  const key = `${url}|${contractId}|${method}|${JSON.stringify(args)}`;
+
+  const cached = inFlight.get(key);
+  if (cached && Date.now() - cached.at < CACHE_MS) return cached.value as Promise<T>;
+
+  const value = (async () => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        return await rawView<T>(url, contractId, method, args);
+      } catch (error) {
+        lastError = error;
+        if (!isTransient(error)) throw error;
+        // 300ms, then 900ms. Long enough for a rate limit window to pass,
+        // short enough that the panel is not visibly stuck.
+        await wait(300 * 3 ** attempt);
+      }
+    }
+    throw lastError;
+  })();
+
+  inFlight.set(key, { at: Date.now(), value });
+  // A failure must not be served to the next caller for four seconds.
+  value.catch(() => inFlight.delete(key));
+  return value;
+}
+
+/** For tests, and for a forced refresh after something is signed. */
+export function forgetReads() {
+  inFlight.clear();
 }
 
 export const getStakeAccount = (network: string, stake: string, accountId: string) =>

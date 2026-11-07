@@ -15,6 +15,7 @@
     getPetOwner,
     getPetStatus,
     getStakeAccount,
+    forgetReads,
     getShop,
     isAttackable,
     listPets,
@@ -149,6 +150,9 @@
     try {
       await run();
       note = after;
+      // The chain just changed, so the few seconds of read coalescing would
+      // otherwise show the state from before the thing that was signed.
+      forgetReads();
       await load();
     } catch (cause) {
       error = readableError(cause);
