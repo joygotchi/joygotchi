@@ -926,6 +926,29 @@ impl Game {
         self.pets.values().map(|pet| self.to_view(&pet)).collect()
     }
 
+    /// Every pet, a page at a time.
+    ///
+    /// Without this the desktop window read the population by walking token
+    /// ids — one `get_pet` per pet, every twelve seconds, to find out whether
+    /// anyone had attacked you. Eight pets made that nine calls and the free
+    /// RPC tiers answer about eight before returning 429, so the app spent
+    /// the day rate-limiting itself and showing the result as a broken
+    /// contract. A hundred pets would have made it a hundred and one.
+    ///
+    /// `limit` is capped rather than trusted: this iterates, and a caller
+    /// asking for everything on a large contract would run out of gas inside
+    /// a view.
+    pub fn get_pets(&self, from_index: Option<u64>, limit: Option<u64>) -> Vec<PetView> {
+        let skip = from_index.unwrap_or(0) as usize;
+        let take = limit.unwrap_or(50).min(100) as usize;
+        self.pets
+            .values()
+            .skip(skip)
+            .take(take)
+            .map(|pet| self.to_view(&pet))
+            .collect()
+    }
+
     pub fn get_pets_for_owner(&self, account_id: AccountId) -> Vec<PetView> {
         self.pets
             .values()
@@ -1233,6 +1256,38 @@ impl NonFungibleTokenMetadataProvider for Game {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn get_pets_pages_and_caps_what_it_returns() {
+        let mut contract = deploy();
+        for _ in 0..5 {
+            mint(&mut contract, alice(), 0);
+        }
+
+        assert_eq!(contract.get_pets(None, None).len(), 5);
+        assert_eq!(contract.get_pets(None, Some(2)).len(), 2);
+        assert_eq!(contract.get_pets(Some(3), Some(10)).len(), 2);
+        assert_eq!(contract.get_pets(Some(99), None).len(), 0);
+
+        // Asked for everything on a contract that iterates: capped, because
+        // a view that runs out of gas is a view that answers nothing.
+        assert_eq!(contract.get_pets(None, Some(u64::MAX)).len(), 5);
+    }
+
+    #[test]
+    fn a_page_says_the_same_as_reading_each_pet() {
+        let mut contract = deploy();
+        let ids: Vec<u64> = (0..3).map(|_| mint(&mut contract, alice(), 0)).collect();
+
+        let page = contract.get_pets(None, None);
+        for id in ids {
+            let one = contract.get_pet(id).unwrap();
+            let from_page = page.iter().find(|p| p.pet_id == id).unwrap();
+            assert_eq!(from_page.name, one.name);
+            assert_eq!(from_page.seconds_until_starving, one.seconds_until_starving);
+            assert_eq!(from_page.locked, one.locked);
+        }
+    }
+
     use super::*;
     use near_sdk::test_utils::VMContextBuilder;
     use near_sdk::testing_env;

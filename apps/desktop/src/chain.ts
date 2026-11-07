@@ -197,33 +197,29 @@ export type ChainPetSummary = {
 };
 
 /**
- * Every pet on the contract, for the target list.
+ * Every pet on the contract, in one call.
  *
- * There is no paged view, so this walks the token ids. Fine while the whole
- * population fits on one screen; when it does not, the contract gets a paged
- * view rather than this getting clever about it.
+ * This used to walk the token ids — `nft_total_supply`, then one `get_pet`
+ * each. Eight pets made it nine requests, and the window runs it every
+ * twelve seconds for the battle watcher while the panel runs it again for
+ * the target list. The free RPC tiers answer about eight requests before
+ * returning 429, measured on both of them, so the app spent its time rate-
+ * limiting itself and reporting the result as a broken contract. A hundred
+ * pets would have made it a hundred and one requests.
+ *
+ * `get_pets` is a paged view added for this. One request, capped at a
+ * hundred by the contract.
  */
 export async function listPets(
   network: string,
   gameContract: string,
-  limit = 24
+  limit = 50
 ): Promise<ChainPetSummary[]> {
-  const supply = Number(
-    await viewFunction<string>(network, gameContract, 'nft_total_supply').catch(() => '0')
-  );
-  if (!Number.isFinite(supply) || supply === 0) return [];
-
-  const ids: number[] = [];
-  for (let id = supply; id >= 1 && ids.length < limit; id--) ids.push(id);
-
-  const pets = await Promise.all(
-    ids.map((pet_id) =>
-      viewFunction<ChainPetSummary | null>(network, gameContract, 'get_pet', { pet_id }).catch(
-        () => null
-      )
-    )
-  );
-  return pets.filter((pet): pet is ChainPetSummary => pet !== null);
+  const pets = await viewFunction<ChainPetSummary[] | null>(network, gameContract, 'get_pets', {
+    from_index: 0,
+    limit
+  });
+  return pets ?? [];
 }
 
 /**

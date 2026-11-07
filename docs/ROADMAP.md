@@ -129,7 +129,11 @@ until that becomes stored state. Still the largest item.
 - **Nothing runs the feed oracle.** `auto_feed` and `award_feed_xp` are both
   gated to `feeder.jg-stake-5656.testnet`, the app can now set a budget for
   it, and no process anywhere calls either. Until one exists, auto-feed is
-  permission granted to nobody and a fed pet earns no XP.
+  permission granted to nobody, and the credit feed earns no XP — so the AI
+  meal tile is disabled. What it would do without the oracle: charge 0.002,
+  roll 3.6% for a Tonic worth 0.01 at a weight of 160, nothing at all at
+  zero weight, and spend a Focus Lens bought for 0.02 on a bonus that cannot
+  arrive. This is the single highest-value thing left to build.
 - **The desktop app installs no agent hooks.** Settings documents a `curl`; the
   one-click-per-agent install that makes the pet react while you work is not
   written.

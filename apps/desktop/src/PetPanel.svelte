@@ -585,15 +585,22 @@
           busy !== null,
           'Food and revival items, paid in NEAR'
         )}
+        <!--
+          Off until something runs the oracle.
+          `spend_credits("ai_feed")` charges, burns a Focus Lens, rolls for a
+          drop and logs the meal for the oracle to turn into XP. No oracle
+          runs, so the XP never arrives. What is left is a 3.6% chance of a
+          Tonic worth 0.01 for 0.002 — and a Lens, bought for 0.02, spent on
+          a bonus that cannot be delivered. A pet with nothing staked does
+          not even get the roll: `drop_odds` returns zero at zero weight.
+        -->
         {@render tile(
           'AI meal',
           '/assets/items/food.png',
           feed,
-          busy !== null || !canFeed,
-          canFeed
-            ? `Costs ${ACTION_PRICE.ai_feed} credits — earns XP, does not move the hunger clock`
-            : 'Not enough credits',
-          busy === 'feed' ? '…' : undefined
+          true,
+          'Off: this earns XP through the feed oracle, and nothing runs one yet. ' +
+            'It would charge credits and spend a Focus Lens for nothing.'
         )}
         {@render tile(
           'Claim',
