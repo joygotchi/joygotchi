@@ -14,7 +14,15 @@
   });
 </script>
 
-{#if wallet.accountId}
+{#if !wallet.ready}
+  <!--
+    Restoring a session takes a moment: the wallet has to announce itself
+    before the connector can reconnect. Rendering "Connect wallet" meanwhile
+    tells a signed-in person they are signed out on every single refresh, and
+    then changes its mind — which reads as the session having been lost.
+  -->
+  <span class="border border-line px-3 py-2 text-xs text-muted">Checking wallet…</span>
+{:else if wallet.accountId}
   <div class="relative">
     <button
       class="border border-line bg-panel px-3 py-2 text-xs hover:border-line-bright"
