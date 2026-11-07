@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ACTION_PRICE,
+  AUTO_FEED_DAILY_BUDGET,
+  AUTO_FEED_HOURS,
   GAME_METHODS,
   ITEMS,
   STAKE_METHODS,
@@ -23,6 +25,13 @@ describe('session methods', () => {
   it('refuses a method neither key covers, rather than guessing', () => {
     expect(contractForMethod('nft_transfer', contracts)).toBeNull();
     expect(contractForMethod('buy_pet', contracts)).toBeNull();
+  });
+
+  it('affords a day of auto-feeding, or the budget means nothing', () => {
+    // A feed buys twelve hours, so a daily budget has to cover at least two.
+    expect(AUTO_FEED_DAILY_BUDGET).toBeGreaterThanOrEqual(
+      ACTION_PRICE.auto_feed * (24 / AUTO_FEED_HOURS)
+    );
   });
 
   it('routes staking to the lab, now that it takes no deposit', () => {

@@ -1,9 +1,12 @@
 <script lang="ts">
   import {
     ACTION_PRICE,
+    AUTO_FEED_DAILY_BUDGET,
+    AUTO_FEED_HOURS,
     formatCredits,
     ITEMS,
     itemName,
+    toMicroCredits,
     type PetStatus,
     type StakeAccount
   } from '@joygotchi/pet';
@@ -157,6 +160,28 @@
   const net = () => pet.chain.network;
 
   const feed = () => act('feed', () => feedPet(net(), pet.petId, account), 'Fed.');
+
+  /**
+   * Hand the pet's survival to the oracle, or take it back.
+   *
+   * This is the only thing in the product that keeps a pet alive without
+   * you: `buy_item` is payable, so by protocol no session key can ever call
+   * it, and a pet starves on a clock that does not care whether you are at
+   * your desk. `auto_feed` spends credits instead of NEAR and is capped by a
+   * budget you set here, so the worst it can do is spend what you allowed.
+   */
+  const autoFeedOn = $derived(Number(account?.auto_feed_budget ?? 0) > 0);
+  const autoFeedUsed = $derived(Number(account?.auto_feed_spent ?? 0) / 1e6);
+
+  const toggleAutoFeed = () =>
+    act(
+      'auto',
+      () =>
+        signAndSend(net(), 'set_auto_feed_budget', {
+          budget: autoFeedOn ? '0' : toMicroCredits(AUTO_FEED_DAILY_BUDGET)
+        }),
+      autoFeedOn ? 'Auto-feed off.' : 'Auto-feed on.'
+    );
 
   /**
    * Who this pet could pick a fight with.
@@ -483,6 +508,51 @@
       {/if}
     </div>
 
+    {#if mine}
+      <!--
+        On the main screen rather than behind a tile: it is the difference
+        between a pet that survives the weekend and one that does not.
+      -->
+      <div class="auto jg-screen" class:on={autoFeedOn}>
+        <img class="jg-px" alt="" src="/assets/items/food.png" />
+        <span class="auto-text">
+          {#if autoFeedOn}
+            <!--
+              "Allowed", not "on": the budget is permission for the oracle to
+              spend, and the oracle is a service somebody has to run. Nothing
+              in this repository runs it yet, so a switch that said the pet
+              was safe would be the most expensive lie in the app.
+            -->
+            Auto-feed allowed · {formatCredits(toMicroCredits(AUTO_FEED_DAILY_BUDGET))}/day
+            {#if autoFeedUsed > 0}
+              · {autoFeedUsed.toFixed(3)} used today
+            {:else}
+              · nothing spent yet
+            {/if}
+          {:else}
+            Auto-feed off — {pet.displayName} starves if you are away
+          {/if}
+        </span>
+        <button
+          class="jg-btn"
+          class:primary={!autoFeedOn}
+          disabled={busy !== null}
+          onclick={toggleAutoFeed}
+          title={autoFeedOn
+            ? 'Stop the oracle feeding this account'
+            : `The oracle may spend up to ${AUTO_FEED_DAILY_BUDGET} credits a day, ${ACTION_PRICE.auto_feed} at a time, each buying ${AUTO_FEED_HOURS} hours`}
+        >
+          {busy === 'auto' ? '…' : autoFeedOn ? 'Off' : 'On'}
+        </button>
+      </div>
+      {#if autoFeedOn && autoFeedUsed === 0}
+        <p class="note warn">
+          The feeder service has not spent any of this. Until one runs,
+          {pet.displayName} still needs feeding by hand.
+        </p>
+      {/if}
+    {/if}
+
     {#if !session}
       <p class="note">Connect a wallet in Settings (⌘,) to play from here.</p>
     {:else if !mine}
@@ -714,6 +784,41 @@
     color: var(--jg-muted);
   }
 
+  .auto {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 5px;
+    font-size: 8px;
+  }
+
+  .auto img {
+    width: 13px;
+    height: 13px;
+    object-fit: contain;
+    filter: grayscale(1);
+    opacity: 0.5;
+  }
+
+  .auto.on img {
+    filter: none;
+    opacity: 1;
+  }
+
+  .auto-text {
+    flex: 1;
+    line-height: 1.4;
+    color: var(--jg-muted);
+  }
+
+  .auto.on .auto-text {
+    color: var(--jg-ink);
+  }
+
+  .auto button {
+    padding: 2px 7px;
+  }
+
   .purse .lens {
     color: var(--jg-good);
   }
@@ -899,5 +1004,9 @@
     font-size: 8px;
     line-height: 1.5;
     color: var(--jg-muted);
+  }
+
+  .note.warn {
+    color: #a8700f;
   }
 </style>

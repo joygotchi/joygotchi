@@ -24,7 +24,10 @@ export type StakeAccount = {
   weight: string;
   credit_balance: string;
   pending_credits: string;
+  /** Micro-credits the oracle may spend auto-feeding, per 24-hour window. */
   auto_feed_budget: string;
+  /** Spent in the window that is open now. */
+  auto_feed_spent?: string;
   last_claim_at: string;
   items: Array<[number, number]>;
 };
@@ -87,6 +90,18 @@ export const ACTION_PRICE = {
 export type CreditAction = keyof typeof ACTION_PRICE;
 
 /**
+ * Auto-feed, as the contract prices it.
+ *
+ * One feed costs `ACTION_PRICE.auto_feed` and moves the starving deadline by
+ * `AUTO_FEED_HOURS`. Two of them cover a day, which is what a budget has to
+ * afford before "auto" means anything.
+ */
+export const AUTO_FEED_HOURS = 12;
+export const AUTO_FEED_A_DAY = 2;
+/** A day's cover, with one feed of headroom for a window that starts late. */
+export const AUTO_FEED_DAILY_BUDGET = ACTION_PRICE.auto_feed * (AUTO_FEED_A_DAY + 1);
+
+/**
  * Credits as a person reads them: micro-credits in, a short decimal out.
  *
  * BigInt rather than Number, and truncating rather than rounding — the same
@@ -136,7 +151,11 @@ export const STAKE_METHODS = [
   // the lab, while the deposit put a browser round trip in front of the
   // action players take most.
   'stake_pet',
-  'unstake_pet'
+  'unstake_pet',
+  // Setting your own auto-feed budget takes no deposit, so the app can sign
+  // it. Turning the pet's survival over to the oracle should not need a trip
+  // through a browser — the point of it is to stop needing you at all.
+  'set_auto_feed_budget'
 ] as const;
 
 /**
