@@ -381,32 +381,30 @@
         Paid in NEAR, applied straight away. This is the only thing that moves
         {pet.displayName}'s hunger.
       </p>
-      <ul class="bag jg-screen">
+      <ul class="grid jg-screen">
         {#each shop as item (item.item_id)}
-          <li title={item.is_revival ? 'Also revives a starved pet' : ''}>
-            <img class="jg-px" alt="" src={SHOP_ART[item.item_id] ?? '/assets/items/food.png'} />
-            <span class="item-name">
-              {item.name}
-              <small>
-                {#if item.time_extension}+{Math.round(item.time_extension / 3600)}h{/if}
-                {#if item.xp} +{item.xp}xp{/if}
-                {#if item.shield} +{item.shield}🛡{/if}
-                {#if item.is_revival} revive{/if}
-              </small>
+          <li class="card">
+            <img class="art jg-px" alt="" src={SHOP_ART[item.item_id] ?? '/assets/items/food.png'} />
+            <span class="title">{item.name}</span>
+            <span class="effect">
+              {#if item.time_extension}+{Math.round(item.time_extension / 3600)}h{/if}
+              {#if item.xp} +{item.xp}xp{/if}
+              {#if item.shield} +{item.shield} shield{/if}
+              {#if item.is_revival} revives{/if}
             </span>
             <button
-              class="jg-btn primary"
+              class="jg-btn primary buy"
               disabled={walletAction.running !== null}
               onclick={() =>
                 requestWalletAction('buy_item', pet.chain.contract, pet.petId, item.item_id)}
-              title="Opens your browser — this is paid in NEAR, so it needs a real signature"
+              title="Opens your browser — paid in NEAR, so it needs a real signature"
             >
               {inNear(item.price)} ↗
             </button>
           </li>
         {/each}
         {#if shop.length === 0}
-          <li class="muted">The shop could not be read from the contract.</li>
+          <li class="muted span2">The shop could not be read from the contract.</li>
         {/if}
       </ul>
       <button class="jg-btn wide" onclick={() => (showShop = false)}>Back</button>
@@ -414,41 +412,43 @@
   {:else if showBag}
     <div class="view">
       <p class="lead">{pet.displayName}'s bag</p>
-      <ul class="bag jg-screen">
+      <ul class="grid jg-screen">
         {#each Object.values(ITEMS) as item (item.id)}
           {@const owned = inventory.find(([id]) => id === item.id)?.[1] ?? 0}
-          <li title={item.blurb}>
-            <img class="jg-px" alt="" src={ITEM_ART[item.id]} />
-            <span class="item-name">
-              {item.name}
-              {#if owned > 0}<small class="have">×{owned}</small>{/if}
+          <li class="card" class:empty={owned === 0} title={item.blurb}>
+            <span class="art-wrap">
+              <img class="art jg-px" alt="" src={ITEM_ART[item.id]} />
+              {#if owned > 0}<span class="count">{owned}</span>{/if}
             </span>
-            <button
-              class="jg-btn"
-              disabled={busy !== null}
-              onclick={() =>
-                act(
-                  `buy-${item.id}`,
-                  () => signAndSend(net(), 'buy_credit_item', { item_id: item.id, quantity: 1 }),
-                  `Bought a ${item.name}.`
-                )}
-              title="Buy one"
-            >
-              {busy === `buy-${item.id}` ? '…' : 'Buy'}
-            </button>
-            <button
-              class="jg-btn primary"
-              disabled={busy !== null || owned === 0}
-              onclick={() =>
-                act(
-                  `use-${item.id}`,
-                  () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
-                  `Used a ${itemName(item.id)}.`
-                )}
-              title="Use on this pet"
-            >
-              {busy === `use-${item.id}` ? '…' : 'Use'}
-            </button>
+            <span class="title">{item.name}</span>
+            <span class="buttons">
+              <button
+                class="jg-btn"
+                disabled={busy !== null}
+                onclick={() =>
+                  act(
+                    `buy-${item.id}`,
+                    () => signAndSend(net(), 'buy_credit_item', { item_id: item.id, quantity: 1 }),
+                    `Bought a ${item.name}.`
+                  )}
+                title="Buy one with credits"
+              >
+                {busy === `buy-${item.id}` ? '…' : 'Buy'}
+              </button>
+              <button
+                class="jg-btn primary"
+                disabled={busy !== null || owned === 0}
+                onclick={() =>
+                  act(
+                    `use-${item.id}`,
+                    () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
+                    `Used a ${itemName(item.id)}.`
+                  )}
+                title={item.blurb}
+              >
+                {busy === `use-${item.id}` ? '…' : 'Use'}
+              </button>
+            </span>
           </li>
         {/each}
       </ul>
@@ -738,8 +738,7 @@
     color: var(--jg-muted);
   }
 
-  .targets,
-  .bag {
+  .targets {
     margin: 0;
     padding: 3px;
     list-style: none;
@@ -750,23 +749,118 @@
     overflow-y: auto;
   }
 
-  .targets li,
-  .bag li {
+  .targets li {
     display: flex;
     align-items: center;
     gap: 5px;
     padding: 2px;
   }
 
-  .targets li img,
-  .bag li img {
+  .targets li img {
     width: 24px;
     height: 24px;
     object-fit: contain;
   }
 
-  .target-name,
-  .item-name {
+  /*
+   * Items as cards, two across.
+   *
+   * They were rows with a 24px thumbnail, which is how a settings screen
+   * lists things — the art was there and too small to read, and a row cannot
+   * show you at a glance that you own two Tonics. A card gives the sprite the
+   * room it was drawn at and puts the count on it.
+   */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 4px;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    max-height: 270px;
+    overflow-y: auto;
+  }
+
+  .card {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding: 4px 3px;
+    background: #ffffffaa;
+    border: 2px solid var(--jg-edge);
+  }
+
+  .card.empty {
+    background: #ffffff55;
+  }
+
+  .card.empty .art {
+    filter: grayscale(0.8);
+    opacity: 0.6;
+  }
+
+  .art-wrap {
+    position: relative;
+    display: block;
+  }
+
+  .art {
+    width: 34px;
+    height: 34px;
+    object-fit: contain;
+  }
+
+  /* On the sprite, the way a game counts a stack. */
+  .count {
+    position: absolute;
+    right: -4px;
+    bottom: -2px;
+    min-width: 11px;
+    padding: 0 1px;
+    font-size: 8px;
+    line-height: 1.3;
+    text-align: center;
+    color: #fff;
+    background: var(--jg-good);
+    border: 1px solid var(--jg-edge);
+  }
+
+  .card .title {
+    font-size: 8px;
+    text-align: center;
+    line-height: 1.2;
+  }
+
+  .card .effect {
+    font-size: 7px;
+    text-align: center;
+    color: var(--jg-muted);
+    line-height: 1.3;
+  }
+
+  .card .buttons {
+    display: flex;
+    gap: 2px;
+    width: 100%;
+  }
+
+  .card .buttons button {
+    flex: 1;
+    padding: 2px 0;
+    font-size: 8px;
+  }
+
+  .card .buy {
+    width: 100%;
+    margin-top: 1px;
+  }
+
+  .span2 {
+    grid-column: 1 / -1;
+  }
+
+  .target-name {
     flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -774,15 +868,11 @@
     font-size: 9px;
   }
 
-  .target-name small,
-  .item-name small {
+  .target-name small {
     color: var(--jg-muted);
     font-size: 8px;
   }
 
-  .item-name .have {
-    color: var(--jg-good);
-  }
 
   .wide {
     width: 100%;
