@@ -114,6 +114,20 @@ describe('viewFunction', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   }, 10_000);
 
+  it('asks a different node each time round', async () => {
+    // Asking the one that just rate-limited you, three times, is not a retry.
+    const { calls, fetchMock } = stubFetch([httpError(429), ok({ pet_id: 6 })]);
+    const urls: string[] = [];
+
+    await viewFunction('testnet', 'c.testnet', 'get_pet', { pet_id: 6 });
+    for (const [url] of (fetchMock as unknown as { mock: { calls: [string][] } }).mock.calls) {
+      urls.push(url);
+    }
+
+    expect(calls).toHaveLength(2);
+    expect(new Set(urls).size).toBe(2);
+  }, 10_000);
+
   it('forgets everything after something is signed', async () => {
     const { fetchMock } = stubFetch([ok({ credits: 1 }), ok({ credits: 2 })]);
 

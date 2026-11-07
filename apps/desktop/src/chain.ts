@@ -11,9 +11,16 @@ import type { PetStatus, StakeAccount } from '@joygotchi/pet';
  * constant here, so a pet minted against a different deployment still resolves
  * against the deployment it came from.
  */
+/**
+ * More than one node per network, tried in order.
+ *
+ * A single public endpoint is a single point of failure for a window that
+ * reads every pet on the contract every twelve seconds. When it rate-limits,
+ * every call fails at once and the panel looks like a broken contract.
+ */
 const RPC = {
-  testnet: 'https://test.rpc.fastnear.com',
-  mainnet: 'https://free.rpc.fastnear.com'
+  testnet: ['https://test.rpc.fastnear.com', 'https://rpc.testnet.near.org'],
+  mainnet: ['https://free.rpc.fastnear.com', 'https://rpc.mainnet.near.org']
 } as const;
 
 /** The staking contract that pairs with a given game contract. */
@@ -100,8 +107,10 @@ export async function viewFunction<T>(
   method: string,
   args: Record<string, unknown> = {}
 ): Promise<T> {
-  const url = RPC[network as keyof typeof RPC] ?? RPC.testnet;
-  const key = `${url}|${contractId}|${method}|${JSON.stringify(args)}`;
+  const urls = RPC[network as keyof typeof RPC] ?? RPC.testnet;
+  // Keyed on the network, not the node: a read that failed over must still
+  // be the same read to the next caller.
+  const key = `${network}|${contractId}|${method}|${JSON.stringify(args)}`;
 
   const cached = inFlight.get(key);
   if (cached && Date.now() - cached.at < CACHE_MS) return cached.value as Promise<T>;
@@ -109,6 +118,9 @@ export async function viewFunction<T>(
   const value = (async () => {
     let lastError: unknown;
     for (let attempt = 0; attempt < 3; attempt++) {
+      // A different node each time round, so a rate-limited one is not asked
+      // three times in a row.
+      const url = urls[attempt % urls.length] ?? urls[0];
       try {
         return await rawView<T>(url, contractId, method, args);
       } catch (error) {

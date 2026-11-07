@@ -1,7 +1,14 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
 import { GAME_METHODS, STAKE_METHODS, contractForMethod } from '@joygotchi/pet';
-import { Account, JsonRpcProvider, KeyPair, PublicKey, Signer } from 'near-api-js';
+import {
+  Account,
+  FailoverRpcProvider,
+  JsonRpcProvider,
+  KeyPair,
+  PublicKey,
+  Signer
+} from 'near-api-js';
 import { stakeContractFor } from './chain';
 
 /**
@@ -43,9 +50,17 @@ export const SESSION_DAYS = 30;
  */
 const SITE = () => localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
 
+/**
+ * More than one node per network, in preference order.
+ *
+ * Signing used to go to a single public endpoint with nothing behind it, so
+ * a rate limit there came back to the player as WebKit's `Load failed` on
+ * whatever button they pressed — a message that says nothing about what went
+ * wrong or whether their pet was fed.
+ */
 const RPC_URL = {
-  testnet: 'https://test.rpc.fastnear.com',
-  mainnet: 'https://free.rpc.fastnear.com'
+  testnet: ['https://test.rpc.fastnear.com', 'https://rpc.testnet.near.org'],
+  mainnet: ['https://free.rpc.fastnear.com', 'https://rpc.mainnet.near.org']
 } as const;
 
 export type Session = {
@@ -377,7 +392,10 @@ export async function signAndSend(
     );
   }
 
-  const provider = new JsonRpcProvider({ url: RPC_URL[network(net)] });
+  // Falls through to the next node rather than failing the transaction.
+  const provider = new FailoverRpcProvider(
+    RPC_URL[network(net)].map((url) => new JsonRpcProvider({ url }))
+  );
   const account = new Account(
     session.accountId,
     provider,
