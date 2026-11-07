@@ -93,6 +93,13 @@ export type ChainPetSummary = {
   locked?: boolean;
   seconds_until_starving?: string;
   last_attacked?: string;
+  /**
+   * Which drawing this pet is. `get_pet` has always returned both — they were
+   * simply missing from this type, so the battle scene drew every opponent as
+   * a phase-one black dragon by accident rather than by decision.
+   */
+  category?: string;
+  evolution_phase?: number;
 };
 
 /**

@@ -35,6 +35,17 @@ type Connector = {
   connect: (options?: { addFunctionCallKey?: FunctionCallKeyRequest }) => Promise<unknown>;
   disconnect: () => Promise<void>;
   wallet: () => Promise<ActiveWallet | null>;
+  /**
+   * The stored session — the same lookup `wallet()` does, without the side
+   * effect. `wallet()` ends in `storage.remove('selected-wallet')` whenever
+   * the lookup fails, and it fails on a freshly loaded page simply because
+   * the wallet has not dispatched `near-wallet-injected` yet. This one just
+   * throws. That difference is the entire fix.
+   */
+  getConnectedWallet: () => Promise<{
+    wallet: ActiveWallet & { manifest?: { id?: string } };
+    accounts: Array<{ accountId: string }>;
+  }>;
 };
 
 export type ActiveWallet = {
@@ -86,57 +97,47 @@ async function getConnector(): Promise<Connector> {
 /**
  * Restore a previous session. Safe to call on every mount.
  *
- * Deliberately does **not** call `connector.wallet()`. That method is
- * destructive on failure: when `getAccounts()` throws — which it does if the
- * wallet has not finished injecting itself into the page yet — near-connect
- * deletes the stored `selected-wallet` and gives up. Calling it on mount is
- * therefore a race against the wallet loading, and losing the race wipes the
- * session rather than reporting it missing.
+ * Two things about near-connect 0.12 make this less obvious than it looks,
+ * and both were read out of its source rather than guessed:
  *
- * Creating the connector is enough: `autoConnect` reconnects on its own once
- * the wallet announces itself, and the `wallet:signIn` handler above fills in
- * the account. All this does is start that and wait a moment for it.
+ * `autoConnect` is on by default but only ever fires on the postMessage path
+ * — an app running *inside* a wallet's iframe. For an ordinary browser with
+ * an injected or web wallet, the injection handler only registers the wallet
+ * and emits `selector:walletsChanged`; it never reconnects. So waiting for a
+ * `wallet:signIn` event to replay on page load waits for something that is
+ * never coming.
+ *
+ * And `connector.wallet()` deletes the stored session when its lookup fails.
+ * On a page that has just loaded it fails for a reason that has nothing to do
+ * with the session being invalid: the wallet is in storage but not yet in the
+ * connector's wallet list, because it has not announced itself. Calling it on
+ * mount is a race, and losing the race logs the player out for good.
+ *
+ * `getConnectedWallet()` is the same lookup without the delete, so this polls
+ * that until the wallet turns up or the deadline passes. A session survives
+ * the refresh; a genuinely absent one costs a few hundred milliseconds.
  */
 export async function restoreWallet(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
     const connector = await getConnector();
+    const deadline = Date.now() + 4_000;
 
-    // First, give `autoConnect` its chance: when the wallet announces itself
-    // the connector reconnects and the `wallet:signIn` handler fills this in,
-    // with nothing destructive on the way.
-    if (await waitForAccount()) return;
-
-    // Nothing replayed. Ask directly — but only now, after the wait, because
-    // `connector.wallet()` deletes the stored session when it fails, and on a
-    // freshly loaded page it fails simply because the wallet has not finished
-    // injecting itself yet. Asking first is what logged people out on every
-    // refresh; not asking at all is what left them logged out when no event
-    // came.
-    const active = await connector.wallet().catch(() => null);
-    if (!active) return;
-
-    const accounts = await (
-      active as unknown as {
-        getAccounts?: (p: { network: string }) => Promise<Array<{ accountId: string }>>;
+    while (Date.now() < deadline) {
+      const found = await connector.getConnectedWallet().catch(() => null);
+      const accountId = found?.accounts?.[0]?.accountId;
+      if (accountId) {
+        wallet.accountId = accountId;
+        wallet.walletId = found?.wallet.manifest?.id ?? wallet.walletId;
+        return;
       }
-    )
-      .getAccounts?.({ network: NETWORK })
-      .catch(() => []);
-
-    wallet.accountId = accounts?.[0]?.accountId ?? wallet.accountId;
+      // A real sign-in happening in another tab, or `connect()` racing us.
+      if (wallet.accountId) return;
+      await new Promise((resolve) => setTimeout(resolve, 150));
+    }
   } finally {
     wallet.ready = true;
   }
-}
-
-/** Give a wallet that is still injecting itself a moment to arrive. */
-async function waitForAccount(timeoutMs = 2_000): Promise<string | null> {
-  const deadline = Date.now() + timeoutMs;
-  while (!wallet.accountId && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 100));
-  }
-  return wallet.accountId;
 }
 
 export async function connectWallet(): Promise<void> {
@@ -162,7 +163,11 @@ export async function disconnectWallet(): Promise<void> {
 }
 
 export async function getActiveWallet(): Promise<ActiveWallet | null> {
-  return (await getConnector()).wallet();
+  const connector = await getConnector();
+  // Not `wallet()`: see the note on `getConnectedWallet` above. Signing is
+  // not worth risking the stored session over.
+  const found = await connector.getConnectedWallet().catch(() => null);
+  return found?.wallet ?? null;
 }
 
 export type FunctionCallKeyRequest = {
@@ -193,8 +198,8 @@ export type FunctionCallKeyRequest = {
  */
 export async function connectedAccount(): Promise<string | null> {
   if (typeof window === 'undefined') return null;
-  await getConnector();
-  return waitForAccount();
+  await restoreWallet();
+  return wallet.accountId;
 }
 
 /**
@@ -260,8 +265,8 @@ export async function grantFunctionCallKey(
 
   // Only ask for the wallet once something has actually signed in; asking
   // earlier can delete the stored session, as `restoreWallet` explains.
-  await waitForAccount();
-  const existing = wallet.accountId ? await connector.wallet().catch(() => null) : null;
+  await restoreWallet();
+  const existing = (await connector.getConnectedWallet().catch(() => null))?.wallet ?? null;
   const active = existing ?? ((await connector.connect()) as ActiveWallet | null);
 
   if (!active) throw new Error('No wallet connected');

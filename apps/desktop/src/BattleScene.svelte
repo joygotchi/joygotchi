@@ -18,7 +18,7 @@
    */
   type Props = {
     mine: InstalledPet;
-    target: ChainPetSummary & { kind?: string; evolution_phase?: number };
+    target: ChainPetSummary;
     phase: 'ready' | 'fighting' | 'won' | 'lost';
     transferred: string | null;
     onfight: () => void;
@@ -53,12 +53,20 @@
     <span class="versus" class:clash={phase === 'fighting'}>vs</span>
 
     <div class="side">
-      <img
-        class="sprite flip"
-        alt={target.name}
-        src={theirArt}
-        style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
-      />
+      <!--
+        The flip lives on a wrapper, not on the sprite. Every motion keyframe
+        sets `transform`, so a `scaleX(-1)` on the image itself is overwritten
+        the moment an animation runs — the opponent faced the wrong way for
+        the whole fight and turned round only between animations.
+      -->
+      <span class="flip">
+        <img
+          class="sprite"
+          alt={target.name}
+          src={theirArt}
+          style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
+        />
+      </span>
       <span class="name">{target.name}</span>
     </div>
   </div>
@@ -119,6 +127,7 @@
   }
 
   .flip {
+    display: block;
     transform: scaleX(-1);
   }
 
