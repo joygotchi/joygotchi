@@ -120,6 +120,13 @@ async function getConnector(): Promise<Connector> {
 export async function restoreWallet(): Promise<void> {
   if (typeof window === 'undefined') return;
   try {
+    // Nobody has ever signed in on this browser, so there is nothing to wait
+    // for: say so at once rather than holding a placeholder for four seconds
+    // in front of a first-time visitor. near-connect's storage is a plain
+    // `localStorage` under this exact key — a coupling, but a visible one,
+    // and the cost of being wrong is a slower header, not a lost session.
+    if (!storedWalletId()) return;
+
     const connector = await getConnector();
     const deadline = Date.now() + 4_000;
 
@@ -137,6 +144,17 @@ export async function restoreWallet(): Promise<void> {
     }
   } finally {
     wallet.ready = true;
+  }
+}
+
+/** The wallet id near-connect last signed in with, if any. */
+function storedWalletId(): string | null {
+  try {
+    return localStorage.getItem('selected-wallet');
+  } catch {
+    // Private mode, or site data blocked. Treat it as no session rather than
+    // letting the whole restore throw.
+    return null;
   }
 }
 
