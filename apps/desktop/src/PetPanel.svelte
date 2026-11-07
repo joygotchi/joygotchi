@@ -28,6 +28,7 @@
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
   import { canAfford, feedPet } from './actions';
+  import { artOf, BACKDROPS, HATS, setStyle, styleFor } from './style.svelte';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
@@ -327,6 +328,11 @@
   };
 
   let showBag = $state(false);
+  let showStyle = $state(false);
+
+  const dressed = $derived(styleFor(pet.slug));
+  const hatArt = $derived(artOf(HATS, dressed.hat));
+  const backdropArt = $derived(artOf(BACKDROPS, dressed.backdrop));
 
   function closeFight() {
     opponent = null;
@@ -461,6 +467,40 @@
       </ul>
       <button class="jg-btn wide" onclick={() => (showShop = false)}>Back</button>
     </div>
+  {:else if showStyle}
+    <div class="view">
+      <p class="lead">What {pet.displayName} wears, kept on this machine.</p>
+
+      <p class="lead">Hat</p>
+      <ul class="grid jg-screen">
+        {#each HATS as item (item.id)}
+          <li class="card" class:picked={dressed.hat === item.id}>
+            <button class="pick" onclick={() => setStyle(pet.slug, { hat: item.id })}>
+              <span class="swatch">
+                {#if item.art}<img class="jg-px" alt="" src={item.art} />{:else}—{/if}
+              </span>
+              <span class="title">{item.name}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+
+      <p class="lead">Backdrop</p>
+      <ul class="grid jg-screen">
+        {#each BACKDROPS as item (item.id)}
+          <li class="card" class:picked={dressed.backdrop === item.id}>
+            <button class="pick" onclick={() => setStyle(pet.slug, { backdrop: item.id })}>
+              <span class="swatch wide">
+                {#if item.art}<img alt="" src={item.art} />{:else}—{/if}
+              </span>
+              <span class="title">{item.name}</span>
+            </button>
+          </li>
+        {/each}
+      </ul>
+
+      <button class="jg-btn wide" onclick={() => (showStyle = false)}>Back</button>
+    </div>
   {:else if showBag}
     <div class="view">
       <p class="lead">{pet.displayName}'s bag</p>
@@ -514,10 +554,16 @@
     <button class="jg-btn wide" onclick={load}>Try again</button>
   {:else}
     <!-- The pet, on its own screen, the way the game showed it. -->
-    <div class="stage jg-screen">
+    <div
+      class="stage jg-screen"
+      style:background-image={backdropArt ? `url('${backdropArt}')` : 'none'}
+    >
       <span class="badge tl">lv {pet.level}{pet.star ? ` ${'★'.repeat(pet.star)}` : ''}</span>
       <span class="badge tr">{pet.rarity}</span>
-      <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
+      <span class="hero-wrap">
+        <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
+        {#if hatArt}<img class="hero-hat jg-px" alt="" src={hatArt} />{/if}
+      </span>
       <span class="badge bl" class:work={status?.staked}>
         {status?.staked ? 'at work' : 'idle'}
       </span>
@@ -671,6 +717,13 @@
           busy === 'stake' ? '…' : walletAction.running ? 'browser…' : undefined
         )}
         {@render tile(
+          'Style',
+          '/assets/hat/crown.svg',
+          () => (showStyle = true),
+          busy !== null,
+          'Hats and backdrops, kept on this machine'
+        )}
+        {@render tile(
           'Bag',
           '/assets/button/backpack.png',
           () => (showBag = true),
@@ -770,14 +823,72 @@
     place-items: center;
     min-height: 120px;
     padding: 4px;
-    background:
-      url('/assets/background/screen_pet.png') center / cover no-repeat,
-      var(--jg-screen);
+    background-color: var(--jg-screen);
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+  }
+
+  /* The sprite and whatever it is wearing move as one. */
+  .hero-wrap {
+    position: relative;
+    display: block;
+    width: 96px;
   }
 
   .hero {
     width: 96px;
     image-rendering: pixelated;
+    display: block;
+  }
+
+  .hero-hat {
+    position: absolute;
+    left: 50%;
+    top: 14%;
+    width: 44%;
+    transform: translateX(-50%);
+  }
+
+  .card.picked {
+    background: #fff;
+    border-color: var(--jg-good);
+  }
+
+  .pick {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    width: 100%;
+    border: 0;
+    background: none;
+    font: inherit;
+    color: inherit;
+    cursor: pointer;
+    padding: 0;
+  }
+
+  .swatch {
+    display: grid;
+    place-items: center;
+    width: 100%;
+    height: 28px;
+    font-size: 10px;
+    color: var(--jg-muted);
+  }
+
+  .swatch img {
+    max-width: 90%;
+    max-height: 100%;
+    image-rendering: pixelated;
+  }
+
+  .swatch.wide img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    border: 1px solid var(--jg-edge);
   }
 
   .badge {

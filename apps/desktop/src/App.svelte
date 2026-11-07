@@ -12,6 +12,7 @@
   import { canAfford, feedPet } from './actions';
   import { forgetReads, getStakeAccount, stakeContractFor } from './chain';
   import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
+  import { artOf, BACKDROPS, HATS, styleFor } from './style.svelte';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -138,6 +139,10 @@
 
   const pose = $derived(visibleState(reaction, now));
   const motion = $derived(MOTION[pose]);
+
+  const dressed = $derived(active ? styleFor(active.slug) : null);
+  const hatArt = $derived(dressed ? artOf(HATS, dressed.hat) : null);
+  const backdropArt = $derived(dressed ? artOf(BACKDROPS, dressed.backdrop) : null);
 
   const artSrc = $derived.by(() => {
     if (!active) return null;
@@ -316,8 +321,29 @@
       style:animation-name={motion}
       style:animation-duration="{motionDuration(pose)}s"
     >
+      {#if backdropArt}
+        <!--
+          Behind the sprite and nothing else. The window is transparent on
+          purpose, so a backdrop is a card the pet stands on rather than a
+          sheet over the whole thing.
+        -->
+        <img class="backdrop" alt="" data-tauri-drag-region draggable="false" src={backdropArt} />
+      {/if}
       {#if artSrc}
-        <img alt={active.displayName} data-tauri-drag-region draggable="false" src={artSrc} />
+        <img
+          class="sprite"
+          alt={active.displayName}
+          data-tauri-drag-region
+          draggable="false"
+          src={artSrc}
+        />
+        {#if hatArt}
+          <!--
+            Inside `.pet`, so it rides the sprite's animation: a hat that
+            stays still while the pet bobs is a hat floating next to a pet.
+          -->
+          <img class="hat" alt="" data-tauri-drag-region draggable="false" src={hatArt} />
+        {/if}
         <!--
           A shadow, so the pet stands on the desktop rather than hovering in
           front of it. It does not move with the sprite's animation, which is
@@ -506,10 +532,58 @@
     pointer-events: none;
   }
 
-  .pet img {
+  /*
+   * The sprite only. It used to be `.pet > img`, which also caught the
+   * backdrop and the hat and beat their own rules on specificity — the
+   * backdrop came out pet-sized and the hat needed `!important` to get a
+   * width at all.
+   */
+  .pet > img.sprite {
     width: 100%;
+  }
+
+  .pet > img {
     image-rendering: pixelated;
     -webkit-user-drag: none;
+  }
+
+  /*
+   * Behind the pet, which takes saying out loud: an absolutely positioned
+   * element paints above a static one whatever the document order, so the
+   * first version hid the sprite completely and left the hat floating over
+   * a meadow.
+   */
+  .backdrop {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    width: 150%;
+    aspect-ratio: 4 / 3;
+    transform: translateX(-50%);
+    object-fit: cover;
+    border: 2px solid var(--jg-edge);
+    z-index: 0;
+  }
+
+  .sprite {
+    position: relative;
+    z-index: 1;
+  }
+
+  /*
+   * Placed as a share of the sprite box rather than in pixels, so it keeps
+   * its seat if the window is ever resized. Tuned against the dragons' horn
+   * line: lower and it covers the eyes, higher and it hovers.
+   */
+  /* Above the sprite, which now has a layer of its own. */
+  .hat {
+    position: absolute;
+    left: 50%;
+    top: 14%;
+    width: 44%;
+    transform: translateX(-50%);
+    pointer-events: none;
+    z-index: 2;
   }
 
   /*
