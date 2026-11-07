@@ -54,6 +54,40 @@
   // Named `pose`, not `state`: a variable called `state` in a file that uses
   // `$state(...)` makes `$state` read as a store subscription to it, and the
   // whole component silently type-checks as legacy Svelte.
+  /**
+   * This pet's row from the chain poll the battle watcher already runs.
+   *
+   * Everything the plate shows was being fetched and thrown away: the window
+   * knew the pet's level, its star and how long until it starves, and still
+   * drew a grey pill with a name in it. No extra request.
+   */
+  const chainSelf = $derived(chainPets.find((p) => p.pet_id === active?.petId) ?? null);
+
+  const foodLeft = $derived(Number(chainSelf?.seconds_until_starving ?? 0));
+
+  /*
+   * The bar is scaled to a day, not to the contract's seven-day ceiling.
+   *
+   * Against the ceiling almost every real pet sits under ten percent, so the
+   * bar reads "nearly empty" permanently and stops meaning anything. A day is
+   * the horizon you can actually act on: full means you can forget about it,
+   * and anything part-filled is today's problem. The exact countdown is the
+   * number beside it, so nothing is being hidden by the rescale.
+   */
+  const foodFull = $derived(Math.max(0, Math.min(1, foodLeft / 86_400)));
+  const hunger = $derived(
+    foodLeft <= 0 ? 'starved' : foodLeft < 3_600 ? 'urgent' : foodLeft < 12 * 3_600 ? 'low' : 'ok'
+  );
+
+  /** "14h", "3d" — a countdown nobody has to do arithmetic on. */
+  const foodLabel = $derived.by(() => {
+    if (!chainSelf) return '';
+    if (foodLeft <= 0) return 'starved';
+    if (foodLeft < 3_600) return `${Math.ceil(foodLeft / 60)}m`;
+    if (foodLeft < 86_400) return `${Math.floor(foodLeft / 3_600)}h`;
+    return `${Math.floor(foodLeft / 86_400)}d`;
+  });
+
   const pose = $derived(visibleState(reaction, now));
   const motion = $derived(MOTION[pose]);
 
@@ -232,14 +266,45 @@
     >
       {#if artSrc}
         <img alt={active.displayName} data-tauri-drag-region draggable="false" src={artSrc} />
+        <!--
+          A shadow, so the pet stands on the desktop rather than hovering in
+          front of it. It does not move with the sprite's animation, which is
+          what makes the bobbing read as the pet leaving the ground.
+        -->
+        <span class="shadow" data-tauri-drag-region></span>
       {/if}
     </div>
 
-    <div class="hint" class:dim={!overPet}>
-        <span>{active.displayName}</span>
+    <!--
+      The name plate. It carries the two things that change on their own and
+      can lose you the pet if you miss them — how long until it starves, and
+      whether it is at work — so neither needs the panel open to be seen.
+    -->
+    <div class="plate" class:dim={!overPet}>
+      <div class="row">
+        <span class="name">{active.displayName}</span>
+        {#if chainSelf}
+          <span class="lv">LV {chainSelf.level}</span>
+          {#each { length: Math.min(3, chainSelf.star) } as _, i (i)}
+            <img class="star jg-px" alt="" src="/assets/item/star.png" />
+          {/each}
+        {/if}
+        <span class="spacer"></span>
         <button title="What this pet is up to" onclick={() => (showPanel = true)}>ⓘ</button>
         <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>⚙</button>
-      <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
+        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>✕</button>
+      </div>
+
+      {#if chainSelf}
+        <div class="row meter">
+          <img class="jg-px" alt="Food" src="/assets/items/food.png" />
+          <span class="bar" data-level={hunger}>
+            <span class="fill" style:width="{Math.max(3, foodFull * 100)}%"></span>
+          </span>
+          <span class="food" data-level={hunger}>{foodLabel}</span>
+          {#if chainSelf.locked}<span class="chip work">LAB</span>{/if}
+        </div>
+      {/if}
     </div>
   {/if}
 
@@ -302,12 +367,30 @@
   }
 
   .pet {
+    position: relative;
     width: 160px;
     height: 170px;
     display: grid;
     place-items: center;
     animation-iteration-count: infinite;
     animation-timing-function: ease-in-out;
+  }
+
+  /*
+   * Sits outside the animated transform on purpose: a shadow that bobs with
+   * the sprite is painted on its feet, and the pet never looks like it left
+   * the ground.
+   */
+  .shadow {
+    position: absolute;
+    bottom: 6px;
+    left: 50%;
+    width: 72px;
+    height: 10px;
+    margin-left: -36px;
+    border-radius: 50%;
+    background: radial-gradient(ellipse at center, #0b0d1055 0%, #0b0d1000 70%);
+    pointer-events: none;
   }
 
   .pet img {
@@ -356,41 +439,118 @@
     background: #fff;
   }
 
-  .hint {
+  .plate {
     transition: opacity 0.15s;
     display: flex;
-    align-items: center;
-    gap: 5px;
+    flex-direction: column;
+    gap: 2px;
+    width: 150px;
     margin: 2px 0 0;
-    padding: 2px 5px;
+    padding: 3px 4px;
     font-size: 8px;
     color: var(--jg-ink);
     background: var(--jg-bevel);
     border: 2px solid var(--jg-edge);
+    box-shadow: inset -2px -2px 0 #c3d2da;
   }
 
   /* Visible but out of the way until the cursor is near. */
-  .hint.dim {
-    opacity: 0.45;
+  .plate.dim {
+    opacity: 0.55;
   }
 
-  .hint button {
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 3px;
+  }
+
+  .name {
+    font-weight: 700;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 62px;
+  }
+
+  .lv {
+    color: var(--jg-muted);
+  }
+
+  .star {
+    width: 7px;
+    height: 7px;
+  }
+
+  .spacer {
+    flex: 1;
+  }
+
+  .plate button {
     background: none;
     border: 0;
     color: var(--jg-muted);
     font: inherit;
-    font-size: 10px;
+    font-size: 9px;
     line-height: 1;
-    padding: 0 2px;
+    padding: 0 1px;
     cursor: pointer;
   }
 
-  .hint button:hover {
+  .plate button:hover {
     color: var(--jg-ink);
   }
 
-  .hint button.close:hover {
+  .plate button.close:hover {
     color: var(--jg-bad);
+  }
+
+  .meter img {
+    width: 10px;
+    height: 10px;
+    object-fit: contain;
+  }
+
+  /*
+   * Food, against the contract's own seven-day ceiling. A well-fed pet barely
+   * moves the bar, so urgency is carried by colour as well as length — the
+   * fill is honest, the colour is readable.
+   */
+  .bar {
+    flex: 1;
+    height: 6px;
+    background: #fff;
+    border: 1px solid var(--jg-edge);
+    overflow: hidden;
+  }
+
+  .fill {
+    display: block;
+    height: 100%;
+    background: var(--jg-good);
+  }
+
+  .bar[data-level='low'] .fill { background: var(--jg-gold); }
+  .bar[data-level='urgent'] .fill,
+  .bar[data-level='starved'] .fill { background: var(--jg-bad); }
+
+  .food {
+    min-width: 20px;
+    text-align: right;
+    color: var(--jg-muted);
+  }
+
+  .food[data-level='urgent'],
+  .food[data-level='starved'] {
+    color: var(--jg-bad);
+  }
+
+  .chip {
+    padding: 0 3px;
+    font-size: 7px;
+    color: #fff;
+    background: var(--jg-good);
+    border: 1px solid var(--jg-edge);
   }
 
   .spectate {
