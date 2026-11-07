@@ -17,7 +17,9 @@
     stakeContractFor,
     type ChainPetSummary
   } from './chain';
+  import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
+  import { artPathFor } from './art';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
@@ -39,8 +41,31 @@
    * keeping a session key from spending a player's NEAR. Staking used to sit
    * in that group and no longer does.
    */
-  type Props = { pet: InstalledPet; onclose: () => void };
-  let { pet, onclose }: Props = $props();
+  type Props = {
+    pet: InstalledPet;
+    /** Everything installed, so the panel can flip between them. */
+    pets?: InstalledPet[];
+    onpick?: (slug: string) => void;
+    onclose: () => void;
+  };
+  let { pet, pets = [], onpick, onclose }: Props = $props();
+
+  /**
+   * Flipping between pets belongs here, not only in Settings.
+   *
+   * Opening the panel on a pet that is not yours used to end the screen: a
+   * sentence saying so, every control hidden, and no way on from there but
+   * closing the window and finding the picker. Installing somebody else's pet
+   * is normal — that is what an install code is for — so the panel has to
+   * carry its own way out.
+   */
+  const siblings = $derived(pets.length > 1 ? pets : []);
+  const step = (by: number) => {
+    if (siblings.length === 0) return;
+    const at = siblings.findIndex((p) => p.slug === pet.slug);
+    const next = siblings[(at + by + siblings.length) % siblings.length];
+    if (next) onpick?.(next.slug);
+  };
 
   let account = $state<StakeAccount | null>(null);
   let status = $state<PetStatus | null>(null);
@@ -64,6 +89,7 @@
   const canFeed = $derived(mine && credits >= ACTION_PRICE.ai_feed);
 
   const stake = $derived(stakeContractFor(pet.chain.contract));
+  const heroArt = $derived(convertFileSrc(`${pet.directory}/${pet.states.idle ?? ''}`));
   /** Whether this session's key covers staking, or predates it being granted. */
   const stakeSignsHere = $derived(
     (session?.methodNames ?? []).includes(status?.staked ? 'unstake_pet' : 'stake_pet')
@@ -237,6 +263,16 @@
     );
   }
 
+  /** The drawn item for each id, so the bag reads as a bag. */
+  const ITEM_ART: Record<number, string> = {
+    101: '/assets/items/holy_water.png',
+    102: '/assets/items/shield.png',
+    103: '/assets/items/food.png',
+    104: '/assets/item/star.png'
+  };
+
+  let showBag = $state(false);
+
   function closeFight() {
     opponent = null;
     fight = 'ready';
@@ -250,10 +286,40 @@
   });
 </script>
 
-<div class="panel">
+
+{#snippet tile(
+  label: string,
+  art: string,
+  onclick: () => void,
+  disabled: boolean,
+  hint: string,
+  busyLabel?: string
+)}
+  <button class="jg-tile" {disabled} {onclick} title={hint}>
+    <img alt="" src={art} />
+    <span>{busyLabel ?? label}</span>
+  </button>
+{/snippet}
+
+<div class="panel jg jg-frame">
   <header data-tauri-drag-region>
-    <span>{pet.displayName} <small>#{pet.petId}</small></span>
-    <button data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
+    {#if siblings.length > 0}
+      <button
+        class="arrow"
+        data-tauri-drag-region="false"
+        onclick={() => step(-1)}
+        title="Previous pet"
+      >
+        <img class="jg-px" alt="" src="/assets/icon/arrow_left.png" />
+      </button>
+    {/if}
+    <span class="who">{pet.displayName} <small>#{pet.petId}</small></span>
+    {#if siblings.length > 0}
+      <button class="arrow" data-tauri-drag-region="false" onclick={() => step(1)} title="Next pet">
+        <img class="jg-px" alt="" src="/assets/icon/arrow_right.png" />
+      </button>
+    {/if}
+    <button class="x" data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
   </header>
 
   {#if opponent}
@@ -273,19 +339,21 @@
       to change. Taking the panel means the choice is always the thing on
       screen, which is what it is.
     -->
-    <div class="picker">
-      <p class="muted">Pick somebody for {pet.displayName} to attack.</p>
-      <ul class="targets">
+    <div class="view">
+      <p class="lead">Who should {pet.displayName} fight?</p>
+      <ul class="targets jg-screen">
         {#if targets.length === 0}
-          <li class="muted">Nobody to fight: every other pet is at work, warded or hurt.</li>
+          <li class="muted">Nobody to fight — everyone is at work, warded or hurt.</li>
         {:else}
           {#each targets as target (target.pet_id)}
             <li>
+              <img class="jg-px" alt="" src={artPathFor(target)} />
               <span class="target-name">
                 {target.name}
-                <span class="muted">lv {target.level}{target.star ? ` ·${target.star}★` : ''}</span>
+                <small>lv {target.level}{target.star ? ` ·${target.star}★` : ''}</small>
               </span>
               <button
+                class="jg-btn primary"
                 disabled={busy !== null}
                 onclick={() => {
                   opponent = target;
@@ -294,397 +362,395 @@
                 }}
                 title="Wager credits against {target.owner_id}"
               >
-                fight
+                Fight
               </button>
             </li>
           {/each}
         {/if}
       </ul>
-      <button class="wide" onclick={() => (showTargets = false)}>Back</button>
+      <button class="jg-btn wide" onclick={() => (showTargets = false)}>Back</button>
     </div>
-  {:else if loading}
-    <p class="muted">Reading the chain…</p>
-  {:else if error}
-    <p class="bad">{error}</p>
-    <button class="wide" onclick={load}>Try again</button>
-  {:else}
-    <dl>
-      <div><dt>Rarity</dt><dd>{pet.rarity}</dd></div>
-      <div><dt>Level</dt><dd>{pet.level}{pet.star ? ` · ${'★'.repeat(pet.star)}` : ''}</dd></div>
-      <div>
-        <dt>In the lab</dt>
-        <dd class:accent={status?.staked}>{status?.staked ? 'working' : 'idle'}</dd>
-      </div>
-      <div>
-        <dt>Condition</dt>
-        <dd class:warn={wounded}>
-          {wounded ? 'wounded' : warded ? 'warded' : 'fine'}
-        </dd>
-      </div>
-      {#if status && status.lens_feeds_left > 0}
-        <div><dt>Lens</dt><dd class="accent">{status.lens_feeds_left} feeds</dd></div>
-      {/if}
-    </dl>
-
-    <dl class="owner">
-      <div>
-        <dt>Credits</dt>
-        <dd class="accent">{account ? formatCredits(account.credit_balance) : '0'}</dd>
-      </div>
-      <div>
-        <dt>Unclaimed</dt>
-        <dd>{account ? formatCredits(account.pending_credits) : '0'}</dd>
-      </div>
-    </dl>
-
-    {#if inventory.length > 0}
-      <ul class="items">
-        {#each inventory as [id, count] (id)}
-          <li title={ITEMS[id as keyof typeof ITEMS]?.blurb ?? ''}>
-            {itemName(id)} <span class="muted">×{count}</span>
-          </li>
-        {/each}
-      </ul>
-    {/if}
-
-    {#if !session}
-      <p class="note">Connect a wallet in Settings (⌘,) to feed it from here.</p>
-    {:else if !mine}
-      <p class="note">
-        You are signing as {session.accountId}; this pet belongs to {owner}.
-      </p>
-    {:else}
-      <div class="actions">
-        <button disabled={busy !== null || !canFeed} onclick={feed}>
-          {busy === 'feed' ? 'Feeding…' : `Feed · ${ACTION_PRICE.ai_feed}`}
-        </button>
-        <button
-          disabled={busy !== null || Number(account?.pending_credits ?? 0) === 0}
-          onclick={() => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.')}
-          title="Move earned credits into the spendable balance"
-        >
-          {busy === 'claim' ? 'Claiming…' : 'Claim'}
-        </button>
-        <button
-          disabled={busy !== null}
-          onclick={() => act('faucet', () => signAndSend(net(), 'claim_faucet', {}), 'Ten credits, once ever.')}
-          title="Ten free credits, once per account"
-        >
-          {busy === 'faucet' ? '…' : 'Faucet'}
-        </button>
-        <button
-          disabled={busy !== null || (account?.staked_pets.length ?? 0) === 0}
-          onclick={() => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.')}
-          title={(account?.staked_pets.length ?? 0) === 0
-            ? 'Mining needs a pet at work in the lab'
-            : 'A small top-up every six hours'}
-        >
-          {busy === 'mine' ? 'Mining…' : 'Mine'}
-        </button>
-      </div>
-
-      <div class="actions">
-        <button
-          disabled={busy !== null || status?.staked}
-          onclick={() => (showTargets = true)}
-          title={status?.staked
-            ? 'A pet at work in the lab cannot fight'
-            : 'Pick somebody to attack'}
-        >
-          Battle ({targets.length})
-        </button>
-      </div>
-
-      <div class="actions">
-        <button
-          disabled={busy !== null || walletAction.running !== null}
-          onclick={toggleStake}
-          title={stakeSignsHere
-            ? 'Signs here, with your session key'
-            : 'Opens your browser — this session key predates staking being granted'}
-        >
-          {#if busy === 'stake'}
-            …
-          {:else if walletAction.running}
-            In your browser…
-          {:else}
-            {status?.staked ? 'Unstake' : 'Stake'}{stakeSignsHere ? '' : ' ↗'}
-          {/if}
-        </button>
-      </div>
-
-      <ul class="items-grid">
+  {:else if showBag}
+    <div class="view">
+      <p class="lead">{pet.displayName}'s bag</p>
+      <ul class="bag jg-screen">
         {#each Object.values(ITEMS) as item (item.id)}
           {@const owned = inventory.find(([id]) => id === item.id)?.[1] ?? 0}
-          <li>
-            <span class="item-name" title={item.blurb}>
-              {item.name}{#if owned > 0}<span class="accent"> ×{owned}</span>{/if}
+          <li title={item.blurb}>
+            <img class="jg-px" alt="" src={ITEM_ART[item.id]} />
+            <span class="item-name">
+              {item.name}
+              {#if owned > 0}<small class="have">×{owned}</small>{/if}
             </span>
-            <span class="item-buttons">
-              <button
-                disabled={busy !== null}
-                onclick={() =>
-                  act(
-                    `buy-${item.id}`,
-                    () =>
-                      signAndSend(net(), 'buy_credit_item', { item_id: item.id, quantity: 1 }),
-                    `Bought a ${item.name}.`
-                  )}
-                title="Buy one"
-              >
-                {busy === `buy-${item.id}` ? '…' : '+'}
-              </button>
-              <button
-                disabled={busy !== null || owned === 0}
-                onclick={() =>
-                  act(
-                    `use-${item.id}`,
-                    () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
-                    `Used a ${itemName(item.id)}.`
-                  )}
-                title="Use on this pet"
-              >
-                {busy === `use-${item.id}` ? '…' : 'use'}
-              </button>
-            </span>
+            <button
+              class="jg-btn"
+              disabled={busy !== null}
+              onclick={() =>
+                act(
+                  `buy-${item.id}`,
+                  () => signAndSend(net(), 'buy_credit_item', { item_id: item.id, quantity: 1 }),
+                  `Bought a ${item.name}.`
+                )}
+              title="Buy one"
+            >
+              {busy === `buy-${item.id}` ? '…' : 'Buy'}
+            </button>
+            <button
+              class="jg-btn primary"
+              disabled={busy !== null || owned === 0}
+              onclick={() =>
+                act(
+                  `use-${item.id}`,
+                  () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
+                  `Used a ${itemName(item.id)}.`
+                )}
+              title="Use on this pet"
+            >
+              {busy === `use-${item.id}` ? '…' : 'Use'}
+            </button>
           </li>
         {/each}
       </ul>
+      {#if note}<p class="ok">{note}</p>{/if}
+      <button class="jg-btn wide" onclick={() => (showBag = false)}>Back</button>
+    </div>
+  {:else if loading}
+    <p class="lead">Reading the chain…</p>
+  {:else if error}
+    <p class="bad">{error}</p>
+    <button class="jg-btn wide" onclick={load}>Try again</button>
+  {:else}
+    <!-- The pet, on its own screen, the way the game showed it. -->
+    <div class="stage jg-screen">
+      <span class="badge tl">lv {pet.level}{pet.star ? ` ${'★'.repeat(pet.star)}` : ''}</span>
+      <span class="badge tr">{pet.rarity}</span>
+      <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
+      <span class="badge bl" class:work={status?.staked}>
+        {status?.staked ? 'at work' : 'idle'}
+      </span>
+      <span class="badge br" class:hurt={wounded} class:ward={warded}>
+        {wounded ? 'wounded' : warded ? 'warded' : 'fine'}
+      </span>
+    </div>
+
+    <div class="purse jg-screen">
+      <img class="jg-px" alt="" src="/assets/item/coin.png" />
+      <b>{account ? formatCredits(account.credit_balance) : '0'}</b>
+      <span class="muted">unclaimed {account ? formatCredits(account.pending_credits) : '0'}</span>
+      {#if status && status.lens_feeds_left > 0}
+        <span class="lens">lens ×{status.lens_feeds_left}</span>
+      {/if}
+    </div>
+
+    {#if !session}
+      <p class="note">Connect a wallet in Settings (⌘,) to play from here.</p>
+    {:else if !mine}
+      <p class="note">
+        {pet.displayName} belongs to {owner}, and you are signing as
+        {session.accountId} — so there is nothing here you can do to it.
+      </p>
+      {#if siblings.length > 0}
+        <button class="jg-btn primary wide" onclick={() => step(1)}>
+          Show my next pet →
+        </button>
+      {/if}
+    {:else}
+      <div class="tiles">
+        {@render tile(
+          'Feed',
+          '/assets/items/beef.png',
+          feed,
+          busy !== null || !canFeed,
+          canFeed ? `Costs ${ACTION_PRICE.ai_feed} credits` : 'Not enough credits',
+          busy === 'feed' ? '…' : undefined
+        )}
+        {@render tile(
+          'Claim',
+          '/assets/item/coin.png',
+          () => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.'),
+          busy !== null || Number(account?.pending_credits ?? 0) === 0,
+          'Move earned credits into the spendable balance',
+          busy === 'claim' ? '…' : undefined
+        )}
+        {@render tile(
+          'Faucet',
+          '/assets/items/water.png',
+          () => act('faucet', () => signAndSend(net(), 'claim_faucet', {}), 'Ten credits, once ever.'),
+          busy !== null,
+          'Ten free credits, once per account',
+          busy === 'faucet' ? '…' : undefined
+        )}
+        {@render tile(
+          'Mine',
+          '/assets/button/mining.png',
+          () => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.'),
+          busy !== null || (account?.staked_pets.length ?? 0) === 0,
+          (account?.staked_pets.length ?? 0) === 0
+            ? 'Mining needs a pet at work in the lab'
+            : 'A small top-up every six hours',
+          busy === 'mine' ? '…' : undefined
+        )}
+        {@render tile(
+          `Battle ${targets.length ? `(${targets.length})` : ''}`,
+          '/assets/button/attack.png',
+          () => (showTargets = true),
+          busy !== null || !!status?.staked,
+          status?.staked ? 'A pet at work in the lab cannot fight' : 'Pick somebody to attack'
+        )}
+        {@render tile(
+          status?.staked ? 'Bring home' : 'AI Lab',
+          '/assets/button/house.png',
+          toggleStake,
+          busy !== null || walletAction.running !== null,
+          stakeSignsHere
+            ? 'Signs here, with your session key'
+            : 'Opens your browser — this session key predates staking being granted',
+          busy === 'stake' ? '…' : walletAction.running ? 'browser…' : undefined
+        )}
+        {@render tile(
+          'Bag',
+          '/assets/button/backpack.png',
+          () => (showBag = true),
+          busy !== null,
+          'Buy and use items'
+        )}
+      </div>
 
       {#if note}<p class="ok">{note}</p>{/if}
 
-      <p class="note">
-        {#if stakeSignsHere}
-          Everything here signs on this machine. Minting and buying still need your wallet: those
-          move NEAR, and a session key may never attach a deposit.
-        {:else}
-          Staking still opens your browser because this session key was granted before staking
-          could be signed here. Connect again in Settings to sign it locally.
-        {/if}
-      </p>
+      <!--
+        Silkscreen is all caps at this size, so three lines of prose reads as
+        a wall. One short line, and only when there is something to say.
+      -->
+      {#if !stakeSignsHere}
+        <p class="note">AI Lab opens your browser — reconnect in Settings to sign it here.</p>
+      {/if}
     {/if}
   {/if}
 </div>
 
 <style>
+  /*
+   * Measurements, not taste: the window is 340×460 and the frame eats 14px a
+   * side, so everything below is sized against roughly 300×400 of usable
+   * screen. Anything that does not fit becomes a view of its own rather than
+   * something you have to scroll to find — the opponent list already taught
+   * that lesson once.
+   */
   .panel {
     position: absolute;
-    inset: 4px;
+    inset: 2px;
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 0 0 6px;
-    background: #0b0d10f2;
-    border: 1px solid #39414d;
-    font-size: 11px;
+    gap: 5px;
+    padding: 4px;
+    font-size: 10px;
     overflow-y: auto;
   }
 
   header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
     cursor: grab;
-    position: sticky;
-    top: 0;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 6px 8px;
-    border-bottom: 1px solid #242a33;
-    background: #0b0d10;
   }
 
-  header small {
-    color: #8b95a3;
+  .who {
+    font-weight: 700;
+    font-size: 11px;
+    letter-spacing: 0.04em;
   }
 
-  header button {
-    cursor: pointer;
+  .who small {
+    color: var(--jg-muted);
+    font-size: 9px;
+  }
+
+  .arrow {
+    border: 0;
     background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
+    padding: 0 2px;
     cursor: pointer;
-    padding: 1px 6px;
+    line-height: 0;
   }
 
-  dl {
-    margin: 0;
-    padding: 0 8px;
+  .arrow img {
+    width: 12px;
+    height: 12px;
+    object-fit: contain;
   }
 
-  dl.owner {
-    padding-top: 6px;
-    border-top: 1px solid #171b22;
+  .who {
+    flex: 1;
+    text-align: center;
   }
 
-  dl div {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 2px 0;
-  }
-
-  dt {
-    color: #8b95a3;
-  }
-
-  dd {
-    margin: 0;
-  }
-
-  .accent {
-    color: #b6f36b;
-  }
-
-  .warn {
-    color: #f3a66b;
-  }
-
-  .bad {
-    color: #f36b7b;
-    padding: 0 8px;
-  }
-
-  .muted {
-    color: #8b95a3;
-    padding: 0 8px;
-  }
-
-  .items {
-    margin: 0;
-    padding: 6px 8px 0;
-    list-style: none;
-    border-top: 1px solid #171b22;
-  }
-
-  .items-grid {
-    margin: 6px 0 0;
-    padding: 6px 8px 0;
-    border-top: 1px solid #171b22;
-    list-style: none;
-  }
-
-  .items-grid li {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
-  }
-
-  .item-name {
-    color: #8b95a3;
-  }
-
-  .item-buttons {
-    display: flex;
-    gap: 3px;
-  }
-
-  .item-buttons button {
+  .x {
+    border: 0;
     background: none;
-    border: 1px solid #242a33;
-    color: inherit;
     font: inherit;
-    font-size: 10px;
-    padding: 1px 6px;
+    font-size: 12px;
+    line-height: 1;
+    color: var(--jg-muted);
     cursor: pointer;
   }
 
-  .item-buttons button:disabled {
-    opacity: 0.35;
-    cursor: default;
+  .x:hover {
+    color: var(--jg-bad);
   }
 
-  .picker {
+  /* The pet, framed, with its numbers pinned to the corners of the glass. */
+  .stage {
+    position: relative;
+    display: grid;
+    place-items: center;
+    min-height: 120px;
+    padding: 4px;
+    background:
+      url('/assets/background/screen_pet.png') center / cover no-repeat,
+      var(--jg-screen);
+  }
+
+  .hero {
+    width: 96px;
+    image-rendering: pixelated;
+  }
+
+  .badge {
+    position: absolute;
+    padding: 1px 4px;
+    font-size: 8px;
+    line-height: 1.4;
+    color: var(--jg-ink);
+    background: #ffffffcc;
+    border: 1px solid var(--jg-edge);
+  }
+
+  .tl { top: 3px; left: 3px; }
+  .tr { top: 3px; right: 3px; }
+  .bl { bottom: 3px; left: 3px; }
+  .br { bottom: 3px; right: 3px; }
+
+  .badge.work { color: var(--jg-good); }
+  .badge.hurt { color: var(--jg-bad); }
+  .badge.ward { color: #3b7fb8; }
+
+  .purse {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 5px;
+    font-size: 9px;
+  }
+
+  .purse img {
+    width: 14px;
+  }
+
+  .purse b {
+    font-size: 11px;
+    color: var(--jg-ink);
+  }
+
+  .purse .muted {
+    margin-left: auto;
+    color: var(--jg-muted);
+  }
+
+  .purse .lens {
+    color: var(--jg-good);
+  }
+
+  /* Four across: the widest label still fits at 300px of usable width. */
+  .tiles {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 4px;
+  }
+
+  .view {
     display: flex;
     flex-direction: column;
-    gap: 6px;
-    padding: 6px 8px;
+    gap: 5px;
     min-height: 0;
   }
 
-  .targets {
+  .lead {
     margin: 0;
-    padding: 0;
-    flex: 1;
-    overflow-y: auto;
+    font-size: 9px;
+    color: var(--jg-muted);
+  }
+
+  .targets,
+  .bag {
+    margin: 0;
+    padding: 3px;
     list-style: none;
-    border-top: 1px solid #171b22;
-  }
-
-  .targets li {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    gap: 6px;
-    padding: 2px 0;
+    flex-direction: column;
+    gap: 3px;
+    max-height: 260px;
+    overflow-y: auto;
   }
 
-  .target-name {
+  .targets li,
+  .bag li {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px;
+  }
+
+  .targets li img,
+  .bag li img {
+    width: 24px;
+    height: 24px;
+    object-fit: contain;
+  }
+
+  .target-name,
+  .item-name {
+    flex: 1;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    font-size: 9px;
   }
 
-  .targets button {
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
-    font-size: 10px;
-    padding: 1px 6px;
-    cursor: pointer;
+  .target-name small,
+  .item-name small {
+    color: var(--jg-muted);
+    font-size: 8px;
   }
 
-  .targets button:disabled {
-    opacity: 0.35;
+  .item-name .have {
+    color: var(--jg-good);
   }
 
-  .actions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-    padding: 6px 8px 0;
-    border-top: 1px solid #171b22;
+  .wide {
+    width: 100%;
   }
 
-  .actions button {
-    flex: 1 1 60px;
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
-    font-size: 10px;
-    padding: 3px 4px;
-    cursor: pointer;
-  }
-
-  .actions button:disabled {
-    opacity: 0.4;
-    cursor: default;
+  .muted {
+    color: var(--jg-muted);
   }
 
   .ok {
-    margin: 4px 0 0;
-    padding: 0 8px;
-    color: #b6f36b;
+    margin: 0;
+    font-size: 9px;
+    color: var(--jg-good);
+  }
+
+  .bad {
+    margin: 0;
+    font-size: 9px;
+    color: var(--jg-bad);
   }
 
   .note {
-    margin: auto 0 0;
-    padding: 6px 8px 0;
-    border-top: 1px solid #171b22;
-    color: #8b95a3;
+    margin: 0;
+    font-size: 8px;
     line-height: 1.5;
-  }
-
-  button.wide {
-    margin: 0 8px;
-    background: none;
-    border: 1px solid #242a33;
-    color: inherit;
-    font: inherit;
-    padding: 3px 8px;
-    cursor: pointer;
+    color: var(--jg-muted);
   }
 </style>

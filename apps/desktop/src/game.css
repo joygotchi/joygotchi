@@ -1,0 +1,143 @@
+/*
+ * The game's look, as the art was drawn for.
+ *
+ * These sprites came from the web game and they are bright pixel art on a
+ * pale blue sky. Dropping them onto the window's old near-black chrome made
+ * them read as stickers on a terminal, so the chrome moved to meet the art
+ * rather than the other way round. The floating pet stays transparent — only
+ * the panels are a game screen.
+ *
+ * Every number below was measured off `background/frame.png` rather than
+ * guessed: a 6px transparent margin, an 18px dark edge and an 18px bevel, at
+ * a 6× art scale.
+ */
+
+@font-face {
+  font-family: 'Silkscreen';
+  font-weight: 400;
+  font-display: swap;
+  src: url('/font/Silkscreen-Regular.ttf');
+}
+
+@font-face {
+  font-family: 'Silkscreen';
+  font-weight: 700;
+  font-display: swap;
+  src: url('/font/Silkscreen-Bold.ttf');
+}
+
+:root {
+  --jg-edge: #576569;
+  --jg-bevel: #eef3f5;
+  --jg-fill: #adbac5;
+  --jg-screen: #e5f2f8;
+  --jg-sky: #b8e3f8;
+  --jg-ink: #2d3a3f;
+  --jg-muted: #6c7f88;
+  --jg-good: #3f9e4d;
+  --jg-bad: #d2524f;
+  --jg-gold: #f0a32c;
+  --jg-pixel: 'Silkscreen', ui-monospace, monospace;
+}
+
+/*
+ * Pixel art is drawn at 1:1 and then blown up; the browser's default smoothing
+ * turns every one of these into mush at panel size.
+ */
+.jg img,
+img.jg-px {
+  image-rendering: pixelated;
+  -webkit-user-drag: none;
+}
+
+/* The panel's chrome, as a nine-slice of the drawn frame. */
+.jg-frame {
+  border-style: solid;
+  border-width: 14px;
+  border-image-source: url('/assets/background/frame.png');
+  border-image-slice: 42 fill;
+  border-image-repeat: stretch;
+  color: var(--jg-ink);
+  font-family: var(--jg-pixel);
+}
+
+/*
+ * An action: the drawn tile is the button. No border, no background — the art
+ * already has both, and giving it a second frame is what made the first pass
+ * look like icons glued inside widgets.
+ */
+.jg-tile {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-size: 8px;
+  color: var(--jg-ink);
+  cursor: pointer;
+  transition: transform 0.08s steps(2);
+}
+
+.jg-tile img {
+  width: 100%;
+  height: 40px;
+  object-fit: contain;
+}
+
+/* Pressed, in whole pixels — no soft easing, nothing sub-pixel. */
+.jg-tile:active:not(:disabled) {
+  transform: translateY(2px);
+}
+
+.jg-tile:disabled {
+  cursor: default;
+  opacity: 0.4;
+  filter: grayscale(1);
+}
+
+.jg-tile:not(:disabled):hover img {
+  transform: translateY(-2px);
+}
+
+/* A readout panel: the inset screen the stats sit on. */
+.jg-screen {
+  background: var(--jg-screen);
+  border: 3px solid var(--jg-edge);
+  box-shadow: inset 2px 2px 0 #fff, inset -2px -2px 0 #c3d2da;
+}
+
+/* A plain labelled button, for the places a tile would be too big. */
+.jg-btn {
+  font-family: var(--jg-pixel);
+  font-size: 9px;
+  color: var(--jg-ink);
+  background: var(--jg-bevel);
+  border: 3px solid var(--jg-edge);
+  box-shadow: inset -2px -2px 0 #c3d2da;
+  padding: 4px 8px;
+  cursor: pointer;
+}
+
+.jg-btn:active:not(:disabled) {
+  box-shadow: inset 2px 2px 0 #c3d2da;
+  transform: translateY(1px);
+}
+
+.jg-btn:disabled {
+  cursor: default;
+  color: var(--jg-muted);
+  opacity: 0.55;
+}
+
+.jg-btn.primary {
+  background: var(--jg-gold);
+  color: #3a2708;
+}
+
+.jg-btn.danger {
+  background: var(--jg-bad);
+  color: #fff;
+}

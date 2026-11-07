@@ -1,3 +1,4 @@
+import './game.css';
 import { mount } from 'svelte';
 import App from './App.svelte';
 import { installTauriMock } from './mock-tauri';

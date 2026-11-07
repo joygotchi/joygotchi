@@ -259,7 +259,12 @@
       />
     </div>
   {:else if showPanel && active}
-    <PetPanel pet={active} onclose={() => (showPanel = false)} />
+    <PetPanel
+      pet={active}
+      {pets}
+      onpick={(slug) => (activeSlug = slug)}
+      onclose={() => (showPanel = false)}
+    />
   {/if}
 
   {#if showSettings}
