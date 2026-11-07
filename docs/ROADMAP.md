@@ -8,16 +8,27 @@ be most of the remaining work.
 
 | | |
 |---|---|
-| Gallery | <https://joygotchi.vercel.app> — reads `jg-game-5656.testnet` directly, 5 pets |
+| Gallery | <https://joygotchi.vercel.app> — reads `jg-game-5656.testnet` directly, 8 pets |
 | CLI | `@joygotchi/joygotchi@0.1.0` on GitHub Packages |
-| Contracts | game, pet-stake, mint-router on testnet; 119 tests |
-| Desktop | Tauri 2, builds and runs, hook server on `127.0.0.1:7777` |
+| Contracts | game, pet-stake, mint-router on testnet; 139 Rust tests, hashes in [`DEPLOYED.md`](../contracts/DEPLOYED.md) |
+| Desktop | Tauri 2, pixel-art game UI, hook server on `127.0.0.1:7777`; 87 TypeScript tests |
+| Pet speech | NEAR AI answers, and reads the pet's real state to do it |
 
 Working end to end: connect a wallet → mint for 2 testnet NEAR → copy the
 install code → `npx @joygotchi/joygotchi install <code>` → the pet lands in
 `~/.joygotchi/pets/` → the desktop app shows it and animates on agent events.
-Staking, claiming, the faucet, mining, and buying and using all four items work
-from the pet page.
+Staking, claiming, the faucet, mining, battling, and buying and using all four
+items work from the desktop app, which is where the controls live — the
+gallery is a read-only window onto the same chain.
+
+Everything but staking signs on the machine with a session key. Staking is no
+longer the exception by protocol — the contract dropped the yoctoNEAR that
+forced a wallet signature — but a key granted before that change cannot be
+widened, so those sessions still take the browser route until they reconnect.
+
+A fight somebody else starts shows itself: the window polls the pets and pairs
+the two sides by the timestamp the contract stamps on both, so no indexer is
+needed to know who attacked you and whether you won.
 
 ## Waiting on a decision, not on work
 
@@ -80,6 +91,11 @@ is gated to an oracle account. The route and the key handling exist in the
 other repository (PR #15 there) and need porting here.
 
 ### 4. The pet as an assistant
+Unblocked: NEAR AI answers now. Two things had to be true first — the model
+must not be a reasoning one (it spent the whole token budget thinking and
+returned nothing, as a successful 200), and the persona must read the pet's
+real hunger rather than claiming it always wants food.
+
 Chat with tool calls: balance, transfers, payments, and the economy actions
 above. Decided: **the model proposes, the user signs.** It never holds a key.
 Its output is parsed into a typed intent, validated against our own rules, and
@@ -96,9 +112,14 @@ until that becomes stored state. Still the largest item.
 
 ## Loose ends
 
-- **Contract source lives in two repositories.** `jg-game-5656.testnet` matches
-  this one, including the NEP-171 fix. `joygotchi-near-client-bot` does not,
-  and has PRs #14, #15 and #17 open. Pick one and close the other out.
+- **~~Contract source lives in two repositories.~~** Done, and it cost a live
+  deployment to find out why it mattered: `pet-stake` built from this tree and
+  deployed over `jg-stake-5656.testnet` left it unable to read its own state,
+  because the other repository had added auto-feed fields to the struct. All
+  three contracts now build from here to the hash the chain serves, recorded
+  in [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md) with how to check
+  before deploying and how to recover after. `joygotchi-near-client-bot` still
+  has PRs #14, #15 and #17 open against its copy; close them out there.
 - **The desktop app installs no agent hooks.** Settings documents a `curl`; the
   one-click-per-agent install that makes the pet react while you work is not
   written.
