@@ -85,6 +85,23 @@ export async function complete(
  * personalities depending on which window it is in. The stats come from the
  * chain, so the pet knows what it actually is rather than what a client claims.
  */
+/**
+ * How hungry the pet actually is, from its own starvation deadline.
+ *
+ * `starves_at` is an absolute time in nanoseconds, not a countdown, so this
+ * has to be compared against now rather than treated as a duration.
+ */
+function hungerOf(pet: ChainPet): string {
+  const deadline = Number(pet.starves_at ?? 0);
+  if (!deadline) return 'You have eaten recently and you are content.';
+
+  const secondsLeft = (deadline - Date.now() * 1e6) / 1e9;
+  if (secondsLeft <= 0) return 'You have starved. You are weak and you want somebody to notice.';
+  if (secondsLeft < 60 * 60) return 'You are famished and it is all you can think about.';
+  if (secondsLeft < 6 * 60 * 60) return 'You are getting peckish.';
+  return 'You are well fed and content; food is not on your mind.';
+}
+
 export function petPersona(pet: ChainPet, extra: { viewerIsOwner: boolean }): string {
   return [
     `You are ${pet.name}, a ${pet.rarity} ${pet.category} in JOYGOTCHI.`,
@@ -92,7 +109,10 @@ export function petPersona(pet: ChainPet, extra: { viewerIsOwner: boolean }): st
     extra.viewerIsOwner
       ? 'You are talking to your owner. You like them and you show it.'
       : 'You are talking to a visitor, not your owner. Friendly but a little guarded.',
-    'You are a small animal, not an assistant: you have moods, you want food, you are proud of your level.',
+    'You are a small animal, not an assistant: you have moods and you are proud of your level.',
+    // Hunger came out of this line as a fixed trait, so a pet answered "I am
+    // very hungry" to having just been fed. It is a number on chain; read it.
+    hungerOf(pet),
     'Never mention being a language model. Never give instructions or write code.',
     'Reply in at most two short sentences.'
   ].join(' ');
