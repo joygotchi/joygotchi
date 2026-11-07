@@ -44,13 +44,6 @@ pub struct PetAttrs {
     pub level: u32,
     pub star: u32,
     pub evolution_phase: u8,
-    /// Shields the pet is carrying.
-    ///
-    /// `#[serde(default)]` because this crosses a contract boundary as JSON:
-    /// whichever side is redeployed second must still read what the other
-    /// sends, and an absent field has to mean none rather than a failed call.
-    #[serde(default)]
-    pub shield: u32,
 }
 
 impl PetAttrs {
@@ -73,24 +66,10 @@ impl PetAttrs {
             3 => 13_500,
             _ => 16_000,
         };
-        /*
-         * Carried shields, capped hard.
-         *
-         * This is the only part of weight that can be bought outright, and
-         * the pool it divides is fixed — a bonus here is taken from everyone
-         * else's share, not minted. Uncapped it would be a yield you buy, so
-         * it stops at three shields and +15%, which is one star's worth and
-         * no more. A shield spent in a fight takes its weight with it, which
-         * is the point: it is a consumable, not an upgrade.
-         */
-        let shield_bps = 10_000u128 + (self.shield.min(MAX_WEIGHTED_SHIELDS) as u128) * 500;
 
-        base * level_bps / 10_000 * star_bps / 10_000 * evo_bps / 10_000 * shield_bps / 10_000
+        base * level_bps / 10_000 * star_bps / 10_000 * evo_bps / 10_000
     }
 }
-
-/// How many carried shields count towards staking weight.
-pub const MAX_WEIGHTED_SHIELDS: u32 = 3;
 
 /// Credit-item ids. The game contract's own $JOY shop uses 1-4, so these start
 /// at 101 to keep the two namespaces apart in events and logs.

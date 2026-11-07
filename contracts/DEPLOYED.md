@@ -6,8 +6,8 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `ADMADw8aE8c4RK99TAiR282mHoueQEz2KNYFBt2C2t1b` |
-| `jg-stake-5656.testnet` | `7s5Qxh32kDsEV8ue3EaSVNrnoz6nQAPjGdsguvUqxvWf` |
+| `jg-game-5656.testnet` | `GGizqjNbrLsEVAqAk3z3ih9rqG3QyuYDBxaahU48NXYH` |
+| `jg-stake-5656.testnet` | `CxTuabNuBd86GHzGLBcf9hKaHPYGkez7tRSbfrq41wLg` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 
 ## Why this file exists
@@ -24,6 +24,37 @@ Nothing about that was obvious beforehand. Both trees built, both passed their
 tests, and the method lists differed by four names that no test looked at.
 
 The hashes above make it checkable in one command instead.
+
+## The struct that does not look stored
+
+`PetAttrs` is a view struct. It is also stored, inside every `StakedPet`:
+
+```rust
+pub struct StakedPet {
+    pub pet_id: u64,
+    pub owner_id: AccountId,
+    pub weight: U128,
+    pub attrs: PetAttrs,   // ← Borsh, in `pets: UnorderedMap<u64, StakedPet>`
+    pub staked_at: U64,
+}
+```
+
+Adding a field to `PetAttrs` therefore adds bytes in the *middle* of every
+stored `StakedPet`, and `staked_at` after it no longer lands where the reader
+looks. Every record written before the deploy becomes unreadable, and
+`get_staked_pets` fails with `Cannot deserialize value with Borsh` — which
+reads as a different fault from the state-level one above and is the same
+mistake.
+
+This happened. A `shield: u32` was added to `PetAttrs` so that carried
+shields could count towards staking weight; the contract compiled, 143 tests
+passed, every view that did not touch a staked record kept working, and the
+panel broke for exactly the accounts that had a pet in the lab.
+
+If you need per-pet data in the weight calculation, pass it alongside
+`PetAttrs` rather than inside it, or write a migration that reads the old
+layout explicitly. Do not add a field to anything reachable from a stored
+struct and assume the tests will tell you.
 
 ## Checking before you deploy
 

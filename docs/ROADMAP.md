@@ -120,6 +120,12 @@ until that becomes stored state. Still the largest item.
   in [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md) with how to check
   before deploying and how to recover after. `joygotchi-near-client-bot` still
   has PRs #14, #15 and #17 open against its copy; close them out there.
+- **Shields do not count towards staking weight.** Tried, reverted: the bonus
+  meant adding a field to `PetAttrs`, which is stored inside every
+  `StakedPet`, so it broke every staked record on the live contract. The
+  design is sound and capped (+5% a shield, three maximum, one star's worth)
+  — it needs the shield passed alongside `PetAttrs` rather than inside it, or
+  a migration. See [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md).
 - **Nothing runs the feed oracle.** `auto_feed` and `award_feed_xp` are both
   gated to `feeder.jg-stake-5656.testnet`, the app can now set a budget for
   it, and no process anywhere calls either. Until one exists, auto-feed is

@@ -1797,14 +1797,6 @@ mod tests {
             level,
             star,
             evolution_phase: phase,
-            shield: 0,
-        }
-    }
-
-    fn attrs_with_shields(shield: u32) -> PetAttrs {
-        PetAttrs {
-            shield,
-            ..attrs(0, 0, 1, Rarity::Common)
         }
     }
 
@@ -1812,32 +1804,6 @@ mod tests {
     fn deploy() -> PetStake {
         testing_env!(ctx(owner(), 0).build());
         PetStake::new(owner(), game(), router(), U128(500 * ONE_CREDIT), Some(oracle()))
-    }
-
-    #[test]
-    fn a_carried_shield_is_worth_five_percent() {
-        let bare = attrs_with_shields(0).weight();
-        assert_eq!(attrs_with_shields(1).weight(), bare * 10_500 / 10_000);
-        assert_eq!(attrs_with_shields(3).weight(), bare * 11_500 / 10_000);
-    }
-
-    #[test]
-    fn shields_past_the_cap_buy_nothing() {
-        // The pool is fixed, so this bonus is taken from other stakers rather
-        // than minted. Without a cap it is a yield you can buy as much of as
-        // you like; `report_battle` can also stack shields through wins.
-        let capped = attrs_with_shields(MAX_WEIGHTED_SHIELDS).weight();
-        assert_eq!(attrs_with_shields(MAX_WEIGHTED_SHIELDS + 1).weight(), capped);
-        assert_eq!(attrs_with_shields(99).weight(), capped);
-    }
-
-    #[test]
-    fn a_shield_is_worth_less_than_a_star() {
-        // Stars are earned over three wins and a loss takes one back. Buying
-        // weight must not beat playing for it.
-        let three_shields = attrs_with_shields(MAX_WEIGHTED_SHIELDS).weight();
-        let one_star = PetAttrs { star: 1, ..attrs_with_shields(0) }.weight();
-        assert!(three_shields <= one_star, "{three_shields} > {one_star}");
     }
 
     #[test]
