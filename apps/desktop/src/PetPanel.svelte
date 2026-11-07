@@ -235,6 +235,43 @@
       onfight={attack}
       onclose={closeFight}
     />
+  {:else if showTargets}
+    <!--
+      A view of its own, not a list under the button.
+      The window is 340×460 and the panel scrolls, so the list used to open
+      below the fold: the button said "Never mind" and nothing else appeared
+      to change. Taking the panel means the choice is always the thing on
+      screen, which is what it is.
+    -->
+    <div class="picker">
+      <p class="muted">Pick somebody for {pet.displayName} to attack.</p>
+      <ul class="targets">
+        {#if targets.length === 0}
+          <li class="muted">Nobody to fight: every other pet is at work, warded or hurt.</li>
+        {:else}
+          {#each targets as target (target.pet_id)}
+            <li>
+              <span class="target-name">
+                {target.name}
+                <span class="muted">lv {target.level}{target.star ? ` ·${target.star}★` : ''}</span>
+              </span>
+              <button
+                disabled={busy !== null}
+                onclick={() => {
+                  opponent = target;
+                  fight = 'ready';
+                  wager = null;
+                }}
+                title="Wager credits against {target.owner_id}"
+              >
+                fight
+              </button>
+            </li>
+          {/each}
+        {/if}
+      </ul>
+      <button class="wide" onclick={() => (showTargets = false)}>Back</button>
+    </div>
   {:else if loading}
     <p class="muted">Reading the chain…</p>
   {:else if error}
@@ -319,42 +356,14 @@
       <div class="actions">
         <button
           disabled={busy !== null || status?.staked}
-          onclick={() => (showTargets = !showTargets)}
+          onclick={() => (showTargets = true)}
           title={status?.staked
             ? 'A pet at work in the lab cannot fight'
             : 'Pick somebody to attack'}
         >
-          {showTargets ? 'Never mind' : `Battle (${targets.length})`}
+          Battle ({targets.length})
         </button>
       </div>
-
-      {#if showTargets}
-        <ul class="targets">
-          {#if targets.length === 0}
-            <li class="muted">Nobody to fight: every other pet is at work, warded or hurt.</li>
-          {:else}
-            {#each targets as target (target.pet_id)}
-              <li>
-                <span class="target-name">
-                  {target.name}
-                  <span class="muted">lv {target.level}{target.star ? ` ·${target.star}★` : ''}</span>
-                </span>
-                <button
-                  disabled={busy !== null}
-                  onclick={() => {
-                    opponent = target;
-                    fight = 'ready';
-                    wager = null;
-                  }}
-                  title="Wager credits against {target.owner_id}"
-                >
-                  fight
-                </button>
-              </li>
-            {/each}
-          {/if}
-        </ul>
-      {/if}
 
       <div class="actions">
         <button
@@ -550,10 +559,18 @@
     cursor: default;
   }
 
+  .picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 6px 8px;
+    min-height: 0;
+  }
+
   .targets {
-    margin: 4px 0 0;
-    padding: 4px 8px 0;
-    max-height: 110px;
+    margin: 0;
+    padding: 0;
+    flex: 1;
     overflow-y: auto;
     list-style: none;
     border-top: 1px solid #171b22;
