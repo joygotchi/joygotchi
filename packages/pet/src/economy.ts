@@ -78,6 +78,8 @@ export const itemName = (id: number) => ITEMS[id as ItemId]?.name ?? `Item ${id}
 
 /** What an action costs, in whole credits. Mirrors the contract's defaults. */
 export const ACTION_PRICE = {
+  /** A real meal: twelve hours on the clock, charged in credits. */
+  feed: 0.015,
   ai_feed: 0.002,
   train: 0.008,
   evolve: 0.5,
@@ -152,6 +154,11 @@ export const STAKE_METHODS = [
   // action players take most.
   'stake_pet',
   'unstake_pet',
+  // The meal that actually moves the starvation clock. The game contract's
+  // shop does the same thing for NEAR and is payable, so a session key can
+  // never reach it; this one is priced in credits and takes no deposit,
+  // which is the whole reason it exists.
+  'feed_pet',
   // Setting your own auto-feed budget takes no deposit, so the app can sign
   // it. Turning the pet's survival over to the oracle should not need a trip
   // through a browser — the point of it is to stop needing you at all.

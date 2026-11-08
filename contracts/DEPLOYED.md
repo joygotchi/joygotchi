@@ -6,8 +6,8 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `Gj3biaYhUHuREJzw5SJoiW3mUfgAAcy22KLjgnsfzhQ2` |
-| `jg-stake-5656.testnet` | `CxTuabNuBd86GHzGLBcf9hKaHPYGkez7tRSbfrq41wLg` |
+| `jg-game-5656.testnet` | `8ozFwCvfMRn4vakW6bpETHXdJwaniAzYEu5BkRGRzSWL` |
+| `jg-stake-5656.testnet` | `Ag8kj2ABSkJKipfNtGxJVp1sjYpgENVsYzHksiDkxPWf` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
 

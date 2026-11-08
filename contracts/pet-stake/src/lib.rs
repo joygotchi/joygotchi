@@ -80,6 +80,7 @@ trait Game {
 trait SelfCallbacks {
     fn on_pet_attrs(&mut self, pet_id: u64, account_id: AccountId) -> bool;
     fn on_auto_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
+    fn on_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
 }
 
 #[near(contract_state)]
@@ -200,6 +201,9 @@ impl PetStake {
             ("craft_item", 20_000),
             ("chat", 1_000),
             ("auto_feed", 15_000),
+            // Same meal as auto-feed, bought by the player rather than the
+            // oracle, so it costs the same.
+            ("feed", 15_000),
         ] {
             contract.prices.insert(&action.to_string(), &credits);
         }
@@ -1526,6 +1530,79 @@ impl PetStake {
         self.granter = granter;
     }
 
+    /// Feed a pet with credits, signed on the player's own machine.
+    ///
+    /// The game contract's shop is the only thing that moves `starves_at`,
+    /// and it is `#[payable]` — so on NEAR a function-call access key can
+    /// never call it, whatever its allowance says, and the desktop app has
+    /// to send people out to a browser for every meal. That is a wallet
+    /// round trip to stop a pet starving, several times a day.
+    ///
+    /// This is the same meal bought with credits instead of NEAR. Nothing is
+    /// payable, so the session key carries it, and the credits are the ones
+    /// the pet earned by staking — which closes the loop the economy was
+    /// always shaped for: work, earn, eat.
+    ///
+    /// NEAR still buys the shop's items, and still revives a pet that has
+    /// starved. Coming back from the dead should cost something real.
+    pub fn feed_pet(&mut self, pet_id: u64) -> Promise {
+        self.assert_running();
+        self.update_pool();
+
+        let account_id = env::predecessor_account_id();
+        let price = self.prices.get(&"feed".to_string()).expect("Feeding has no price set");
+
+        let mut account = self.account_or_default(&account_id);
+        self.harvest(&mut account);
+        require!(
+            account.credit_balance >= price,
+            "Not enough credits — claim or convert some first"
+        );
+
+        account.credit_balance -= price;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent += price;
+
+        // The game checks the pet is this account's, and refuses a starved
+        // one. Both answers come back as `false`, and the credits go back.
+        ext_game::ext(self.game_contract.clone())
+            .with_static_gas(GAS_FOR_FEED)
+            .feed_from_stake(pet_id, account_id.clone())
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_RESOLVE)
+                    .on_fed(account_id, pet_id, U128(price)),
+            )
+    }
+
+    #[private]
+    pub fn on_fed(
+        &mut self,
+        account_id: AccountId,
+        pet_id: u64,
+        price: U128,
+        #[callback_result] result: Result<bool, PromiseError>,
+    ) -> bool {
+        if matches!(result, Ok(true)) {
+            self.log_event(
+                "pet_fed",
+                json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+            );
+            return true;
+        }
+
+        let mut account = self.account_or_default(&account_id);
+        account.credit_balance += price.0;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent = self.total_spent.saturating_sub(price.0);
+
+        self.log_event(
+            "feed_refunded",
+            json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+        );
+        false
+    }
+
     /// Mining: a small credit payout for anyone with a pet at work.
     ///
     /// Gated on staked weight rather than on an account existing, because a
@@ -1804,6 +1881,59 @@ mod tests {
     fn deploy() -> PetStake {
         testing_env!(ctx(owner(), 0).build());
         PetStake::new(owner(), game(), router(), U128(500 * ONE_CREDIT), Some(oracle()))
+    }
+
+    /// Credits in alice's balance, through the granter the way the router
+    /// would.
+    fn fund_alice(contract: &mut PetStake) {
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(ONE_CREDIT));
+        testing_env!(ctx(router(), 0).build());
+        contract.grant_credits(alice(), U128(ONE_CREDIT));
+    }
+
+    #[test]
+    fn feeding_charges_credits_and_refunds_a_refusal() {
+        // The point of this call is that a session key can make it, so the
+        // money has to be safe when the game contract says no — a pet that
+        // is not yours, and one that has starved, both come back `false`.
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        let before = contract.get_account(alice()).unwrap().credit_balance.0;
+        testing_env!(ctx(alice(), 100).build());
+        contract.feed_pet(1);
+
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+        assert_eq!(before - charged, 15_000, "a meal costs what the price says");
+
+        contract.on_fed(alice(), 1, U128(15_000), Ok(false));
+        assert_eq!(
+            contract.get_account(alice()).unwrap().credit_balance.0,
+            before,
+            "a refused meal is a free one"
+        );
+    }
+
+    #[test]
+    fn a_meal_the_game_accepted_stays_paid_for() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        testing_env!(ctx(alice(), 100).build());
+        contract.feed_pet(1);
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+
+        contract.on_fed(alice(), 1, U128(15_000), Ok(true));
+        assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, charged);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not enough credits")]
+    fn feeding_without_credits_never_reaches_the_game() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 100).build());
+        contract.feed_pet(1);
     }
 
     #[test]

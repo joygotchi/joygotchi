@@ -11,6 +11,7 @@ export const POST: RequestHandler = async ({ request }) => {
     petId?: number;
     message?: string;
     viewer?: string;
+    history?: Array<{ role?: string; content?: string }>;
   } | null;
 
   const petId = Number(body?.petId);
@@ -23,6 +24,26 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ error: 'message must be 1–280 characters' }, { status: 400 });
   }
 
+  /*
+   * The last few turns, so the pet can follow a conversation rather than
+   * meeting you again every sentence.
+   *
+   * Bounded and filtered rather than trusted: this arrives from a client and
+   * decides what a model is told. Six turns is enough to keep a thread and
+   * short enough that nobody can push a prompt in by sheer length, and only
+   * the two roles that belong in a transcript get through — a forged
+   * `system` line is exactly how you would try to rewrite the persona.
+   */
+  const history = (body?.history ?? [])
+    .filter(
+      (turn): turn is { role: 'user' | 'assistant'; content: string } =>
+        (turn?.role === 'user' || turn?.role === 'assistant') &&
+        typeof turn.content === 'string' &&
+        turn.content.trim() !== ''
+    )
+    .slice(-6)
+    .map((turn) => ({ role: turn.role, content: turn.content.slice(0, 280) }));
+
   const pet = await viewFunction<ChainPet | null>(GAME_CONTRACT, 'get_pet', {
     pet_id: petId
   }).catch(() => null);
@@ -32,6 +53,7 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const reply = await complete([
       { role: 'system', content: petPersona(pet, { viewerIsOwner: body?.viewer === pet.owner_id }) },
+      ...history,
       { role: 'user', content: message }
     ]);
     return json({ reply, petId, model: 'near-ai' });

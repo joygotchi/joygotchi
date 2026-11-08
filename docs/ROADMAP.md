@@ -126,6 +126,10 @@ until that becomes stored state. Still the largest item.
   design is sound and capped (+5% a shield, three maximum, one star's worth)
   — it needs the shield passed alongside `PetAttrs` rather than inside it, or
   a migration. See [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md).
+- **~~Auto-feed could never have worked.~~** `auto_feed` on the staking
+  contract calls `feed_from_stake` on the game contract, and the game
+  contract did not have it — the feature spans both and only one half was
+  ever deployed here. Ported and live, which also unblocked `feed_pet`.
 - **Nothing runs the feed oracle.** `auto_feed` and `award_feed_xp` are both
   gated to `feeder.jg-stake-5656.testnet`, the app can now set a budget for
   it, and no process anywhere calls either. Until one exists, auto-feed is

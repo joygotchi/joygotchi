@@ -9,6 +9,9 @@ pub const STARVE_SECONDS: u64 = 24 * 60 * 60;
 /// Ceiling on banked food, so a whale cannot make a pet immortal in one go.
 pub const MAX_STARVE_SECONDS: u64 = 7 * 24 * 60 * 60;
 
+/// What one meal bought through the staking contract is worth.
+pub const AUTO_FEED_SECONDS: u64 = 12 * 60 * 60;
+
 /// A pet cannot attack again until this has passed.
 pub const ATTACK_COOLDOWN_SECONDS: u64 = 60 * 60;
 /// A pet cannot be attacked again until this has passed.

@@ -130,6 +130,9 @@
 
   const heroArt = $derived(convertFileSrc(`${pet.directory}/${pet.states.idle ?? ''}`));
   /** Whether this session's key covers staking, or predates it being granted. */
+  /** Whether this session's key covers the credit-priced meal. */
+  const feedSignsHere = $derived((session?.methodNames ?? []).includes('feed_pet'));
+
   const stakeSignsHere = $derived(
     (session?.methodNames ?? []).includes(status?.staked ? 'unstake_pet' : 'stake_pet')
   );
@@ -755,20 +758,32 @@
     {:else}
       <div class="tiles">
         <!--
-          Feed opens the shop rather than spending credits. `spend_credits`
-          with `ai_feed` records a meal and charges for it, and never touches
-          `starves_at` — the deadline only moves on the game contract's
-          `buy_item`. A button named Feed that does not feed is worse than no
-          button, so this one goes where the food is.
+          Feeding signs here, in credits. `spend_credits("ai_feed")` only
+          recorded a meal nothing turned into food; `feed_pet` spends and
+          calls the game contract, which moves the clock. A starved pet is
+          the exception: coming back needs a revival item, and those are
+          bought with NEAR through the shop.
         -->
         {@render tile(
           starved ? 'Revive' : 'Feed',
           starved ? '/assets/items/holy_water.png' : '/assets/items/beef.png',
+          starved ? () => (showShop = true) : feed,
+          busy !== null || (!starved && (!feedSignsHere || !canFeed)),
+          starved
+            ? `${pet.displayName} has starved — only a revival item brings it back`
+            : !feedSignsHere
+              ? 'This session key was granted before feeding could be signed here — reconnect in Settings'
+              : canFeed
+                ? `${ACTION_PRICE.feed} credits for 12 hours`
+                : 'Not enough credits',
+          busy === 'feed' ? '…' : undefined
+        )}
+        {@render tile(
+          'Shop',
+          '/assets/items/water.png',
           () => (showShop = true),
           busy !== null,
-          starved
-            ? `${pet.displayName} has starved — only a revival item works`
-            : 'Food and revival items, paid in NEAR'
+          'Food, shields and revival, paid in NEAR'
         )}
         <!--
           Off until something runs the oracle.
