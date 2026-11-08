@@ -196,6 +196,22 @@
     }
   }
 
+  /**
+   * The contract's own sentence, not the envelope around it.
+   *
+   * A rejected call comes back as nested JSON — `{"index":0,"kind":{...
+   * "ExecutionError":"Smart contract panicked: ..."}}` — and showing that
+   * raw puts the one readable clause at the end of four lines of braces.
+   */
+  function readable(cause: unknown): string {
+    const raw = cause instanceof Error ? cause.message : String(cause);
+    const panic = raw.match(/Smart contract panicked:\s*([^"\\}]+)/);
+    if (panic?.[1]) return panic[1].trim();
+    const execution = raw.match(/"ExecutionError"\s*:\s*"([^"]+)"/);
+    if (execution?.[1]) return execution[1].replace(/^Smart contract panicked:\s*/, '');
+    return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
+  }
+
   async function sign() {
     if (!valid) return;
     phase = 'signing';
@@ -245,7 +261,7 @@
       await report({ tx_hash: outcome.transaction?.hash ?? 'unknown' });
     } catch (cause) {
       phase = 'error';
-      message = cause instanceof Error ? cause.message : String(cause);
+      message = readable(cause);
       await report({ error: message.slice(0, 120) });
     }
   }
