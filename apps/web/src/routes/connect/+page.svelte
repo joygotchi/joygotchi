@@ -1,5 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
+  import { GAME_METHODS, STAKE_METHODS } from '@joygotchi/pet';
   import { addKeyForContract, connectedAccount, grantFunctionCallKey } from '#lib/near/wallet.svelte';
 
   /**
@@ -71,8 +72,34 @@
   }
 
   const target = $derived(loopbackOnly(callback));
+
+  /*
+   * What the link may ask for, checked rather than assumed.
+   *
+   * The comment above says the key is scoped to our contract and our methods
+   * "either way" — and nothing here enforced either. A crafted link could
+   * name any contract and any method list, and this page would put it in
+   * front of somebody as a grant to approve. The scope limits were the
+   * safety argument, so they have to be real.
+   */
+  const KNOWN_STAKE = new Set<string>(STAKE_METHODS);
+  const KNOWN_GAME = new Set<string>(GAME_METHODS);
+  const STAKE_HOST = /^jg-stake-[a-z0-9-]+\.(testnet|near)$/;
+  const GAME_HOST = /^jg-game-[a-z0-9-]+\.(testnet|near)$/;
+
+  const stakeAsked = $derived(methods.filter((m) => !KNOWN_STAKE.has(m)));
+  const gameAsked = $derived(gameMethods.filter((m) => !KNOWN_GAME.has(m)));
+
   const valid = $derived(
-    publicKey.startsWith('ed25519:') && contractId.length > 0 && methods.length > 0 && target !== null
+    publicKey.startsWith('ed25519:') &&
+      STAKE_HOST.test(contractId) &&
+      methods.length > 0 &&
+      stakeAsked.length === 0 &&
+      (gameMethods.length === 0 ||
+        (GAME_HOST.test(gameContractId) &&
+          gamePublicKey.startsWith('ed25519:') &&
+          gameAsked.length === 0)) &&
+      target !== null
   );
 
   let returnUrl = $state<string | null>(null);
@@ -160,8 +187,19 @@
       <p class="text-bad">This link is not one the desktop app made.</p>
       <ul class="mt-2 space-y-1 text-muted">
         {#if !publicKey.startsWith('ed25519:')}<li>· no key to grant</li>{/if}
-        {#if contractId === ''}<li>· no contract named</li>{/if}
+        {#if !STAKE_HOST.test(contractId)}
+          <li>· "{contractId || 'nothing'}" is not a JOYGOTCHI lab contract</li>
+        {/if}
         {#if methods.length === 0}<li>· no methods named</li>{/if}
+        {#if stakeAsked.length > 0}
+          <li>· it asks for {stakeAsked.join(', ')}, which this app never calls</li>
+        {/if}
+        {#if gameMethods.length > 0 && !GAME_HOST.test(gameContractId)}
+          <li>· "{gameContractId || 'nothing'}" is not a JOYGOTCHI game contract</li>
+        {/if}
+        {#if gameAsked.length > 0}
+          <li>· it asks for {gameAsked.join(', ')} on the game contract</li>
+        {/if}
         {#if target === null}
           <li>· it would send the result somewhere other than this machine</li>
         {/if}
