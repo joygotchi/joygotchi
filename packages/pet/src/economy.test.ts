@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  ACCESSORY_METHODS,
   ACTION_PRICE,
   AUTO_FEED_DAILY_BUDGET,
   AUTO_FEED_HOURS,
@@ -7,11 +8,16 @@ import {
   ITEMS,
   STAKE_METHODS,
   contractForMethod,
+  slotForMethod,
   formatCredits,
   toMicroCredits
 } from './economy.js';
 
-const contracts = { stake: 'jg-stake-1.testnet', game: 'jg-game-1.testnet' };
+const contracts = {
+  stake: 'jg-stake-1.testnet',
+  game: 'jg-game-1.testnet',
+  accessory: 'jg-acc-1.testnet'
+};
 
 describe('session methods', () => {
   it('sends each method to the contract it actually lives on', () => {
@@ -39,9 +45,26 @@ describe('session methods', () => {
     expect(contractForMethod('unstake_pet', contracts)).toBe(contracts.stake);
   });
 
-  it('keeps the two lists disjoint', () => {
-    const overlap = STAKE_METHODS.filter((m) => (GAME_METHODS as readonly string[]).includes(m));
-    expect(overlap).toEqual([]);
+  it('keeps the three lists disjoint', () => {
+    // A method in two lists would route to whichever check ran first, which
+    // is a key signing for the wrong contract and a node refusing it.
+    const all = [...STAKE_METHODS, ...GAME_METHODS, ...ACCESSORY_METHODS];
+    expect(new Set(all).size).toBe(all.length);
+  });
+
+  it('routes wearing to the accessory contract, and names its key', () => {
+    expect(contractForMethod('equip', contracts)).toBe(contracts.accessory);
+    expect(contractForMethod('unequip', contracts)).toBe(contracts.accessory);
+    expect(slotForMethod('equip')).toBe('accessory');
+    expect(slotForMethod('claim_credits')).toBe('lab');
+    expect(slotForMethod('attack')).toBe('game');
+    expect(slotForMethod('mint')).toBeNull();
+  });
+
+  it('has no accessory contract to route to on an older session', () => {
+    // Two-key sessions predate the third contract; routing must say no
+    // rather than send the call to the lab.
+    expect(contractForMethod('equip', { stake: 's.testnet', game: 'g.testnet' })).toBeNull();
   });
 
   it('grants nothing payable, because a session key cannot attach a deposit', () => {

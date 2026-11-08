@@ -1,6 +1,12 @@
 import { invoke } from '@tauri-apps/api/core';
 import { listen } from '@tauri-apps/api/event';
-import { GAME_METHODS, STAKE_METHODS, contractForMethod } from '@joygotchi/pet';
+import {
+  ACCESSORY_METHODS,
+  GAME_METHODS,
+  STAKE_METHODS,
+  contractForMethod,
+  slotForMethod
+} from '@joygotchi/pet';
 import {
   Account,
   FailoverRpcProvider,
@@ -9,7 +15,7 @@ import {
   PublicKey,
   Signer
 } from 'near-api-js';
-import { stakeContractFor } from './chain';
+import { accessoryContractFor, stakeContractFor } from './chain';
 
 /**
  * Connecting a wallet, and signing without one afterwards.
@@ -33,7 +39,11 @@ import { stakeContractFor } from './chain';
  * The lists live in `@joygotchi/pet` so the gallery grants exactly what the
  * app will try to call.
  */
-export const SESSION_METHODS = [...STAKE_METHODS, ...GAME_METHODS] as const;
+export const SESSION_METHODS = [
+  ...STAKE_METHODS,
+  ...GAME_METHODS,
+  ...ACCESSORY_METHODS
+] as const;
 
 export const SESSION_DAYS = 30;
 
@@ -81,6 +91,8 @@ export type Session = {
    * became two keys.
    */
   gamePublicKey?: string;
+  accessoryContractId?: string;
+  accessoryPublicKey?: string;
   methodNames: string[];
   /** Unix seconds; 0 means never. */
   expiresAt: number;
@@ -97,9 +109,14 @@ const network = (value: string) => (value === 'mainnet' ? 'mainnet' : 'testnet')
  * before then would leave a key on disk for an account that never granted it.
  */
 export async function beginConnect(gameContract: string) {
+  // Three keypairs for three contracts. A NEAR account's access keys are a
+  // map from public key to permission, so one key can only ever name one
+  // contract — granting the same key twice silently does nothing.
   const keyPair = KeyPair.fromRandom('ed25519');
   const gameKeyPair = KeyPair.fromRandom('ed25519');
+  const accessoryKeyPair = KeyPair.fromRandom('ed25519');
   const contractId = stakeContractFor(gameContract);
+  const accessoryContract = accessoryContractFor(gameContract);
   const callback = await invoke<string>('wallet_callback_url');
 
   const url = new URL('/connect', SITE());
@@ -110,16 +127,26 @@ export async function beginConnect(gameContract: string) {
   url.searchParams.set('game_public_key', gameKeyPair.getPublicKey().toString());
   url.searchParams.set('game_contract_id', gameContract);
   url.searchParams.set('game_methods', GAME_METHODS.join(','));
+  url.searchParams.set('accessory_public_key', accessoryKeyPair.getPublicKey().toString());
+  url.searchParams.set('accessory_contract_id', accessoryContract);
+  url.searchParams.set('accessory_methods', ACCESSORY_METHODS.join(','));
   url.searchParams.set('callback', callback);
 
   await invoke('open_url', { url: url.toString() });
 
-  return { keyPair, gameKeyPair, contractId, gameContract };
+  return { keyPair, gameKeyPair, accessoryKeyPair, contractId, gameContract, accessoryContract };
 }
 
 /** Called once the wallet redirects back with the account it granted for. */
 export async function completeConnect(
-  pending: { keyPair: KeyPair; gameKeyPair: KeyPair; contractId: string; gameContract: string },
+  pending: {
+    keyPair: KeyPair;
+    gameKeyPair: KeyPair;
+    accessoryKeyPair: KeyPair;
+    contractId: string;
+    gameContract: string;
+    accessoryContract: string;
+  },
   accountId: string
 ): Promise<Session> {
   const session: Session = {
@@ -128,6 +155,8 @@ export async function completeConnect(
     contractId: pending.contractId,
     gameContractId: pending.gameContract,
     gamePublicKey: pending.gameKeyPair.getPublicKey().toString(),
+    accessoryContractId: pending.accessoryContract,
+    accessoryPublicKey: pending.accessoryKeyPair.getPublicKey().toString(),
     methodNames: [...SESSION_METHODS],
     expiresAt: Math.floor(Date.now() / 1000) + SESSION_DAYS * 86_400
   };
@@ -135,7 +164,8 @@ export async function completeConnect(
   await invoke('save_session', {
     session,
     secretKey: pending.keyPair.toString(),
-    gameSecretKey: pending.gameKeyPair.toString()
+    gameSecretKey: pending.gameKeyPair.toString(),
+    accessorySecretKey: pending.accessoryKeyPair.toString()
   });
 
   return session;
@@ -157,8 +187,10 @@ export const session = $state<{ current: Session | null; connecting: boolean; er
 type Pending = {
   keyPair: KeyPair;
   gameKeyPair: KeyPair;
+  accessoryKeyPair: KeyPair;
   contractId: string;
   gameContract: string;
+  accessoryContract: string;
 };
 
 /**
@@ -354,7 +386,7 @@ export const sessionExpired = (session: Session, nowSecs = Math.floor(Date.now()
 class KeychainSigner extends Signer {
   constructor(
     private readonly publicKey: string,
-    private readonly onGame: boolean
+    private readonly slot: string
   ) {
     super();
   }
@@ -366,7 +398,7 @@ class KeychainSigner extends Signer {
   protected async signBytes(bytes: Uint8Array): Promise<Uint8Array> {
     const signature = await invoke<number[]>('sign_bytes', {
       message: Array.from(bytes),
-      onGame: this.onGame
+      slot: this.slot
     });
     return new Uint8Array(signature);
   }
@@ -406,23 +438,29 @@ export async function signAndSend(
 
   const receiver = contractForMethod(method, {
     stake: session.contractId,
-    game: session.gameContractId ?? ''
+    game: session.gameContractId ?? '',
+    accessory: session.accessoryContractId
   });
   if (!receiver) {
     throw new MethodNotInSessionError(method);
   }
 
   // The key has to match the contract, not just the method: a transaction
-  // signed by the lab key and sent to the game contract is refused by the
-  // node, not by the contract.
-  const onGame = receiver === session.gameContractId;
-  const publicKey = onGame ? session.gamePublicKey : session.publicKey;
+  // signed by the lab key and sent to another contract is refused by the
+  // node, not by the contract. Three contracts, three keys, one name each.
+  const slot = slotForMethod(method) ?? 'lab';
+  const publicKey =
+    slot === 'game'
+      ? session.gamePublicKey
+      : slot === 'accessory'
+        ? session.accessoryPublicKey
+        : session.publicKey;
 
-  if (!publicKey || !(await invoke<boolean>('has_session_key', { onGame }))) {
+  if (!publicKey || !(await invoke<boolean>('has_session_key', { slot }))) {
     throw new Error(
-      onGame
-        ? 'This session has no key for the game contract — connect again to grant one'
-        : 'Connect a wallet first'
+      slot === 'lab'
+        ? 'Connect a wallet first'
+        : `This session has no key for the ${slot} contract — connect again to grant one`
     );
   }
 
@@ -433,7 +471,7 @@ export async function signAndSend(
   const account = new Account(
     session.accountId,
     provider,
-    new KeychainSigner(publicKey, onGame)
+    new KeychainSigner(publicKey, slot)
   );
 
   // `callFunctionRaw`, not `callFunction`: the latter returns the method's

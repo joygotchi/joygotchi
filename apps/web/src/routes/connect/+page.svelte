@@ -1,6 +1,6 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { GAME_METHODS, STAKE_METHODS } from '@joygotchi/pet';
+  import { ACCESSORY_METHODS, GAME_METHODS, STAKE_METHODS } from '@joygotchi/pet';
   import { addKeyForContract, connectedAccount, grantFunctionCallKey } from '#lib/near/wallet.svelte';
 
   /**
@@ -50,6 +50,11 @@
   const gameContractId = $derived(params.get('game_contract_id') ?? '');
   const gamePublicKey = $derived(params.get('game_public_key') ?? '');
   const gameMethods = $derived((params.get('game_methods') ?? '').split(',').filter(Boolean));
+  const accessoryContractId = $derived(params.get('accessory_contract_id') ?? '');
+  const accessoryPublicKey = $derived(params.get('accessory_public_key') ?? '');
+  const accessoryMethods = $derived(
+    (params.get('accessory_methods') ?? '').split(',').filter(Boolean)
+  );
   const callback = $derived(params.get('callback') ?? '');
 
   /**
@@ -84,11 +89,14 @@
    */
   const KNOWN_STAKE = new Set<string>(STAKE_METHODS);
   const KNOWN_GAME = new Set<string>(GAME_METHODS);
+  const KNOWN_ACCESSORY = new Set<string>(ACCESSORY_METHODS);
   const STAKE_HOST = /^jg-stake-[a-z0-9-]+\.(testnet|near)$/;
   const GAME_HOST = /^jg-game-[a-z0-9-]+\.(testnet|near)$/;
+  const ACCESSORY_HOST = /^jg-acc-[a-z0-9-]+\.(testnet|near)$/;
 
   const stakeAsked = $derived(methods.filter((m) => !KNOWN_STAKE.has(m)));
   const gameAsked = $derived(gameMethods.filter((m) => !KNOWN_GAME.has(m)));
+  const accessoryAsked = $derived(accessoryMethods.filter((m) => !KNOWN_ACCESSORY.has(m)));
 
   const valid = $derived(
     publicKey.startsWith('ed25519:') &&
@@ -99,6 +107,10 @@
         (GAME_HOST.test(gameContractId) &&
           gamePublicKey.startsWith('ed25519:') &&
           gameAsked.length === 0)) &&
+      (accessoryMethods.length === 0 ||
+        (ACCESSORY_HOST.test(accessoryContractId) &&
+          accessoryPublicKey.startsWith('ed25519:') &&
+          accessoryAsked.length === 0)) &&
       target !== null
   );
 
@@ -166,6 +178,18 @@
         });
       }
 
+      // And the third, for accessories. Same reasoning as the second, and
+      // last for the same reason: a refusal here still leaves a session that
+      // can feed, battle and stake.
+      if (accessoryContractId && accessoryMethods.length > 0 && accessoryPublicKey) {
+        await addKeyForContract({
+          contractId: accessoryContractId,
+          publicKey: accessoryPublicKey,
+          allowMethods: { anyMethod: false, methodNames: accessoryMethods },
+          gasAllowance: { kind: 'limited', amount: '250000000000000000000000' }
+        });
+      }
+
       phase = 'done';
       await handBack({ account_id: accountId, public_key: publicKey });
     } catch (cause) {
@@ -199,6 +223,12 @@
         {/if}
         {#if gameAsked.length > 0}
           <li>· it asks for {gameAsked.join(', ')} on the game contract</li>
+        {/if}
+        {#if accessoryMethods.length > 0 && !ACCESSORY_HOST.test(accessoryContractId)}
+          <li>· "{accessoryContractId || 'nothing'}" is not a JOYGOTCHI accessory contract</li>
+        {/if}
+        {#if accessoryAsked.length > 0}
+          <li>· it asks for {accessoryAsked.join(', ')} on the accessory contract</li>
         {/if}
         {#if target === null}
           <li>· it would send the result somewhere other than this machine</li>

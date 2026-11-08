@@ -172,14 +172,37 @@ export const STAKE_METHODS = [
  */
 export const GAME_METHODS = ['attack', 'evolve'] as const;
 
-export type SessionMethod = (typeof STAKE_METHODS)[number] | (typeof GAME_METHODS)[number];
+/**
+ * The accessory contract's own list.
+ *
+ * `mint` is not here and cannot be: it is payable, so a function-call key
+ * may never carry it. Putting a hat on is free, and there is no reason it
+ * should cost a trip through a browser.
+ */
+export const ACCESSORY_METHODS = ['equip', 'unequip'] as const;
+
+export type SessionMethod =
+  | (typeof STAKE_METHODS)[number]
+  | (typeof GAME_METHODS)[number]
+  | (typeof ACCESSORY_METHODS)[number];
 
 /** Which of the two contracts a method belongs to. */
 export const contractForMethod = (
   method: string,
-  contracts: { stake: string; game: string }
+  contracts: { stake: string; game: string; accessory?: string }
 ): string | null => {
   if ((STAKE_METHODS as readonly string[]).includes(method)) return contracts.stake;
   if ((GAME_METHODS as readonly string[]).includes(method)) return contracts.game;
+  if ((ACCESSORY_METHODS as readonly string[]).includes(method)) {
+    return contracts.accessory ?? null;
+  }
+  return null;
+};
+
+/** Which stored key signs for a method: one name per contract. */
+export const slotForMethod = (method: string): 'lab' | 'game' | 'accessory' | null => {
+  if ((STAKE_METHODS as readonly string[]).includes(method)) return 'lab';
+  if ((GAME_METHODS as readonly string[]).includes(method)) return 'game';
+  if ((ACCESSORY_METHODS as readonly string[]).includes(method)) return 'accessory';
   return null;
 };

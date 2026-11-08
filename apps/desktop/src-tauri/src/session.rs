@@ -22,6 +22,21 @@ use serde::{Deserialize, Serialize};
 const SERVICE: &str = "dev.joygotchi.desktop";
 const KEY_ENTRY: &str = "session-secret-key";
 const GAME_KEY_ENTRY: &str = "session-game-secret-key";
+const ACCESSORY_KEY_ENTRY: &str = "session-accessory-secret-key";
+
+/// Which of the three keys a call needs.
+///
+/// A name rather than a boolean: there were two contracts and now there are
+/// three, and `on_game: bool` has no room for the third. The webview sends
+/// this string, and anything it does not recognise is the lab — the default
+/// a mistake should fall to, since that key is the most restricted.
+pub fn entry_for(slot: &str) -> &'static str {
+    match slot {
+        "game" => GAME_KEY_ENTRY,
+        "accessory" => ACCESSORY_KEY_ENTRY,
+        _ => KEY_ENTRY,
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -33,6 +48,13 @@ pub struct Session {
     /// The game contract, reached by a second key. Absent on older sessions.
     #[serde(default)]
     pub game_contract_id: Option<String>,
+    /// The accessory contract, reached by a third. Also absent on older
+    /// sessions, which is why both are optional: the file on disk outlives
+    /// the version of the app that wrote it.
+    #[serde(default)]
+    pub accessory_contract_id: Option<String>,
+    #[serde(default)]
+    pub accessory_public_key: Option<String>,
     /// That second key's public half. One public key carries one permission,
     /// so reaching two contracts takes two keypairs — not one granted twice.
     #[serde(default)]
@@ -77,7 +99,7 @@ pub fn clear_session(app_dir: &std::path::Path) -> Result<(), String> {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
     // A session with no key is not a session; drop all of it or none.
-    for name in [KEY_ENTRY, GAME_KEY_ENTRY] {
+    for name in [KEY_ENTRY, GAME_KEY_ENTRY, ACCESSORY_KEY_ENTRY] {
         let _ = entry(name).and_then(|e| e.delete_credential().map_err(|x| x.to_string()));
     }
     Ok(())
@@ -93,14 +115,15 @@ pub fn load_secret_key() -> Option<String> {
     entry(KEY_ENTRY).ok()?.get_password().ok()
 }
 
-pub fn save_game_secret_key(secret: &str) -> Result<(), String> {
-    entry(GAME_KEY_ENTRY)?
+/// Store one key by slot. Three entries, one function.
+pub fn save_secret_key_for(slot: &str, secret: &str) -> Result<(), String> {
+    entry(entry_for(slot))?
         .set_password(secret)
         .map_err(|error| format!("could not write to the keychain: {error}"))
 }
 
-pub fn load_game_secret_key() -> Option<String> {
-    entry(GAME_KEY_ENTRY).ok()?.get_password().ok()
+pub fn load_secret_key_for(slot: &str) -> Option<String> {
+    entry(entry_for(slot)).ok()?.get_password().ok()
 }
 
 #[cfg(test)]
@@ -114,6 +137,8 @@ mod tests {
             contract_id: "jg-stake-5656.testnet".into(),
             game_contract_id: Some("jg-game-5656.testnet".into()),
             game_public_key: Some("ed25519:def".into()),
+            accessory_contract_id: Some("jg-acc-5656.testnet".into()),
+            accessory_public_key: Some("ed25519:ghi".into()),
             method_names: vec!["spend_credits".into()],
             expires_at,
         }

@@ -384,20 +384,36 @@
     return n < 1 ? String(Number(n.toFixed(3))) : String(n);
   };
 
+  /** Whether this session holds the accessory contract's key. */
+  const wearSignsHere = $derived((session?.methodNames ?? []).includes('equip'));
+
   /**
-   * Every accessory call goes through the browser.
+   * Wearing signs here; buying cannot.
    *
-   * `mint` is payable, so by protocol no session key can ever carry it.
-   * `equip` and `unequip` are not, and could be signed here — but that needs
-   * a third key granted for a third contract, and the connect flow hands out
-   * two. Until it hands out three, consistency beats a half-measure.
+   * `mint` is payable, so by protocol no function-call key will ever carry
+   * it — that one is a browser trip for as long as hats cost NEAR. `equip`
+   * and `unequip` are free, and now have a key of their own, so putting a
+   * hat on costs nothing but a click.
    */
-  function requestAccessory(
-    method: 'mint' | 'equip' | 'unequip',
-    args: { kind?: string; token_id?: string }
-  ) {
-    void requestAccessoryAction(method, accessory, pet.petId, args);
+  function wear(method: 'equip' | 'unequip', tokenId: string) {
+    if (!wearSignsHere) {
+      void requestAccessoryAction(method, accessory, pet.petId, { token_id: tokenId });
+      return;
+    }
+    void act(
+      method,
+      () =>
+        signAndSend(
+          net(),
+          method,
+          method === 'equip' ? { token_id: tokenId, pet_id: pet.petId } : { token_id: tokenId }
+        ),
+      method === 'equip' ? 'Worn.' : 'Taken off.'
+    );
   }
+
+  const buyAccessory = (kind: string) =>
+    void requestAccessoryAction('mint', accessory, pet.petId, { kind });
 
   async function loadAccessories(who: string) {
     const [k, mine, on] = await Promise.all([
@@ -592,6 +608,10 @@
     <div class="view">
       <p class="lead">
         Accessories are tokens on {accessory}. Yours to wear, or to sell.
+        {#if !wearSignsHere}
+          Wearing opens your browser until you connect again — this session
+          predates the key for them.
+        {/if}
       </p>
 
       {#if worn}
@@ -601,10 +621,10 @@
             <span class="title">Wearing: {worn.kind} · #{worn.token_id}</span>
             <button
               class="jg-btn"
-              disabled={walletAction.running !== null}
-              onclick={() => requestAccessory('unequip', { token_id: worn?.token_id })}
+              disabled={busy !== null || walletAction.running !== null}
+              onclick={() => worn && wear('unequip', worn.token_id)}
             >
-              Take off ↗
+              {busy === 'unequip' ? '…' : wearSignsHere ? 'Take off' : 'Take off ↗'}
             </button>
           </li>
         </ul>
@@ -619,10 +639,10 @@
             <span class="effect">#{item.token_id}</span>
             <button
               class="jg-btn primary buy"
-              disabled={walletAction.running !== null}
-              onclick={() => requestAccessory('equip', { token_id: item.token_id })}
+              disabled={busy !== null || walletAction.running !== null}
+              onclick={() => wear('equip', item.token_id)}
             >
-              Wear ↗
+              {busy === 'equip' ? '…' : wearSignsHere ? 'Wear' : 'Wear ↗'}
             </button>
           </li>
         {/each}
@@ -650,7 +670,7 @@
             <button
               class="jg-btn primary buy"
               disabled={walletAction.running !== null || gone}
-              onclick={() => requestAccessory('mint', { kind: kind.slug })}
+              onclick={() => buyAccessory(kind.slug)}
               title={gone ? 'All of these have been minted' : 'Opens your browser — paid in NEAR'}
             >
               {gone ? 'gone' : `${nearOf(kind.price)} ↗`}

@@ -104,10 +104,14 @@ fn save_session(
     session: Session,
     secret_key: String,
     game_secret_key: Option<String>,
+    accessory_secret_key: Option<String>,
 ) -> Result<(), String> {
     session::save_secret_key(&secret_key)?;
     if let Some(game) = game_secret_key {
-        session::save_game_secret_key(&game)?;
+        session::save_secret_key_for("game", &game)?;
+    }
+    if let Some(accessory) = accessory_secret_key {
+        session::save_secret_key_for("accessory", &accessory)?;
     }
     session::save_session(&app_dir(&app)?, &session)
 }
@@ -125,25 +129,17 @@ fn get_session(app: AppHandle) -> Result<Option<Session>, String> {
 /// stay in JavaScript, where the tested implementation is; the ed25519 half is
 /// thirty lines and worth owning.
 #[tauri::command]
-fn sign_bytes(message: Vec<u8>, on_game: bool) -> Result<Vec<u8>, String> {
-    let secret = if on_game {
-        session::load_game_secret_key()
-    } else {
-        session::load_secret_key()
-    }
-    .ok_or_else(|| "no session key for that contract".to_string())?;
+fn sign_bytes(message: Vec<u8>, slot: String) -> Result<Vec<u8>, String> {
+    let secret = session::load_secret_key_for(&slot)
+        .ok_or_else(|| format!("no session key for the {slot} contract"))?;
 
     session::sign_with_session_key(&secret, &message)
 }
 
 /// Whether a key exists, without handing it over.
 #[tauri::command]
-fn has_session_key(on_game: bool) -> bool {
-    if on_game {
-        session::load_game_secret_key().is_some()
-    } else {
-        session::load_secret_key().is_some()
-    }
+fn has_session_key(slot: String) -> bool {
+    session::load_secret_key_for(&slot).is_some()
 }
 
 #[tauri::command]
