@@ -1,28 +1,40 @@
-use keyring::Entry;
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
+use std::path::Path;
 
-/// The signing session: an account and the limited key that acts for it.
+/// The signing session: an account and the limited keys that act for it.
 ///
-/// The key is a NEAR **function-call access key**, which the player's wallet
-/// adds to their account once. The protocol then guarantees what it can do
-/// better than any check here could: one contract, the methods named at
-/// sign-in, and no attached NEAR ever — not even the one yoctoNEAR that
-/// `stake_pet` requires, which is exactly why staking still goes through the
-/// wallet.
-///
-/// It lives in the operating system's keychain rather than in the webview's
-/// localStorage, because localStorage is a file any process running as this
-/// user can read. The webview asks for it at signing time and never stores it.
-/// Two keys, not one.
+/// Each key is a NEAR **function-call access key**, which the player's wallet
+/// adds to their account once. The protocol guarantees what it can do better
+/// than any check here could: one contract, the methods named at sign-in, and
+/// no attached NEAR ever — which is why minting still goes through the wallet
+/// and feeding does not.
 ///
 /// A NEAR account's access keys are a map from public key to permission, so a
 /// single public key carries exactly one permission — granting it for a second
-/// contract does nothing, silently. Playing from the desktop needs the lab and
-/// the game, so it needs two keypairs, and this is where both live.
-const SERVICE: &str = "dev.joygotchi.desktop";
-const KEY_ENTRY: &str = "session-secret-key";
-const GAME_KEY_ENTRY: &str = "session-game-secret-key";
-const ACCESSORY_KEY_ENTRY: &str = "session-accessory-secret-key";
+/// contract does nothing, silently. Playing from the desktop reaches the lab,
+/// the game and the accessory contracts, so it takes three keypairs.
+///
+/// # Where the secrets live
+///
+/// In a file beside this session, mode 0600, chosen over the operating
+/// system's keychain with the trade understood: any process running as this
+/// user can read it. The keychain was stronger and asked permission on every
+/// rebuild, which in practice means a prompt several times an hour.
+///
+/// What is actually at risk is bounded, and that is what makes the trade
+/// reasonable rather than lazy. These keys cannot attach a deposit, cannot
+/// transfer a pet, and cannot call anything outside the method lists in
+/// `@joygotchi/pet`. The worst a copy buys is somebody else feeding your pet
+/// and spending its credits. The account's real keys are in a wallet this app
+/// never sees.
+///
+/// Still never the webview's `localStorage`: that is reachable by anything
+/// that ever executes inside the window, which is a much larger surface than
+/// "a process already running as you". The secret is reachable only through
+/// `sign_bytes`, and the window gets signatures, not keys.
+/// The file, next to `session.json` in the app's own data directory.
+const KEYS_FILE: &str = "keys.json";
 
 /// Which of the three keys a call needs.
 ///
@@ -30,11 +42,11 @@ const ACCESSORY_KEY_ENTRY: &str = "session-accessory-secret-key";
 /// three, and `on_game: bool` has no room for the third. The webview sends
 /// this string, and anything it does not recognise is the lab — the default
 /// a mistake should fall to, since that key is the most restricted.
-pub fn entry_for(slot: &str) -> &'static str {
+pub fn slot_name(slot: &str) -> &'static str {
     match slot {
-        "game" => GAME_KEY_ENTRY,
-        "accessory" => ACCESSORY_KEY_ENTRY,
-        _ => KEY_ENTRY,
+        "game" => "game",
+        "accessory" => "accessory",
+        _ => "lab",
     }
 }
 
@@ -65,8 +77,48 @@ pub struct Session {
     pub expires_at: u64,
 }
 
-fn entry(name: &str) -> Result<Entry, String> {
-    Entry::new(SERVICE, name).map_err(|error| format!("keychain unavailable: {error}"))
+type Keys = BTreeMap<String, String>;
+
+fn keys_path(app_dir: &Path) -> std::path::PathBuf {
+    app_dir.join(KEYS_FILE)
+}
+
+fn read_keys(app_dir: &Path) -> Keys {
+    std::fs::read_to_string(keys_path(app_dir))
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
+/// Write the file back, readable by this user and nobody else.
+///
+/// The permissions are set before the secrets go in. Writing first and
+/// chmod-ing after leaves a window, however short, where the file is
+/// world-readable — and a window is all it takes.
+fn write_keys(app_dir: &Path, keys: &Keys) -> Result<(), String> {
+    std::fs::create_dir_all(app_dir).map_err(|e| e.to_string())?;
+    let path = keys_path(app_dir);
+
+    #[cfg(unix)]
+    {
+        use std::io::Write;
+        use std::os::unix::fs::OpenOptionsExt;
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&path)
+            .map_err(|e| e.to_string())?;
+        let json = serde_json::to_string(keys).map_err(|e| e.to_string())?;
+        return file.write_all(json.as_bytes()).map_err(|e| e.to_string());
+    }
+
+    #[cfg(not(unix))]
+    {
+        let json = serde_json::to_string(keys).map_err(|e| e.to_string())?;
+        std::fs::write(&path, json).map_err(|e| e.to_string())
+    }
 }
 
 impl Session {
@@ -98,32 +150,31 @@ pub fn clear_session(app_dir: &std::path::Path) -> Result<(), String> {
     if path.exists() {
         std::fs::remove_file(&path).map_err(|e| e.to_string())?;
     }
-    // A session with no key is not a session; drop all of it or none.
-    for name in [KEY_ENTRY, GAME_KEY_ENTRY, ACCESSORY_KEY_ENTRY] {
-        let _ = entry(name).and_then(|e| e.delete_credential().map_err(|x| x.to_string()));
+    // A session with no keys is not a session; drop all of it or none.
+    let keys = keys_path(app_dir);
+    if keys.exists() {
+        std::fs::remove_file(&keys).map_err(|e| e.to_string())?;
     }
     Ok(())
 }
 
-pub fn save_secret_key(secret: &str) -> Result<(), String> {
-    entry(KEY_ENTRY)?
-        .set_password(secret)
-        .map_err(|error| format!("could not write to the keychain: {error}"))
+pub fn save_secret_key(app_dir: &Path, secret: &str) -> Result<(), String> {
+    save_secret_key_for(app_dir, "lab", secret)
 }
 
-pub fn load_secret_key() -> Option<String> {
-    entry(KEY_ENTRY).ok()?.get_password().ok()
+pub fn load_secret_key(app_dir: &Path) -> Option<String> {
+    load_secret_key_for(app_dir, "lab")
 }
 
-/// Store one key by slot. Three entries, one function.
-pub fn save_secret_key_for(slot: &str, secret: &str) -> Result<(), String> {
-    entry(entry_for(slot))?
-        .set_password(secret)
-        .map_err(|error| format!("could not write to the keychain: {error}"))
+/// Store one key by slot. Three entries in one file.
+pub fn save_secret_key_for(app_dir: &Path, slot: &str, secret: &str) -> Result<(), String> {
+    let mut keys = read_keys(app_dir);
+    keys.insert(slot_name(slot).to_string(), secret.to_string());
+    write_keys(app_dir, &keys)
 }
 
-pub fn load_secret_key_for(slot: &str) -> Option<String> {
-    entry(entry_for(slot)).ok()?.get_password().ok()
+pub fn load_secret_key_for(app_dir: &Path, slot: &str) -> Option<String> {
+    read_keys(app_dir).get(slot_name(slot)).cloned()
 }
 
 #[cfg(test)]
@@ -187,6 +238,43 @@ mod tests {
         let session: Session = serde_json::from_str(json).unwrap();
         assert_eq!(session.account_id, "alice.testnet");
         assert!(session.game_public_key.is_none());
+    }
+
+    #[test]
+    fn keys_round_trip_per_slot_and_are_readable_only_by_this_user() {
+        let dir = std::env::temp_dir().join(format!("jg-keys-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(load_secret_key_for(&dir, "lab").is_none());
+
+        save_secret_key_for(&dir, "lab", "ed25519:lab").unwrap();
+        save_secret_key_for(&dir, "game", "ed25519:game").unwrap();
+        save_secret_key_for(&dir, "accessory", "ed25519:acc").unwrap();
+
+        // Three slots, kept apart: one overwriting another would sign for
+        // the wrong contract and the node, not the contract, would refuse.
+        assert_eq!(load_secret_key_for(&dir, "lab").unwrap(), "ed25519:lab");
+        assert_eq!(load_secret_key_for(&dir, "game").unwrap(), "ed25519:game");
+        assert_eq!(load_secret_key_for(&dir, "accessory").unwrap(), "ed25519:acc");
+
+        // An unknown slot falls to the lab key, which is the most restricted
+        // of the three — the safest place for a mistake to land.
+        assert_eq!(load_secret_key_for(&dir, "nonsense").unwrap(), "ed25519:lab");
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join(KEYS_FILE))
+                .unwrap()
+                .permissions()
+                .mode()
+                & 0o777;
+            assert_eq!(mode, 0o600, "secrets must not be readable by other users");
+        }
+
+        clear_session(&dir).unwrap();
+        assert!(load_secret_key_for(&dir, "lab").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

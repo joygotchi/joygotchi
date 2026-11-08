@@ -106,14 +106,15 @@ fn save_session(
     game_secret_key: Option<String>,
     accessory_secret_key: Option<String>,
 ) -> Result<(), String> {
-    session::save_secret_key(&secret_key)?;
+    let dir = app_dir(&app)?;
+    session::save_secret_key(&dir, &secret_key)?;
     if let Some(game) = game_secret_key {
-        session::save_secret_key_for("game", &game)?;
+        session::save_secret_key_for(&dir, "game", &game)?;
     }
     if let Some(accessory) = accessory_secret_key {
-        session::save_secret_key_for("accessory", &accessory)?;
+        session::save_secret_key_for(&dir, "accessory", &accessory)?;
     }
-    session::save_session(&app_dir(&app)?, &session)
+    session::save_session(&dir, &session)
 }
 
 #[tauri::command]
@@ -129,8 +130,8 @@ fn get_session(app: AppHandle) -> Result<Option<Session>, String> {
 /// stay in JavaScript, where the tested implementation is; the ed25519 half is
 /// thirty lines and worth owning.
 #[tauri::command]
-fn sign_bytes(message: Vec<u8>, slot: String) -> Result<Vec<u8>, String> {
-    let secret = session::load_secret_key_for(&slot)
+fn sign_bytes(app: AppHandle, message: Vec<u8>, slot: String) -> Result<Vec<u8>, String> {
+    let secret = session::load_secret_key_for(&app_dir(&app)?, &slot)
         .ok_or_else(|| format!("no session key for the {slot} contract"))?;
 
     session::sign_with_session_key(&secret, &message)
@@ -138,8 +139,11 @@ fn sign_bytes(message: Vec<u8>, slot: String) -> Result<Vec<u8>, String> {
 
 /// Whether a key exists, without handing it over.
 #[tauri::command]
-fn has_session_key(slot: String) -> bool {
-    session::load_secret_key_for(&slot).is_some()
+fn has_session_key(app: AppHandle, slot: String) -> bool {
+    app_dir(&app)
+        .ok()
+        .and_then(|dir| session::load_secret_key_for(&dir, &slot))
+        .is_some()
 }
 
 #[tauri::command]
