@@ -11,11 +11,18 @@
  */
 export type Wearable = { id: string; name: string; art: string | null };
 
+/*
+ * The slugs match the kinds on `jg-acc-5656.testnet`, because each of these
+ * is a token somebody can buy and sell. The list is still here rather than
+ * read from the contract — that is the next step — but the ids are the
+ * contract's, so wiring it up is a swap and not a rename.
+ */
 export const HATS: Wearable[] = [
   { id: 'none', name: 'Bare', art: null },
   { id: 'cap', name: 'Cap', art: '/assets/hat/cap.svg' },
-  { id: 'straw', name: 'Straw', art: '/assets/hat/straw.svg' },
-  { id: 'band', name: 'Bandana', art: '/assets/hat/band.svg' },
+  { id: 'straw', name: 'Straw Hat', art: '/assets/hat/straw.svg' },
+  { id: 'pirate', name: 'Pirate Hat', art: '/assets/hat/pirate.svg' },
+  { id: 'wizard', name: 'Wizard Hat', art: '/assets/hat/wizard.svg' },
   { id: 'crown', name: 'Crown', art: '/assets/hat/crown.svg' }
 ];
 

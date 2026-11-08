@@ -157,16 +157,17 @@ export const getPetStatus = (network: string, stake: string, petId: number) =>
  * `pet.json` records the owner at install time, which is wrong the moment a
  * pet is sold — and the panel decides whether to show its buttons from this.
  */
-export async function getPetOwner(
-  network: string,
-  gameContract: string,
-  petId: number
-): Promise<string | null> {
-  const pet = await viewFunction<{ owner_id?: string } | null>(network, gameContract, 'get_pet', {
+/**
+ * One pet, as the chain sees it.
+ *
+ * This used to be `getPetOwner`, which made the same call and threw away
+ * everything but the owner — including how long the pet has left, which the
+ * panel then had no way to know.
+ */
+export const getPetOnChain = (network: string, gameContract: string, petId: number) =>
+  viewFunction<ChainPetSummary | null>(network, gameContract, 'get_pet', {
     pet_id: petId
   }).catch(() => null);
-  return pet?.owner_id ?? null;
-}
 
 /** A pet as the game contract describes it, for picking a fight. */
 export type ChainPetSummary = {

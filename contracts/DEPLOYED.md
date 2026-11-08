@@ -9,6 +9,7 @@ tree and comparing with what the chain serves.
 | `jg-game-5656.testnet` | `Gj3biaYhUHuREJzw5SJoiW3mUfgAAcy22KLjgnsfzhQ2` |
 | `jg-stake-5656.testnet` | `CxTuabNuBd86GHzGLBcf9hKaHPYGkez7tRSbfrq41wLg` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
+| `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
 
 ## Why this file exists
 

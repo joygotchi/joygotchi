@@ -12,7 +12,7 @@
   } from '@joygotchi/pet';
   import {
     getInventory,
-    getPetOwner,
+    getPetOnChain,
     getPetStatus,
     getStakeAccount,
     forgetReads,
@@ -95,6 +95,7 @@
    */
   let refused = $state<string | null>(null);
   let miningAt = $state(0);
+  let onChain = $state<ChainPetSummary | null>(null);
   /** Ticks so the mining countdown moves between loads. */
   let now = $state(Date.now());
   let loading = $state(true);
@@ -126,6 +127,15 @@
     (session?.methodNames ?? []).includes(status?.staked ? 'unstake_pet' : 'stake_pet')
   );
   const wounded = $derived(Number(status?.wounded_until ?? 0) / 1e6 > Date.now());
+  /**
+   * A starved pet takes revival items and nothing else.
+   *
+   * `buy_item` refuses anything without `is_revival` once the clock has run
+   * out, so offering Beef to a dead pet is offering a transaction that will
+   * be thrown back — and the refusal arrives after the wallet, the browser
+   * trip and the signature.
+   */
+  const starved = $derived(Number(onChain?.seconds_until_starving ?? 1) <= 0);
   const warded = $derived(Number(status?.shielded_until ?? 0) / 1e6 > Date.now());
 
   async function load() {
@@ -138,8 +148,8 @@
     try {
       // The owner comes first: the credits and inventory shown belong to
       // whoever owns the pet now, not to whoever owned it at install time.
-      const current = (await getPetOwner(pet.chain.network, pet.chain.contract, pet.petId)) ??
-        pet.chain.owner;
+      onChain = await getPetOnChain(pet.chain.network, pet.chain.contract, pet.petId);
+      const current = onChain?.owner_id ?? pet.chain.owner;
       chainOwner = current;
 
       const [acc, st, inv, minesAt] = await Promise.all([
@@ -435,9 +445,14 @@
     </div>
   {:else if showShop}
     <div class="view">
-      <p class="lead">
-        Paid in NEAR, applied straight away. This is the only thing that moves
-        {pet.displayName}'s hunger.
+      <p class="lead" class:bad={starved}>
+        {#if starved}
+          {pet.displayName} has starved. Only a revival item brings it back —
+          the contract refuses everything else.
+        {:else}
+          Paid in NEAR, applied straight away. This is the only thing that moves
+          {pet.displayName}'s hunger.
+        {/if}
       </p>
       <ul class="grid jg-screen">
         {#each shop as item (item.item_id)}
@@ -648,11 +663,13 @@
           button, so this one goes where the food is.
         -->
         {@render tile(
-          'Feed',
-          '/assets/items/beef.png',
+          starved ? 'Revive' : 'Feed',
+          starved ? '/assets/items/holy_water.png' : '/assets/items/beef.png',
           () => (showShop = true),
           busy !== null,
-          'Food and revival items, paid in NEAR'
+          starved
+            ? `${pet.displayName} has starved — only a revival item works`
+            : 'Food and revival items, paid in NEAR'
         )}
         <!--
           Off until something runs the oracle.
