@@ -869,24 +869,35 @@
     padding: 0;
   }
 
+  /*
+   * Fixed pixels, not percentages. `max-height: 100%` on an SVG inside a
+   * 28px box came out 84px: with `max-width` also set the two constraints
+   * fight over the aspect ratio and the image wins, so every swatch
+   * overflowed its card and printed itself across the label below.
+   */
   .swatch {
     display: grid;
     place-items: center;
     width: 100%;
-    height: 28px;
+    height: 30px;
+    overflow: hidden;
     font-size: 10px;
     color: var(--jg-muted);
   }
 
   .swatch img {
-    max-width: 90%;
-    max-height: 100%;
+    width: auto;
+    height: auto;
+    max-width: 100%;
+    max-height: 30px;
+    object-fit: contain;
     image-rendering: pixelated;
   }
 
   .swatch.wide img {
     width: 100%;
-    height: 100%;
+    height: 30px;
+    max-height: 30px;
     object-fit: cover;
     border: 1px solid var(--jg-edge);
   }

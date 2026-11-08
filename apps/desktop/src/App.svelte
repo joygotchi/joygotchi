@@ -181,6 +181,31 @@
    */
   const setOverPet = (over: boolean) => (overPet = over);
 
+  /**
+   * Touch the pet and it answers.
+   *
+   * Until now a click on the sprite did nothing at all: the window reacted
+   * to a coding agent's tool calls and to things signed in the panel, but
+   * not to the person looking at it. A desktop pet you cannot touch is a
+   * status icon with a sprite.
+   *
+   * Throttled, because the reply costs an inference and a toddler with a
+   * mouse would otherwise buy a hundred.
+   */
+  let lastPet = 0;
+
+  function petTouched() {
+    const at = Date.now();
+    if (at - lastPet < 4_000) {
+      // Still acknowledge it. Ignoring the second click reads as broken,
+      // even when the first one is still being answered.
+      reaction = nextReaction(reaction, { kind: 'game', what: 'petted' });
+      return;
+    }
+    lastPet = at;
+    void react({ kind: 'game', what: 'petted' });
+  }
+
   async function react(event: AgentEvent) {
     reaction = nextReaction(reaction, event);
     if (!active) return;
@@ -318,6 +343,7 @@
       data-tauri-drag-region
       onmouseenter={() => setOverPet(true)}
       onmouseleave={() => setOverPet(false)}
+      onclick={petTouched}
       ondblclick={() => (showSettings = true)}
       onkeydown={(event) => {
         if (event.key === 'Enter' || event.key === ' ') {

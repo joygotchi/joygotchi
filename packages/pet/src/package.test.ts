@@ -143,6 +143,7 @@ describe('the state vocabulary', () => {
   it('maps a game event to a game state', () => {
     expect(stateForEvent({ kind: 'game', what: 'fed' })).toBe('feeding');
     expect(stateForEvent({ kind: 'game', what: 'battled' })).toBe('battling');
+    expect(stateForEvent({ kind: 'game', what: 'petted' })).toBe('waving');
   });
 
   it('gives a lunge a shorter cycle than an amble', () => {

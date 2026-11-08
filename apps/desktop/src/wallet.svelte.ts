@@ -248,12 +248,12 @@ export async function watchConnect() {
  * feed or a fight is the same vocabulary pointed at the game, and it is why
  * `feeding` and `battling` were added to the state list.
  */
-export const petReaction = $state<{ what: 'fed' | 'battled' | null; at: number }>({
+export const petReaction = $state<{ what: 'fed' | 'battled' | 'petted' | null; at: number }>({
   what: null,
   at: 0
 });
 
-export const reactToGame = (what: 'fed' | 'battled') => {
+export const reactToGame = (what: 'fed' | 'battled' | 'petted') => {
   petReaction.what = what;
   petReaction.at = Date.now();
 };

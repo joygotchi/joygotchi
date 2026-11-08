@@ -62,6 +62,7 @@ export const POST: RequestHandler = async ({ request }) => {
       case 'prompt':
         return 'Your owner just asked their coding agent for something.';
       case 'game':
+        if (event.what === 'petted') return 'Your owner just reached over and petted you.';
         return event.what === 'fed'
           ? 'Your owner just fed you.'
           : 'You have just come out of a fight.';

@@ -38,7 +38,7 @@ export type AgentEvent =
   | { kind: 'tool-end'; tool: string; ok: boolean }
   | { kind: 'prompt' }
   | { kind: 'idle' }
-  | { kind: 'game'; what: 'fed' | 'battled' };
+  | { kind: 'game'; what: 'fed' | 'battled' | 'petted' };
 
 /**
  * Map an agent's activity onto a pet state.
@@ -57,6 +57,8 @@ export function stateForEvent(event: AgentEvent): PetState {
     case 'idle':
       return 'idle';
     case 'game':
+      // A pet you touched should look at you, which is what `waving` is for.
+      if (event.what === 'petted') return 'waving';
       return event.what === 'fed' ? 'feeding' : 'battling';
   }
 }
