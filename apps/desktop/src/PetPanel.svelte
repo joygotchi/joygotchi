@@ -35,6 +35,7 @@
   import { artPathFor } from './art';
   import { canAfford, feedPet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
+  import { clearThread, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
@@ -350,6 +351,22 @@
 
   let showBag = $state(false);
   let showStyle = $state(false);
+  let showChat = $state(false);
+  let draft = $state('');
+  let thinking = $state(false);
+  const thread = $derived(threadFor(pet.slug));
+
+  async function send() {
+    const text = draft.trim();
+    if (!text || thinking) return;
+    draft = '';
+    thinking = true;
+    try {
+      await say(pet, text, session?.accountId);
+    } finally {
+      thinking = false;
+    }
+  }
 
   const dressed = $derived(styleFor(pet.slug));
   const backdropArt = $derived(artOf(BACKDROPS, dressed.backdrop));
@@ -530,6 +547,46 @@
         {/if}
       </ul>
       <button class="jg-btn wide" onclick={() => (showShop = false)}>Back</button>
+    </div>
+  {:else if showChat}
+    <div class="view chat">
+      <ul class="thread jg-screen">
+        {#if thread.length === 0}
+          <li class="muted">
+            {pet.displayName} reads its own state off the chain — how hungry it
+            is, what level it is, whether it is at work. Ask it something.
+          </li>
+        {/if}
+        {#each thread as turn, i (i)}
+          <li class:mine={turn.role === 'user'}>
+            <span class="who">{turn.role === 'user' ? 'you' : pet.displayName}</span>
+            <span class="said">{turn.content}</span>
+          </li>
+        {/each}
+        {#if thinking}<li class="muted">…</li>{/if}
+      </ul>
+
+      <div class="say">
+        <input
+          bind:value={draft}
+          maxlength="280"
+          placeholder="Say something"
+          onkeydown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              void send();
+            }
+          }}
+        />
+        <button class="jg-btn primary" disabled={thinking || draft.trim() === ''} onclick={send}>
+          Say
+        </button>
+      </div>
+
+      <div class="actions">
+        <button class="jg-btn" onclick={() => clearThread(pet.slug)}>Forget</button>
+        <button class="jg-btn" onclick={() => (showChat = false)}>Back</button>
+      </div>
     </div>
   {:else if showStyle}
     <div class="view">
@@ -848,6 +905,13 @@
           busy === 'stake' ? '…' : walletAction.running ? 'browser…' : undefined
         )}
         {@render tile(
+          'Talk',
+          '/assets/ui/info.svg',
+          () => (showChat = true),
+          busy !== null,
+          `Ask ${pet.displayName} something — it knows its own state`
+        )}
+        {@render tile(
           'Style',
           '/assets/hat/crown.svg',
           () => (showStyle = true),
@@ -1126,6 +1190,77 @@
     flex-direction: column;
     gap: 5px;
     min-height: 0;
+  }
+
+  /* The transcript takes the panel; the input stays pinned under it. */
+  .chat {
+    flex: 1;
+    min-height: 0;
+  }
+
+  .thread {
+    flex: 1;
+    min-height: 120px;
+    max-height: 300px;
+    overflow-y: auto;
+    margin: 0;
+    padding: 4px;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .thread li {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    font-size: 9px;
+    line-height: 1.5;
+  }
+
+  .thread .who {
+    font-size: 7px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--jg-muted);
+  }
+
+  .thread .said {
+    padding: 3px 5px;
+    background: #fff;
+    border: 1px solid var(--jg-edge);
+  }
+
+  /* Yours sit right and tinted, so the two voices are told apart without
+     reading the labels. */
+  .thread li.mine {
+    align-items: flex-end;
+  }
+
+  .thread li.mine .said {
+    background: var(--jg-bevel);
+  }
+
+  .say {
+    display: flex;
+    gap: 4px;
+  }
+
+  .say input {
+    flex: 1;
+    min-width: 0;
+    font-family: var(--jg-pixel);
+    font-size: 9px;
+    color: var(--jg-ink);
+    background: #fff;
+    border: 3px solid var(--jg-edge);
+    padding: 4px 6px;
+  }
+
+  .say input:focus {
+    outline: none;
+    border-color: var(--jg-good);
   }
 
   .lead {

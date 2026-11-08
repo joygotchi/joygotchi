@@ -4,6 +4,7 @@ import { viewFunction } from '#lib/near/rpc';
 import { AiUnavailableError, complete, petPersona } from '#lib/server/near-ai';
 import { PET_STATES, stateForEvent, type AgentEvent, type PetState } from '@joygotchi/pet';
 import type { ChainPet } from '@joygotchi/pet';
+import { corsHeaders, preflight } from '#lib/server/cors';
 import type { RequestHandler } from './$types';
 
 /**
@@ -13,7 +14,10 @@ import type { RequestHandler } from './$types';
  * from the same `stateForEvent` the app would use, so the line and the
  * animation can never disagree about what happened.
  */
+export const OPTIONS: RequestHandler = ({ request }) => preflight(request);
+
 export const POST: RequestHandler = async ({ request }) => {
+  const cors = corsHeaders(request.headers.get('origin'));
   const body = (await request.json().catch(() => null)) as {
     petId?: number;
     event?: AgentEvent;
@@ -24,27 +28,27 @@ export const POST: RequestHandler = async ({ request }) => {
   const event = body?.event;
 
   if (!Number.isInteger(petId) || petId < 1) {
-    return json({ error: 'petId must be a pet id' }, { status: 400 });
+    return json({ error: 'petId must be a pet id' }, { status: 400, headers: cors });
   }
   if (!event || typeof event.kind !== 'string') {
-    return json({ error: 'event is required' }, { status: 400 });
+    return json({ error: 'event is required' }, { status: 400, headers: cors });
   }
 
   let state: PetState;
   try {
     state = stateForEvent(event);
   } catch {
-    return json({ error: `unknown event kind "${event.kind}"` }, { status: 400 });
+    return json({ error: `unknown event kind "${event.kind}"` }, { status: 400, headers: cors });
   }
   if (!PET_STATES.includes(state)) {
-    return json({ error: 'event did not map to a state' }, { status: 400 });
+    return json({ error: 'event did not map to a state' }, { status: 400, headers: cors });
   }
 
   const pet = await viewFunction<ChainPet | null>(GAME_CONTRACT, 'get_pet', {
     pet_id: petId
   }).catch(() => null);
 
-  if (!pet) return json({ error: `No pet ${petId} on ${GAME_CONTRACT}` }, { status: 404 });
+  if (!pet) return json({ error: `No pet ${petId} on ${GAME_CONTRACT}` }, { status: 404, headers: cors });
 
   /*
    * `game` was missing here, so feeding your pet reached the final branch and
@@ -89,9 +93,9 @@ export const POST: RequestHandler = async ({ request }) => {
 
     // The state is the part the app needs; the line is decoration. Returning
     // the state even when the model says nothing keeps the pet animating.
-    return json({ state, line: line.replace(/^["']|["']$/g, '') });
+    return json({ state, line: line.replace(/^["']|["']$/g, '') }, { headers: cors });
   } catch (error) {
-    if (error instanceof AiUnavailableError) return json({ state, line: null });
-    return json({ state, line: null, error: error instanceof Error ? error.message : 'failed' });
+    if (error instanceof AiUnavailableError) return json({ state, line: null }, { headers: cors });
+    return json({ state, line: null, error: error instanceof Error ? error.message : 'failed' }, { headers: cors });
   }
 };
