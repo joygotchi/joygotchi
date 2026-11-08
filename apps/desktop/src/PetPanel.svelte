@@ -15,25 +15,32 @@
     getPetOnChain,
     getPetStatus,
     getStakeAccount,
+    accessoriesOf,
+    accessoryContractFor,
     forgetReads,
+    getAccessoryKinds,
     getShop,
     isAttackable,
     miningAvailableAt,
     listPets,
     stakeContractFor,
+    wornBy,
+    type AccessoryKind,
     type ChainPetSummary,
+    type OwnedAccessory,
     type ShopItem
   } from './chain';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
   import { canAfford, feedPet } from './actions';
-  import { artOf, BACKDROPS, HATS, setStyle, styleFor } from './style.svelte';
+  import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
     readableError,
     reactToGame,
+    requestAccessoryAction,
     requestWalletAction,
     session as walletSession,
     signAndSend,
@@ -166,6 +173,7 @@
       void getShop(pet.chain.network, pet.chain.contract)
         .then((items) => (shop = items))
         .catch(() => {});
+      void loadAccessories(current);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -341,8 +349,46 @@
   let showStyle = $state(false);
 
   const dressed = $derived(styleFor(pet.slug));
-  const hatArt = $derived(artOf(HATS, dressed.hat));
   const backdropArt = $derived(artOf(BACKDROPS, dressed.backdrop));
+
+  /** The accessory contract for this pet's deployment. */
+  const accessory = $derived(accessoryContractFor(pet.chain.contract));
+  let kinds = $state<AccessoryKind[]>([]);
+  let owned = $state<OwnedAccessory[]>([]);
+  let worn = $state<OwnedAccessory | null>(null);
+  const hatArt = $derived(worn?.art ?? null);
+
+  /** NEAR, from yoctoNEAR, short enough for a 340px panel. */
+  const nearOf = (yocto: string) => {
+    const n = Number(BigInt(yocto) / 10n ** 18n) / 1e6;
+    return n < 1 ? String(Number(n.toFixed(3))) : String(n);
+  };
+
+  /**
+   * Every accessory call goes through the browser.
+   *
+   * `mint` is payable, so by protocol no session key can ever carry it.
+   * `equip` and `unequip` are not, and could be signed here — but that needs
+   * a third key granted for a third contract, and the connect flow hands out
+   * two. Until it hands out three, consistency beats a half-measure.
+   */
+  function requestAccessory(
+    method: 'mint' | 'equip' | 'unequip',
+    args: { kind?: string; token_id?: string }
+  ) {
+    void requestAccessoryAction(method, accessory, pet.petId, args);
+  }
+
+  async function loadAccessories(who: string) {
+    const [k, mine, on] = await Promise.all([
+      getAccessoryKinds(pet.chain.network, accessory).catch(() => []),
+      accessoriesOf(pet.chain.network, accessory, who).catch(() => []),
+      wornBy(pet.chain.network, accessory, pet.petId).catch(() => null)
+    ]);
+    kinds = k ?? [];
+    owned = mine ?? [];
+    worn = on ?? null;
+  }
 
   function closeFight() {
     opponent = null;
@@ -484,23 +530,76 @@
     </div>
   {:else if showStyle}
     <div class="view">
-      <p class="lead">What {pet.displayName} wears, kept on this machine.</p>
+      <p class="lead">
+        Accessories are tokens on {accessory}. Yours to wear, or to sell.
+      </p>
 
-      <p class="lead">Hat</p>
+      {#if worn}
+        <ul class="grid jg-screen">
+          <li class="card picked span2 worn">
+            <img class="art jg-px" alt="" src={worn.art} />
+            <span class="title">Wearing: {worn.kind} · #{worn.token_id}</span>
+            <button
+              class="jg-btn"
+              disabled={walletAction.running !== null}
+              onclick={() => requestAccessory('unequip', { token_id: worn?.token_id })}
+            >
+              Take off ↗
+            </button>
+          </li>
+        </ul>
+      {/if}
+
+      <p class="lead">Yours</p>
       <ul class="grid jg-screen">
-        {#each HATS as item (item.id)}
-          <li class="card" class:picked={dressed.hat === item.id}>
-            <button class="pick" onclick={() => setStyle(pet.slug, { hat: item.id })}>
-              <span class="swatch">
-                {#if item.art}<img class="jg-px" alt="" src={item.art} />{:else}—{/if}
-              </span>
-              <span class="title">{item.name}</span>
+        {#each owned.filter((a) => a.token_id !== worn?.token_id) as item (item.token_id)}
+          <li class="card">
+            <img class="art jg-px" alt="" src={item.art} />
+            <span class="title">{item.kind}</span>
+            <span class="effect">#{item.token_id}</span>
+            <button
+              class="jg-btn primary buy"
+              disabled={walletAction.running !== null}
+              onclick={() => requestAccessory('equip', { token_id: item.token_id })}
+            >
+              Wear ↗
+            </button>
+          </li>
+        {/each}
+        {#if owned.length === (worn ? 1 : 0)}
+          <li class="muted span2">
+            Nothing yet. Anything bought below is a token you own.
+          </li>
+        {/if}
+      </ul>
+
+      <p class="lead">Shop</p>
+      <ul class="grid jg-screen">
+        {#each kinds as kind (kind.slug)}
+          {@const gone = kind.supply_cap !== 0 && kind.minted >= kind.supply_cap}
+          <li class="card" class:empty={gone}>
+            <img class="art jg-px" alt="" src={kind.art} />
+            <span class="title">{kind.name}</span>
+            <span class="effect">
+              {#if kind.supply_cap === 0}
+                no limit
+              {:else}
+                {kind.minted}/{kind.supply_cap}
+              {/if}
+            </span>
+            <button
+              class="jg-btn primary buy"
+              disabled={walletAction.running !== null || gone}
+              onclick={() => requestAccessory('mint', { kind: kind.slug })}
+              title={gone ? 'All of these have been minted' : 'Opens your browser — paid in NEAR'}
+            >
+              {gone ? 'gone' : `${nearOf(kind.price)} ↗`}
             </button>
           </li>
         {/each}
       </ul>
 
-      <p class="lead">Backdrop</p>
+      <p class="lead">Backdrop — this one is just a preference, kept here</p>
       <ul class="grid jg-screen">
         {#each BACKDROPS as item (item.id)}
           <li class="card" class:picked={dressed.backdrop === item.id}>
@@ -577,7 +676,7 @@
       <span class="badge tr">{pet.rarity}</span>
       <span class="hero-wrap">
         <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
-        {#if hatArt}<img class="hero-hat jg-px" alt="" src={hatArt} />{/if}
+        {#if hatArt}<img class="hero-hat jg-hat jg-px" alt="" src={hatArt} />{/if}
       </span>
       <span class="badge bl" class:work={status?.staked}>
         {status?.staked ? 'at work' : 'idle'}
@@ -853,10 +952,12 @@
     width: 96px;
   }
 
+  /* The panel's pet is a still image, so it breathes here or nowhere. */
   .hero {
     width: 96px;
     image-rendering: pixelated;
     display: block;
+    animation: jg-breathe 2.4s ease-in-out infinite;
   }
 
   .hero-hat {
@@ -864,7 +965,6 @@
     left: 50%;
     top: 14%;
     width: 44%;
-    transform: translateX(-50%);
   }
 
   .card.picked {

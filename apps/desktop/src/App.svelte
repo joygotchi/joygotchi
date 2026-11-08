@@ -7,12 +7,19 @@
   import { listPets, type ChainPetSummary } from './chain';
   import { detectBattle, startedHere, type SpectatedBattle } from './battle-watch';
   import Settings from './Settings.svelte';
-  import { MOTION_CSS, motionDuration } from '@joygotchi/pet';
+  import { HOLD_MS, MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
   import { canAfford, feedPet } from './actions';
-  import { forgetReads, getStakeAccount, stakeContractFor } from './chain';
+  import {
+    accessoryContractFor,
+    forgetReads,
+    getStakeAccount,
+    stakeContractFor,
+    wornBy,
+    type OwnedAccessory
+  } from './chain';
   import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
-  import { artOf, BACKDROPS, HATS, styleFor } from './style.svelte';
+  import { artOf, BACKDROPS, styleFor } from './style.svelte';
   import { MOTION, nextReaction, visibleState, type Reaction } from './pet-state';
   import type { InstalledPet } from './types';
 
@@ -124,6 +131,18 @@
     }
   }
 
+  async function loadWorn() {
+    if (!active) {
+      worn = null;
+      return;
+    }
+    worn = await wornBy(
+      active.chain.network,
+      accessoryContractFor(active.chain.contract),
+      active.petId
+    ).catch(() => null);
+  }
+
   async function loadAccount() {
     const who = walletSession.current?.accountId;
     if (!who || !active) {
@@ -141,8 +160,10 @@
   const motion = $derived(MOTION[pose]);
 
   const dressed = $derived(active ? styleFor(active.slug) : null);
-  const hatArt = $derived(dressed ? artOf(HATS, dressed.hat) : null);
   const backdropArt = $derived(dressed ? artOf(BACKDROPS, dressed.backdrop) : null);
+  /** Read off the accessory contract: the hat is a token, not a setting. */
+  let worn = $state<OwnedAccessory | null>(null);
+  const hatArt = $derived(worn?.art ?? null);
 
   const artSrc = $derived.by(() => {
     if (!active) return null;
@@ -262,6 +283,7 @@
     void load();
     void pollBattles();
     void loadAccount();
+    void loadWorn();
 
     const ticker = setInterval(() => (now = Date.now()), 250);
     // Cheap: reading a couple of small files every few seconds.
@@ -271,6 +293,7 @@
     const battles = setInterval(() => {
       void pollBattles();
       void loadAccount();
+      void loadWorn();
     }, 12_000);
     const unlisten = listen<AgentEvent>('agent-event', (event) => void react(event.payload));
 
@@ -293,6 +316,19 @@
     const what = petReaction.what;
     petReaction.what = null;
     reaction = nextReaction(reaction, { kind: 'game', what });
+
+    /*
+     * A meal is two beats: the eating, then being pleased about it. One
+     * `feeding` and back to idle reads as a pet chewing and losing interest,
+     * which is not what being fed feels like. The hop lands as the munch
+     * ends — `HOLD_MS.feeding` is the contract for how long that is, rather
+     * than a number guessed here and left to drift.
+     */
+    if (what === 'fed') {
+      setTimeout(() => {
+        reaction = { state: 'jumping', until: Date.now() + HOLD_MS.jumping };
+      }, HOLD_MS.feeding);
+    }
   });
 </script>
 
@@ -370,7 +406,7 @@
             Inside `.pet`, so it rides the sprite's animation: a hat that
             stays still while the pet bobs is a hat floating next to a pet.
           -->
-          <img class="hat" alt="" data-tauri-drag-region draggable="false" src={hatArt} />
+          <img class="hat jg-hat" alt="" data-tauri-drag-region draggable="false" src={hatArt} />
         {/if}
         <!--
           A shadow, so the pet stands on the desktop rather than hovering in
@@ -547,8 +583,8 @@
 
   .pet {
     position: relative;
-    width: 160px;
-    height: 170px;
+    width: 98px;
+    height: 104px;
     display: grid;
     place-items: center;
     animation-iteration-count: infinite;
@@ -562,11 +598,11 @@
    */
   .shadow {
     position: absolute;
-    bottom: 6px;
+    bottom: 4px;
     left: 50%;
-    width: 72px;
-    height: 10px;
-    margin-left: -36px;
+    width: 46px;
+    height: 8px;
+    margin-left: -23px;
     border-radius: 50%;
     background: radial-gradient(ellipse at center, #0b0d1055 0%, #0b0d1000 70%);
     pointer-events: none;
@@ -596,7 +632,7 @@
   .backdrop {
     position: absolute;
     left: 8px;
-    bottom: 36px;
+    bottom: 32px;
     /*
      * Stated, not inferred. `width: auto` between a left and a right offset
      * stretches a div and does not stretch an image: a replaced element
@@ -604,7 +640,7 @@
      * sat in the corner.
      */
     width: calc(100% - 16px);
-    height: 172px;
+    height: 150px;
     /* So the border lands inside and the two boxes measure the same. */
     box-sizing: border-box;
     object-fit: cover;
@@ -629,7 +665,6 @@
     left: 50%;
     top: 14%;
     width: 44%;
-    transform: translateX(-50%);
     pointer-events: none;
     z-index: 2;
   }

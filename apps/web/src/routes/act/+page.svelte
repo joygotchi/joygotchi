@@ -1,6 +1,11 @@
 <script lang="ts">
   import { page } from '$app/state';
-  import { getActiveWallet, connectedAccount, wallet } from '#lib/near/wallet.svelte';
+  import {
+    connectWallet,
+    connectedAccount,
+    getActiveWallet,
+    wallet
+  } from '#lib/near/wallet.svelte';
   import { GAS } from '#lib/config';
   import { formatNear } from '#lib/near/amount';
   import { viewFunction } from '#lib/near/rpc';
@@ -31,6 +36,18 @@
     buy_item: {
       label: 'Buy this and use it now',
       blurb: 'Paid in NEAR, and applied to the pet in the same transaction.'
+    },
+    mint: {
+      label: 'Buy this accessory',
+      blurb: 'It becomes a token you own: yours to put on a pet, or to sell.'
+    },
+    equip: {
+      label: 'Put this on your pet',
+      blurb: 'Both the accessory and the pet have to be yours. Nothing is spent.'
+    },
+    unequip: {
+      label: 'Take this off',
+      blurb: 'The accessory stays yours. Nothing is spent.'
     }
   } as const;
 
@@ -38,8 +55,20 @@
   const HOME = {
     stake_pet: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
     unstake_pet: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
-    buy_item: /^jg-game-[a-z0-9-]+\.(testnet|near)$/
+    buy_item: /^jg-game-[a-z0-9-]+\.(testnet|near)$/,
+    mint: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/,
+    equip: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/,
+    unequip: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/
   } as const;
+
+  type AccessoryKind = {
+    slug: string;
+    name: string;
+    price: string;
+    supply_cap: number;
+    minted: number;
+    art: string;
+  };
 
   type ShopItem = {
     item_id: number;
@@ -65,6 +94,21 @@
   const petId = $derived(Number(params.get('pet_id') ?? '0'));
   const callback = $derived(params.get('callback') ?? '');
   const itemId = $derived(Number(params.get('item_id') ?? '0'));
+  const kindSlug = $derived(params.get('kind') ?? '');
+  const tokenId = $derived(params.get('token_id') ?? '');
+
+  /**
+   * The accessory's price, read from its contract for the same reason the
+   * shop item's is: a link may say which hat, never what it costs.
+   */
+  let kind = $state<AccessoryKind | null>(null);
+
+  $effect(() => {
+    if (method !== 'mint' || !contractOk || !kindSlug) return;
+    void viewFunction<AccessoryKind | null>(contractId, 'get_kind', { slug: kindSlug })
+      .then((found) => (kind = found))
+      .catch(() => (kind = null));
+  });
 
   /**
    * What the item costs, read from the contract rather than from the link.
@@ -105,12 +149,19 @@
     known !== null && HOME[method as Method].test(contractId)
   );
   const needsItem = $derived(method === 'buy_item');
+  const needsKind = $derived(method === 'mint');
+  const needsToken = $derived(method === 'equip' || method === 'unequip');
+  /** Only the pet-shaped calls need a pet. */
+  const needsPet = $derived(method !== 'mint' && method !== 'unequip');
+
   const valid = $derived(
     known !== null &&
       contractOk &&
-      petId > 0 &&
       target !== null &&
-      (!needsItem || item !== null)
+      (!needsPet || petId > 0) &&
+      (!needsItem || item !== null) &&
+      (!needsKind || kind !== null) &&
+      (!needsToken || tokenId !== '')
   );
 
   $effect(() => {
@@ -118,6 +169,12 @@
       signedInAs = account;
       checked = true;
     });
+  });
+
+  // `connectWallet` resolves through the connector's event, not its return
+  // value, so the page watches the store rather than awaiting the click.
+  $effect(() => {
+    if (wallet.accountId) signedInAs = wallet.accountId;
   });
 
   async function report(extra: Record<string, string>) {
@@ -156,12 +213,29 @@
             type: 'FunctionCall',
             params: {
               methodName: method,
-              args: needsItem ? { pet_id: petId, item_id: itemId } : { pet_id: petId },
+              args: needsItem
+                ? { pet_id: petId, item_id: itemId }
+                : needsKind
+                  ? { kind: kindSlug }
+                  : method === 'equip'
+                    ? { token_id: tokenId, pet_id: petId }
+                    : method === 'unequip'
+                      ? { token_id: tokenId }
+                      : { pet_id: petId },
               gas: GAS.heavy,
               // Staking takes none — the method is not payable any more, and a
               // non-payable method rejects a deposit rather than ignoring it.
               // Shop items cost exactly what the contract says they cost.
-              deposit: needsItem ? (item?.price ?? '0') : '0'
+              /*
+               * Minting also pays for the token's own storage, which the
+               * contract works out after the mint and refunds the change
+               * on. A tenth of a NEAR over the price covers it with room.
+               */
+              deposit: needsItem
+                ? (item?.price ?? '0')
+                : needsKind
+                  ? (BigInt(kind?.price ?? '0') + 100_000_000_000_000_000_000_000n).toString()
+                  : '0'
             }
           }
         ]
@@ -188,7 +262,11 @@
       <ul class="mt-2 space-y-1 text-muted">
         {#if !known}<li>· "{method || 'nothing'}" is not something this page will sign</li>{/if}
         {#if !contractOk}<li>· it names a contract this page does not act on</li>{/if}
-        {#if petId <= 0}<li>· no pet named</li>{/if}
+        {#if needsPet && petId <= 0}<li>· no pet named</li>{/if}
+        {#if needsKind && kind === null}
+          <li>· "{kindSlug || 'nothing'}" is not something that contract sells</li>
+        {/if}
+        {#if needsToken && tokenId === ''}<li>· no accessory named</li>{/if}
         {#if needsItem && item === null}
           <li>· {itemError ?? 'the item it names could not be read from the contract'}</li>
         {/if}
@@ -227,10 +305,38 @@
           <dt class="text-muted">Method</dt>
           <dd>{method}</dd>
         </div>
-        <div class="flex justify-between gap-3 px-4 py-2">
-          <dt class="text-muted">Pet</dt>
-          <dd>#{petId}</dd>
-        </div>
+        {#if needsPet}
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Pet</dt>
+            <dd>#{petId}</dd>
+          </div>
+        {/if}
+        {#if needsToken}
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Accessory</dt>
+            <dd>#{tokenId}</dd>
+          </div>
+        {/if}
+        {#if kind}
+          <!-- Name, art and price all read from the contract, not the link. -->
+          <div class="flex items-center justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Accessory</dt>
+            <dd class="flex items-center gap-2">
+              <img class="pixel h-6" alt="" src={kind.art} />
+              {kind.name}
+            </dd>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">How many exist</dt>
+            <dd>
+              {#if kind.supply_cap === 0}
+                No limit
+              {:else}
+                {kind.minted} of {kind.supply_cap} minted
+              {/if}
+            </dd>
+          </div>
+        {/if}
         {#if item}
           <!-- Read from the contract, not from the link: see `item` above. -->
           <div class="flex justify-between gap-3 px-4 py-2">
@@ -250,19 +356,49 @@
         <div class="flex justify-between gap-3 px-4 py-2">
           <dt class="text-muted">It costs</dt>
           <dd class="text-accent">
-            {#if item}{formatNear(item.price, 24)} NEAR{:else}Nothing but gas{/if}
+            {#if item}
+              {formatNear(item.price, 24)} NEAR
+            {:else if kind}
+              {formatNear(kind.price, 24)} NEAR, plus storage refunded as change
+            {:else}
+              Nothing but gas
+            {/if}
           </dd>
         </div>
       </dl>
 
       <div class="flex gap-2 border-t border-line p-4 text-xs">
-        <button
-          class="flex-1 border border-accent bg-accent px-3 py-2 font-bold text-ink disabled:opacity-40"
-          disabled={phase === 'signing'}
-          onclick={sign}
-        >
-          {phase === 'signing' ? 'Waiting for your wallet…' : 'Sign it'}
-        </button>
+        <!--
+          Connect first, when there is nothing to sign with.
+          This button used to say "Sign it" whether or not a wallet was
+          connected, and clicking it threw "Connect a wallet first" into the
+          error state. From the app that reads as the button doing nothing,
+          and it is almost certainly why a day's worth of transactions never
+          reached the chain.
+        -->
+        {#if checked && !signedInAs && !wallet.accountId}
+          <button
+            class="flex-1 border border-accent bg-accent px-3 py-2 font-bold text-ink disabled:opacity-40"
+            disabled={wallet.connecting}
+            onclick={connectWallet}
+          >
+            {wallet.connecting ? 'Choose a wallet…' : 'Connect wallet first'}
+          </button>
+        {:else}
+          <button
+            class="flex-1 border border-accent bg-accent px-3 py-2 font-bold text-ink disabled:opacity-40"
+            disabled={phase === 'signing' || !checked}
+            onclick={sign}
+          >
+            {#if phase === 'signing'}
+              Waiting for your wallet…
+            {:else if !checked}
+              Looking for your wallet…
+            {:else}
+              Sign it
+            {/if}
+          </button>
+        {/if}
         <button
           class="border border-line px-3 py-2 hover:border-line-bright"
           onclick={() => report({ error: 'cancelled' })}

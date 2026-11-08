@@ -12,19 +12,12 @@
 export type Wearable = { id: string; name: string; art: string | null };
 
 /*
- * The slugs match the kinds on `jg-acc-5656.testnet`, because each of these
- * is a token somebody can buy and sell. The list is still here rather than
- * read from the contract — that is the next step — but the ids are the
- * contract's, so wiring it up is a swap and not a rename.
+ * Hats are not in this file any more.
+ *
+ * They are NEP-171 tokens on the accessory contract, so what a pet is
+ * wearing is a fact about the chain and not a preference on this machine.
+ * Backdrops stay here: nobody owns a view of a meadow.
  */
-export const HATS: Wearable[] = [
-  { id: 'none', name: 'Bare', art: null },
-  { id: 'cap', name: 'Cap', art: '/assets/hat/cap.svg' },
-  { id: 'straw', name: 'Straw Hat', art: '/assets/hat/straw.svg' },
-  { id: 'pirate', name: 'Pirate Hat', art: '/assets/hat/pirate.svg' },
-  { id: 'wizard', name: 'Wizard Hat', art: '/assets/hat/wizard.svg' },
-  { id: 'crown', name: 'Crown', art: '/assets/hat/crown.svg' }
-];
 
 export const BACKDROPS: Wearable[] = [
   { id: 'none', name: 'None', art: null },
@@ -33,9 +26,9 @@ export const BACKDROPS: Wearable[] = [
   { id: 'arena', name: 'Arena', art: '/assets/background/battle.png' }
 ];
 
-export type PetStyle = { hat: string; backdrop: string };
+export type PetStyle = { backdrop: string };
 
-const DEFAULT: PetStyle = { hat: 'none', backdrop: 'meadow' };
+const DEFAULT: PetStyle = { backdrop: 'meadow' };
 const KEY = 'joygotchi:style';
 
 /** Every pet's style, by slug, as one reactive object. */
@@ -52,9 +45,8 @@ function load(): Record<string, PetStyle> {
     const out: Record<string, PetStyle> = {};
     for (const [slug, value] of Object.entries(parsed as Record<string, unknown>)) {
       if (!value || typeof value !== 'object') continue;
-      const { hat, backdrop } = value as Partial<PetStyle>;
+      const { backdrop } = value as Partial<PetStyle>;
       out[slug] = {
-        hat: HATS.some((h) => h.id === hat) ? (hat as string) : DEFAULT.hat,
         backdrop: BACKDROPS.some((b) => b.id === backdrop)
           ? (backdrop as string)
           : DEFAULT.backdrop

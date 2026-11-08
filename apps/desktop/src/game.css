@@ -141,3 +141,26 @@ img.jg-px {
   background: var(--jg-bad);
   color: #fff;
 }
+
+/*
+ * Worn things lag.
+ *
+ * The hat already moved, because it sits inside the sprite's box and the
+ * animation is on that box — but moving in perfect lock with the head is
+ * exactly what a sticker does. This is a small tip and settle, run slower
+ * than any pet motion and started late, so the two are never in phase and
+ * the hat reads as resting on the pet rather than painted on it.
+ */
+@keyframes jg-hat-settle {
+  0%, 100% {
+    transform: translateX(-50%) translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateX(-50%) translateY(-1px) rotate(2deg);
+  }
+}
+
+.jg-hat {
+  animation: jg-hat-settle 3.1s ease-in-out -0.9s infinite;
+  transform-origin: 50% 90%;
+}

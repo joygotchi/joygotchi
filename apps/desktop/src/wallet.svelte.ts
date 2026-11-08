@@ -262,6 +262,40 @@ export const walletAction = $state<{ running: string | null; error: string | nul
   { running: null, error: null, done: null }
 );
 
+/**
+ * The accessory contract's calls, over the same browser round trip.
+ *
+ * A separate entry point rather than more optional parameters on
+ * `requestWalletAction`: that one is about a pet on the staking or game
+ * contract, and three of the four arguments here would be unused by it.
+ */
+export async function requestAccessoryAction(
+  method: 'mint' | 'equip' | 'unequip',
+  contractId: string,
+  petId: number,
+  args: { kind?: string; token_id?: string }
+) {
+  walletAction.running = method;
+  walletAction.error = null;
+  walletAction.done = null;
+
+  const callback = await invoke<string>('wallet_callback_url');
+  const url = new URL('/act', SITE());
+  url.searchParams.set('method', method);
+  url.searchParams.set('contract', contractId);
+  url.searchParams.set('pet_id', String(petId));
+  if (args.kind) url.searchParams.set('kind', args.kind);
+  if (args.token_id) url.searchParams.set('token_id', args.token_id);
+  url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
+
+  try {
+    await invoke('open_url', { url: url.toString() });
+  } catch (cause) {
+    walletAction.running = null;
+    walletAction.error = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
 export async function requestWalletAction(
   method: 'stake_pet' | 'unstake_pet' | 'buy_item',
   contractId: string,

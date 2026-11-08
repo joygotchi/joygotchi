@@ -28,6 +28,15 @@ export const stakeContractFor = (gameContract: string) =>
   gameContract.replace(/^jg-game-/, 'jg-stake-');
 
 /**
+ * Where the wearables live.
+ *
+ * Derived from the game contract the pet was minted on, the same way the
+ * staking contract is, so one deployment's pets never read another's hats.
+ */
+export const accessoryContractFor = (gameContract: string) =>
+  gameContract.replace(/^jg-game-/, 'jg-acc-');
+
+/**
  * How long an identical read is reused.
  *
  * The window polls every pet on the contract every twelve seconds for the
@@ -261,6 +270,36 @@ export const getShop = (network: string, gameContract: string) =>
  */
 export const miningAvailableAt = (network: string, stake: string, accountId: string) =>
   viewFunction<string>(network, stake, 'mining_available_at', { account_id: accountId });
+
+/** A mintable accessory, as the contract prices it. */
+export type AccessoryKind = {
+  slug: string;
+  name: string;
+  price: string;
+  supply_cap: number;
+  minted: number;
+  art: string;
+};
+
+/** One token: who holds it, what it is, and which pet has it on. */
+export type OwnedAccessory = {
+  token_id: string;
+  owner_id: string;
+  kind: string;
+  art: string;
+  pet_id: number | null;
+};
+
+export const getAccessoryKinds = (network: string, accessory: string) =>
+  viewFunction<AccessoryKind[]>(network, accessory, 'get_kinds', {});
+
+export const wornBy = (network: string, accessory: string, petId: number) =>
+  viewFunction<OwnedAccessory | null>(network, accessory, 'worn_by', { pet_id: petId });
+
+export const accessoriesOf = (network: string, accessory: string, accountId: string) =>
+  viewFunction<OwnedAccessory[]>(network, accessory, 'accessories_of', {
+    account_id: accountId
+  });
 
 export const getInventory = (network: string, stake: string, accountId: string) =>
   viewFunction<Array<[number, number]>>(network, stake, 'get_inventory', {
