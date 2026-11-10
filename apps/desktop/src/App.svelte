@@ -489,7 +489,17 @@
       <div class="row">
         <span class="name">{active.displayName}</span>
         {#if chainSelf}
-          <span class="lv">LV {chainSelf.level}</span>
+          <!--
+            The level, and how far through it. Without the second number the
+            plate shows a figure that moves roughly once a day — which reads
+            as nothing happening, right when something is.
+          -->
+          <span class="lv">
+            LV {chainSelf.level}
+            {#if Number(chainSelf.xp_for_next_level ?? 0) > 0}
+              <small>{chainSelf.xp}/{chainSelf.xp_for_next_level}</small>
+            {/if}
+          </span>
           {#each { length: Math.min(3, chainSelf.star) } as _, i (i)}
             <img class="star jg-px" alt="" src="/assets/item/star.png" />
           {/each}
@@ -958,6 +968,11 @@
 
   .say:disabled {
     background: var(--jg-bevel);
+  }
+
+  .lv small {
+    font-size: 7px;
+    color: var(--jg-muted);
   }
 
   .plate-note {

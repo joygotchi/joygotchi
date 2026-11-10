@@ -276,6 +276,16 @@
    * the press rather than after. A refund is a correct answer that still
    * costs the player a round trip and a moment of doubt.
    */
+  /*
+   * Progress through this level, read off the chain. `xp_for_next_level` is
+   * what the contract will charge for the next one, not a running total, so
+   * the bar is simply one against the other.
+   */
+  const xpNow = $derived(Number(onChain?.xp ?? 0));
+  const xpNeeded = $derived(Number(onChain?.xp_for_next_level ?? 0));
+  const toNextLevel = $derived(xpNeeded > 0 ? Math.max(0, xpNeeded - xpNow) : null);
+  const xpPercent = $derived(xpNeeded > 0 ? Math.min(100, (xpNow / xpNeeded) * 100) : 0);
+
   const phase = $derived(Number(onChain?.evolution_phase ?? 1));
   const needsLevel = $derived(levelToEvolve(phase));
   const canEvolve = $derived(
@@ -920,7 +930,23 @@
       class="stage jg-screen"
       style:background-image={backdropArt ? `url('${backdropArt}')` : 'none'}
     >
-      <span class="badge tl">lv {pet.level}{pet.star ? ` ${'★'.repeat(pet.star)}` : ''}</span>
+      <!--
+        Level, stars, and the bar underneath: how much of this level is done.
+        "lv 1" on its own cannot tell you whether a meal moved anything, and
+        a pet whose only visible number never changes reads as a pet nothing
+        is happening to.
+      -->
+      <span class="badge tl">
+        lv {onChain?.level ?? pet.level}{pet.star ? ` ${'★'.repeat(pet.star)}` : ''}
+        {#if toNextLevel !== null}
+          <small>{xpNow}/{xpNeeded}</small>
+        {/if}
+      </span>
+      {#if toNextLevel !== null}
+        <span class="xp" title="{toNextLevel} XP to level {(onChain?.level ?? 0) + 1}">
+          <span class="xp-fill" style:width="{xpPercent}%"></span>
+        </span>
+      {/if}
       <span class="badge tr">{pet.rarity}</span>
       <span class="hero-wrap">
         <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
@@ -1352,6 +1378,33 @@
     color: var(--jg-ink);
     background: #ffffffcc;
     border: 1px solid var(--jg-edge);
+  }
+
+  /* The level badge's second number: smaller, so the level still reads first. */
+  .badge small {
+    font-size: 7px;
+    color: var(--jg-muted);
+  }
+
+  /*
+   * The bar sits under the badge rather than inside it: a badge that changes
+   * width as XP climbs would shuffle the art every few meals.
+   */
+  .xp {
+    position: absolute;
+    top: 20px;
+    left: 3px;
+    width: 58px;
+    height: 4px;
+    background: #ffffffcc;
+    border: 1px solid var(--jg-edge);
+  }
+
+  .xp-fill {
+    display: block;
+    height: 100%;
+    background: var(--jg-good, #5aa469);
+    transition: width 0.3s;
   }
 
   .tl { top: 3px; left: 3px; }

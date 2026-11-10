@@ -204,6 +204,14 @@ export type ChainPetSummary = {
    * is what lets `detectBattle` pair the two sides without an indexer.
    */
   last_attack_used?: string;
+  /**
+   * Progress towards the next level. `get_pet` has always returned both, and
+   * like `category` before them they were missing from this type — so the
+   * app could show "lv 1" and nothing about how close the next one was,
+   * which is the only number that tells you whether anything you did helped.
+   */
+  xp?: number;
+  xp_for_next_level?: number;
 };
 
 /**
