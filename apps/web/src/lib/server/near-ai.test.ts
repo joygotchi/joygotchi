@@ -34,23 +34,42 @@ describe('mealGrader', () => {
     expect(prompt).not.toContain('you show it');
   });
 
-  it('anchors the middle of the range, which is what stops a ceiling answer', () => {
+  it('gives three bands, which is what stops a ceiling answer', () => {
     const prompt = mealGrader(pet(5));
 
-    expect(prompt).toMatch(/between 16 and 24/);
-    expect(prompt).toMatch(/above 30/);
+    expect(prompt).toContain(`well fed ${MIN_FEED_XP} to 16`);
+    expect(prompt).toContain('peckish 18 to 24');
+    expect(prompt).toContain(`famished or starved 26 to ${MAX_FEED_XP / 2}`);
   });
 
   /*
-   * The floor is enforced by `xpFrom` whatever the model says. The prompt is
-   * asked for the same number so the two agree: a model whose answer had to
-   * be corrected on every call would hide the fact that grading had broken.
+   * The bands cannot ask for a number `xpFrom` would have to correct. A model
+   * whose answer was silently clamped on every call would hide the fact that
+   * grading had stopped working.
    */
-  it('asks for the same floor and ceiling the code enforces', () => {
-    const prompt = mealGrader(pet(5));
+  it('never asks for a number outside what the code allows', () => {
+    const numbers = (mealGrader(pet(5)).match(/\b\d+\b/g) ?? [])
+      .map(Number)
+      // The pet's own level and star count are in there too.
+      .filter((n) => n >= MIN_FEED_XP);
 
-    expect(prompt).toContain(`from ${MIN_FEED_XP} to ${MAX_FEED_XP / 2}`);
-    expect(prompt).toContain(`Never go below ${MIN_FEED_XP}`);
+    expect(numbers.length).toBeGreaterThan(0);
+    for (const n of numbers) expect(n).toBeLessThanOrEqual(MAX_FEED_XP / 2);
+  });
+
+  /*
+   * Matching a band is the grader's only instruction, so a hunger line that
+   * uses words no band contains leaves the model to invent a number.
+   */
+  it('describes every hunger state in words a band uses', () => {
+    const bands = ['well fed', 'peckish', 'famished or starved'];
+    const matches = (prompt: string) =>
+      bands.some((band) => band.split(' or ').some((word) => prompt.includes(word)));
+
+    for (const hours of [-1, 0.5, 3, 48]) {
+      expect(matches(mealGrader(pet(hours))), `${hours}h`).toBe(true);
+    }
+    expect(matches(mealGrader(pet(0, { starves_at: '0' })))).toBe(true);
   });
 
   it('states the hunger as a fact about the pet, not as a role', () => {
@@ -64,7 +83,7 @@ describe('mealGrader', () => {
   });
 
   it('treats a pet with no deadline as recently fed rather than starved', () => {
-    expect(mealGrader(pet(0, { starves_at: '0' }))).toContain('has eaten recently');
+    expect(mealGrader(pet(0, { starves_at: '0' }))).toContain('well fed');
   });
 
   it('carries the pet’s own numbers, so two pets are not graded identically', () => {
