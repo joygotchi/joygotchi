@@ -89,6 +89,8 @@
   /** Everyone else's pets; `why` is null when this one can actually be fought. */
   type Target = ChainPetSummary & { why: string | null };
   let targets = $state<Target[]>([]);
+  /** How many of them this pet could actually fight right now. */
+  const fightable = $derived(targets.filter((t) => t.why === null).length);
   let showTargets = $state(false);
   let opponent = $state<ChainPetSummary | null>(null);
   let fight = $state<'ready' | 'fighting' | 'won' | 'lost'>('ready');
@@ -942,12 +944,21 @@
               : 'A small top-up every six hours',
           busy === 'mine' ? '…' : undefined
         )}
+        <!--
+          The fourth place the same rule lived. The contracts stopped refusing
+          a staked pet a fight; this still greyed the tile out and explained
+          why with a sentence that was no longer true.
+
+          The count is of pets that can actually be fought, not of the roster:
+          the list shows everyone with a reason now, and counting the ones
+          that cannot fight would promise opponents that are not there.
+        -->
         {@render tile(
-          `Battle ${targets.length ? `(${targets.length})` : ''}`,
+          `Battle ${fightable ? `(${fightable})` : ''}`,
           '/assets/button/attack.png',
           () => (showTargets = true),
-          busy !== null || !!status?.staked,
-          status?.staked ? 'A pet at work in the lab cannot fight' : 'Pick somebody to attack'
+          busy !== null,
+          fightable ? 'Pick somebody to attack' : 'Nobody can be fought right now — see who is out there'
         )}
         {@render tile(
           status?.staked ? 'Bring home' : 'AI Lab',
