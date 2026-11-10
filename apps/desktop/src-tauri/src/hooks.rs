@@ -62,6 +62,14 @@ async fn event(
     State(app): State<AppHandle>,
     Json(event): Json<AgentEvent>,
 ) -> (StatusCode, Json<serde_json::Value>) {
+    /*
+     * Say what arrived. The handler used to emit and nothing else, which
+     * meant there was no way to tell a hook that never fired from one that
+     * fired into a window that ignored it — and "is it wired up?" is the
+     * question this server exists to be asked.
+     */
+    println!("[hook] {}", serde_json::to_string(&event).unwrap_or_default());
+
     // Emitting is the whole handler: the window decides what the event looks
     // like, so the agent is never kept waiting on an animation or on NEAR AI.
     if let Err(error) = app.emit("agent-event", &event) {
