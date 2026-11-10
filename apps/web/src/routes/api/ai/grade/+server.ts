@@ -30,20 +30,27 @@ import type { RequestHandler } from './$types';
  * Measured, 24 samples per cell, because a grader is the kind of thing that
  * looks fine and returns a constant:
  *
- *            | pet graded itself | neutral grader | + floor and anchors
- *   well fed |      36 x24       | 5-6,  mean 6.0 | 18-22, mean 19.6
- *   starved  |      36 x24       | 31-34, mean 31.8 | 34 x24
+ *   prompt            | well fed          | starved        | gap
+ *   pet graded itself | 36 x24            | 36 x24         | 1.00x
+ *   neutral, no bands | 5-6,  mean 6.0    | 31-34, m 31.8  | 5.33x
+ *   one "ordinary"    | 18-22, mean 19.6  | 34 x24         | 1.74x
+ *   three bands       | 14 x24            | 31-32, m 31.3  | 2.24x
  *
- * Column one is why `mealGrader` exists at all. Column three is the current
- * behaviour, and it holds a result worth stating plainly: the neglect gap
- * fell from 5.3x to 1.7x, but `MIN_FEED_XP` is not what closed it. The
- * lowest grade observed is 18, so the floor never fires — the anchors did
- * the work, and the floor is dormant insurance against a model that ignores
- * them.
+ * Row one is why `mealGrader` exists. Row two is why it has bands: a
+ * fivefold gap pays players for letting a pet starve. Row four is current,
+ * and the gap is where it should be.
  *
- * It may now be too narrow. A well-fed pet scores an ordinary grade rather
- * than a low one, so hunger barely changes the payout. Widening it means
- * moving the anchors, not the floor.
+ * The column that matters more is the spread. Across all four prompts and
+ * 168 samples the model never varied meaningfully inside a band — it picks
+ * one number per hunger state and stays there, 14 and 31 here, whatever
+ * "pick a different number inside that band" asks of it. `MIN_FEED_XP` has
+ * never once fired either; the bands decide everything.
+ *
+ * Which means the grade is a deterministic function of `starves_at`, and a
+ * model is an expensive way to evaluate one. The numbers could come off the
+ * chain for nothing: no key, no network, no latency, and a player could
+ * check the arithmetic. If the model stays in this path it should be for the
+ * pet's reaction line, which is the part a formula genuinely cannot write.
  *
  * Worth re-measuring after any change to the prompt: nothing else here will
  * fail if the grade stops meaning anything.
