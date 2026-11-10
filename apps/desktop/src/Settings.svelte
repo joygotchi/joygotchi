@@ -180,11 +180,18 @@
   /* Settings shares the panel's frame; only its own rules live here. */
   .panel {
     position: absolute;
-    inset: 2px;
+    /*
+     * Everything but the strip the name plate holds, and scrolling inside
+     * that. It was `inset: 2px` with no overflow, so anything past the
+     * window height was simply cut — the wallet section ended mid-sentence
+     * and there was no way to reach what came after it.
+     */
+    inset: 2px 2px calc(var(--jg-plate, 62px) + 6px) 2px;
     display: flex;
     flex-direction: column;
     padding: 4px;
     font-size: 10px;
+    overflow-y: auto;
   }
 
   header {
@@ -293,8 +300,12 @@
   }
 
   ul {
-    flex: 1 1 auto;
-    min-height: 60px;
+    /*
+     * Takes what it needs, not what it can get. `1 1 auto` grew it to the
+     * cap whatever was in it, so two pets sat at the top of a box of white
+     * four times their height.
+     */
+    flex: 0 1 auto;
     max-height: 150px;
     margin: 4px 0 0;
     padding: 2px;

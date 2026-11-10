@@ -120,21 +120,35 @@ pub fn installed() -> bool {
             .get("hooks")
             .and_then(|hooks| hooks.get(event))
             .and_then(Value::as_array)
-            .is_some_and(|entries| entries.iter().any(is_ours))
+            .is_some_and(|entries| entries.iter().any(is_ours_and_works))
     })
 }
 
+/// Whether this entry is one of ours, broken ones included.
+///
+/// Used when replacing and removing, where a version that cannot run still
+/// has to be found and taken out.
 fn is_ours(entry: &Value) -> bool {
+    command_of(entry).is_some_and(|command| command.contains(TAG))
+}
+
+/// Whether this entry is ours *and* can actually run.
+///
+/// An unquoted path with a space in it installs cleanly, reads correctly in
+/// the settings file, and never fires — so reporting it as connected tells
+/// somebody the feature is on while nothing happens. Requiring the quoted
+/// form means a stale install shows as disconnected and the button repairs
+/// it.
+fn is_ours_and_works(entry: &Value) -> bool {
+    command_of(entry).is_some_and(|command| command.contains(TAG) && command.starts_with('\''))
+}
+
+fn command_of(entry: &Value) -> Option<&str> {
     entry
-        .get("hooks")
-        .and_then(Value::as_array)
-        .is_some_and(|hooks| {
-            hooks.iter().any(|hook| {
-                hook.get("command")
-                    .and_then(Value::as_str)
-                    .is_some_and(|command| command.contains(TAG))
-            })
-        })
+        .get("hooks")?
+        .as_array()?
+        .iter()
+        .find_map(|hook| hook.get("command")?.as_str())
 }
 
 /// Write the forwarder and point the agent at it.
@@ -248,11 +262,21 @@ mod tests {
 
     #[test]
     fn ours_is_recognised_by_the_command_path() {
-        let mine = json!({ "hooks": [{ "type": "command", "command": "/x/joygotchi/agent-hook.sh prompt" }] });
+        let mine = json!({ "hooks": [{ "type": "command", "command": "'/x/joygotchi/agent-hook.sh' prompt" }] });
         let theirs = json!({ "hooks": [{ "type": "command", "command": "/usr/bin/true" }] });
 
         assert!(is_ours(&mine));
         assert!(!is_ours(&theirs));
+    }
+
+    #[test]
+    fn an_unquoted_install_counts_as_not_connected() {
+        // It is ours, so replacing and removing must find it — but it cannot
+        // run, so saying "connected" would be a lie with a button on it.
+        let broken = json!({ "hooks": [{ "type": "command", "command": "/x/joygotchi/agent-hook.sh prompt" }] });
+
+        assert!(is_ours(&broken), "still ours, so it can be repaired");
+        assert!(!is_ours_and_works(&broken), "but not connected");
     }
 
     #[test]

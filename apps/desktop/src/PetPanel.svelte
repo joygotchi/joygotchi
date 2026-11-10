@@ -1022,7 +1022,7 @@
   .panel {
     position: absolute;
     /* Everything but the strip the name plate occupies. */
-    inset: 2px 2px calc(var(--jg-plate, 42px) + 6px) 2px;
+    inset: 2px 2px calc(var(--jg-plate, 62px) + 6px) 2px;
     display: flex;
     flex-direction: column;
     gap: 5px;
