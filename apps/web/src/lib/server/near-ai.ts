@@ -102,6 +102,48 @@ function hungerOf(pet: ChainPet): string {
   return 'You are well fed and content; food is not on your mind.';
 }
 
+/** The same facts as `hungerOf`, told about the pet rather than to it. */
+function hungerFact(pet: ChainPet): string {
+  const deadline = Number(pet.starves_at ?? 0);
+  if (!deadline) return 'It has eaten recently and is content.';
+
+  const secondsLeft = (deadline - Date.now() * 1e6) / 1e9;
+  if (secondsLeft <= 0) return 'It has starved and is weak.';
+  if (secondsLeft < 60 * 60) return 'It is famished — food is all it can think about.';
+  if (secondsLeft < 6 * 60 * 60) return 'It is getting peckish.';
+  return 'It is well fed; this food adds little it needs.';
+}
+
+/**
+ * The system prompt for grading a meal, which is deliberately not a pet.
+ *
+ * Grading used to run through `petPersona`, which asked the beneficiary — a
+ * persona explicitly told "You like them and you show it" — how good its
+ * owner's gift was. Across 24 samples at temperature 0.8 it answered the
+ * maximum 36 every single time. A scale that only ever returns its ceiling
+ * is not a scale, and a model call that always returns the same number is a
+ * constant with a latency cost.
+ *
+ * So the grader is a third party. It never speaks to the owner, it gets the
+ * pet's state as fact rather than as a role to play, and it is told where the
+ * middle of the range is. The anchors are the part that matters: left alone,
+ * "a number from 1 to 36" reads as an invitation to say 36.
+ */
+export function mealGrader(pet: ChainPet): string {
+  return [
+    'You grade bowls of pet food in a game. You are not the pet and you never',
+    'speak to its owner.',
+    `The pet is ${pet.name}, a ${pet.rarity} ${pet.category}, level ${pet.level},`,
+    `${pet.star} stars.`,
+    hungerFact(pet),
+    'Grade how much this meal was worth to this pet, as one whole number from',
+    '1 to 36. Most meals are ordinary: answer between 12 and 20. Go above 28',
+    'only when the pet was famished or had starved. Go below 8 when it was',
+    'already well fed. Vary your answers rather than settling on a favourite.',
+    'Reply with the number and nothing else.'
+  ].join(' ');
+}
+
 export function petPersona(pet: ChainPet, extra: { viewerIsOwner: boolean }): string {
   return [
     `You are ${pet.name}, a ${pet.rarity} ${pet.category} in JOYGOTCHI.`,

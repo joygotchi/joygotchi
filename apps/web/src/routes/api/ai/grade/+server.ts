@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { GAME_CONTRACT } from '#lib/config';
-import { AiUnavailableError, complete, petPersona } from '#lib/server/near-ai';
+import { AiUnavailableError, complete, mealGrader } from '#lib/server/near-ai';
 import { corsHeaders, preflight } from '#lib/server/cors';
 import { viewFunction } from '#lib/near/rpc';
 import { MAX_FEED_XP, mealFrom, type ChainPet, type TxStatus } from '@joygotchi/pet';
@@ -71,13 +71,8 @@ export const POST: RequestHandler = async ({ request }) => {
   try {
     const answer = await complete(
       [
-        { role: 'system', content: petPersona(pet, { viewerIsOwner: true }) },
-        {
-          role: 'user',
-          content:
-            'Your owner just bought you a meal. How good was it? ' +
-            `Answer with a single whole number from 1 to ${MAX_FEED_XP / 2} and nothing else.`
-        }
+        { role: 'system', content: mealGrader(pet) },
+        { role: 'user', content: 'Grade this meal.' }
       ],
       { maxTokens: 20, temperature: 0.8 }
     );
