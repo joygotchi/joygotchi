@@ -7,6 +7,51 @@ import {
 import { reactToGame, signAndSend } from './wallet.svelte';
 
 /**
+ * A contract saying no while the transaction says yes.
+ *
+ * `feed_pet` spends credits, calls the game contract, and refunds itself from
+ * a callback when the game refuses. That refund is the correct behaviour and
+ * it is also a successful transaction — nothing throws, no receipt fails, and
+ * `await` returns normally. So a refusal has to be read out of the logs, or
+ * the app reports a feed that never happened.
+ *
+ * This was exactly that bug: feeding a starved pet said "Fed." and changed
+ * nothing, which is the worst possible answer. The pet needs a revival item,
+ * and now it says so.
+ */
+export class RefundedError extends Error {}
+
+/**
+ * The reason inside a `*_refunded` transaction, if there is one.
+ *
+ * The game contract writes its own sentence with `log_str` before returning
+ * false — "This pet has starved", "That pet belongs to someone else" — and
+ * that sentence is better than anything this layer could invent, so it is
+ * preferred over a generic message when present.
+ *
+ * The event name is parsed rather than searched for. `auto_feed_refunded`
+ * contains `feed_refunded`, so a substring match reports the oracle's refusal
+ * as the player's own — a test caught that, which is the entire reason this
+ * reads the name instead.
+ */
+function refusalIn(logs: string[], marker: string): string | null {
+  const refunded = logs.some((line) => {
+    if (!line.startsWith('EVENT_JSON:')) return false;
+    try {
+      return (JSON.parse(line.slice('EVENT_JSON:'.length)) as { event?: string }).event === marker;
+    } catch {
+      return false;
+    }
+  });
+  if (!refunded) return null;
+
+  const spoken = logs.find(
+    (line) => !line.startsWith('EVENT_JSON:') && /starved|belongs to|No such pet/i.test(line)
+  );
+  return spoken ?? 'The contract refused it and your credits were refunded.';
+}
+
+/**
  * Feed a pet, claiming first when the balance alone will not cover it.
  *
  * `feed_pet` on the staking contract, not `spend_credits("ai_feed")`: the
@@ -38,7 +83,10 @@ export async function feedPet(
     await signAndSend(network, 'claim_credits', {});
   }
 
-  await signAndSend(network, 'feed_pet', { pet_id: petId });
+  const { logs } = await signAndSend(network, 'feed_pet', { pet_id: petId });
+
+  const refused = refusalIn(logs, 'feed_refunded');
+  if (refused) throw new RefundedError(refused);
 
   reactToGame('fed');
 }
