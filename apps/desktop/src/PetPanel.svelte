@@ -1,12 +1,11 @@
 <script lang="ts">
   import {
     ACTION_PRICE,
-    AUTO_FEED_DAILY_BUDGET,
+    autoFeedBudgetFor,
     AUTO_FEED_HOURS,
     formatCredits,
     ITEMS,
     itemName,
-    toMicroCredits,
     type PetStatus,
     type StakeAccount
   } from '@joygotchi/pet';
@@ -243,12 +242,27 @@
   const autoFeedOn = $derived(Number(account?.auto_feed_budget ?? 0) > 0);
   const autoFeedUsed = $derived(Number(account?.auto_feed_spent ?? 0) / 1e6);
 
+  /**
+   * The allowance is per account, so it has to be sized by how many pets the
+   * account owns. It was a fixed one-pet figure, which meant switching this
+   * on with five pets covered the first two the oracle reached and left the
+   * rest to starve — and said nothing, because the contract is right to stop
+   * at the allowance it was handed.
+   */
+  async function autoFeedBudget(): Promise<string> {
+    const owner = session?.accountId;
+    if (!owner) return autoFeedBudgetFor(1);
+
+    const all = await listPets(net(), pet.chain.contract).catch(() => []);
+    return autoFeedBudgetFor(all.filter((other) => other.owner_id === owner).length);
+  }
+
   const toggleAutoFeed = () =>
     act(
       'auto',
-      () =>
+      async () =>
         signAndSend(net(), 'set_auto_feed_budget', {
-          budget: autoFeedOn ? '0' : toMicroCredits(AUTO_FEED_DAILY_BUDGET)
+          budget: autoFeedOn ? '0' : await autoFeedBudget()
         }),
       autoFeedOn ? 'Auto-feed off.' : 'Auto-feed on.'
     );
@@ -808,11 +822,18 @@
           {#if autoFeedOn}
             <!--
               "Allowed", not "on": the budget is permission for the oracle to
-              spend, and the oracle is a service somebody has to run. Nothing
-              in this repository runs it yet, so a switch that said the pet
-              was safe would be the most expensive lie in the app.
+              spend, and the oracle is a service that has to be running
+              somewhere. `apps/oracle` is that service and it installs as a
+              login agent — but it runs on a machine, not in here, so a switch
+              claiming the pet was safe would still be the most expensive lie
+              in the app.
+
+              The figure comes off the chain rather than from the constant the
+              button sends. They agree right after a toggle and stop agreeing
+              the moment the account gains a pet, and the one that is true is
+              the allowance the contract will actually enforce.
             -->
-            Auto-feed allowed · {formatCredits(toMicroCredits(AUTO_FEED_DAILY_BUDGET))}/day
+            Auto-feed allowed · {formatCredits(account?.auto_feed_budget ?? '0')}/day
             {#if autoFeedUsed > 0}
               · {autoFeedUsed.toFixed(3)} used today
             {:else}
@@ -829,15 +850,16 @@
           onclick={toggleAutoFeed}
           title={autoFeedOn
             ? 'Stop the oracle feeding this account'
-            : `The oracle may spend up to ${AUTO_FEED_DAILY_BUDGET} credits a day, ${ACTION_PRICE.auto_feed} at a time, each buying ${AUTO_FEED_HOURS} hours`}
+            : `${ACTION_PRICE.auto_feed} credits a meal, each buying ${AUTO_FEED_HOURS} hours — the daily allowance covers every pet this account owns`}
         >
           {busy === 'auto' ? '…' : autoFeedOn ? 'Off' : 'On'}
         </button>
       </div>
       {#if autoFeedOn && autoFeedUsed === 0}
         <p class="note warn">
-          The feeder service has not spent any of this. Until one runs,
-          {pet.displayName} still needs feeding by hand.
+          Nothing has been spent from this yet. The feeder runs on a machine
+          rather than in here, so until one is running {pet.displayName} still
+          needs feeding by hand.
         </p>
       {/if}
     {/if}

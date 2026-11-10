@@ -4,6 +4,7 @@ import {
   ACTION_PRICE,
   AUTO_FEED_DAILY_BUDGET,
   AUTO_FEED_HOURS,
+  autoFeedBudgetFor,
   GAME_METHODS,
   ITEMS,
   STAKE_METHODS,
@@ -97,5 +98,30 @@ describe('credits', () => {
   it('prices every item and every action above zero', () => {
     for (const price of Object.values(ACTION_PRICE)) expect(price).toBeGreaterThan(0);
     expect(Object.keys(ITEMS)).toHaveLength(4);
+  });
+});
+
+describe('autoFeedBudgetFor', () => {
+  it('covers every pet an account owns, not just one', () => {
+    // 0.015 a meal, two meals a day, plus one feed of headroom.
+    expect(autoFeedBudgetFor(1)).toBe('45000');
+    expect(autoFeedBudgetFor(5)).toBe('165000');
+  });
+
+  it('is exact where floating point would not be', () => {
+    // 0.015 * 11 is 0.16500000000000001 as a float.
+    expect(autoFeedBudgetFor(5)).toBe('165000');
+    expect(autoFeedBudgetFor(7)).toBe('225000');
+  });
+
+  it('still buys a day for an account with no pets yet', () => {
+    // Switching it on before staking should not set an allowance of zero,
+    // which the contract reads as off.
+    expect(autoFeedBudgetFor(0)).toBe('45000');
+    expect(autoFeedBudgetFor(-3)).toBe('45000');
+  });
+
+  it('agrees with the one-pet constant', () => {
+    expect(autoFeedBudgetFor(1)).toBe(toMicroCredits(AUTO_FEED_DAILY_BUDGET));
   });
 });

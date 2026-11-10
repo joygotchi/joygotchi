@@ -100,8 +100,31 @@ export type CreditAction = keyof typeof ACTION_PRICE;
  */
 export const AUTO_FEED_HOURS = 12;
 export const AUTO_FEED_A_DAY = 2;
-/** A day's cover, with one feed of headroom for a window that starts late. */
+/**
+ * A day's cover for **one** pet, with one feed of headroom for a window that
+ * starts late. Prefer `autoFeedBudgetFor`: the budget is per account, and an
+ * account can own more than one pet.
+ */
 export const AUTO_FEED_DAILY_BUDGET = ACTION_PRICE.auto_feed * (AUTO_FEED_A_DAY + 1);
+
+/**
+ * A day's auto-feed allowance for an account, by how many pets it owns.
+ *
+ * The budget the contract enforces is per account, but this used to be sized
+ * for a single pet — so switching auto-feed on with five pets bought cover
+ * for the first two the oracle happened to reach and nothing for the other
+ * three. Nothing reported it, either: the contract stops at the allowance it
+ * was given, which is exactly what it should do.
+ *
+ * Returned in micro-credits, computed in integers. The rate times a count is
+ * the sort of arithmetic that turns 0.165 into 0.16500000000000001, and the
+ * one place that number must be exact is on its way to a contract.
+ */
+export function autoFeedBudgetFor(pets: number): string {
+  const covered = Math.max(1, Math.floor(pets));
+  const meals = BigInt(covered * AUTO_FEED_A_DAY + 1);
+  return String(BigInt(toMicroCredits(ACTION_PRICE.auto_feed)) * meals);
+}
 
 /**
  * Credits as a person reads them: micro-credits in, a short decimal out.
