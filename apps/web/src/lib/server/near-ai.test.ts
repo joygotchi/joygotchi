@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { mealGrader, petPersona } from './near-ai';
-import type { ChainPet } from '@joygotchi/pet';
+import { MAX_FEED_XP, MIN_FEED_XP, type ChainPet } from '@joygotchi/pet';
 
 const HOUR = 3_600 * 1e9;
 
@@ -37,9 +37,20 @@ describe('mealGrader', () => {
   it('anchors the middle of the range, which is what stops a ceiling answer', () => {
     const prompt = mealGrader(pet(5));
 
-    expect(prompt).toMatch(/between 12 and 20/);
-    expect(prompt).toMatch(/above 28/);
-    expect(prompt).toMatch(/below 8/);
+    expect(prompt).toMatch(/between 16 and 24/);
+    expect(prompt).toMatch(/above 30/);
+  });
+
+  /*
+   * The floor is enforced by `xpFrom` whatever the model says. The prompt is
+   * asked for the same number so the two agree: a model whose answer had to
+   * be corrected on every call would hide the fact that grading had broken.
+   */
+  it('asks for the same floor and ceiling the code enforces', () => {
+    const prompt = mealGrader(pet(5));
+
+    expect(prompt).toContain(`from ${MIN_FEED_XP} to ${MAX_FEED_XP / 2}`);
+    expect(prompt).toContain(`Never go below ${MIN_FEED_XP}`);
   });
 
   it('states the hunger as a fact about the pet, not as a role', () => {

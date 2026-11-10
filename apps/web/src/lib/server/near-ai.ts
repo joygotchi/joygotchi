@@ -1,5 +1,5 @@
 import { NEAR_AI_API_KEY, NEAR_AI_BASE_URL, NEAR_AI_MODEL } from '$app/env/private';
-import type { ChainPet } from '@joygotchi/pet';
+import { MAX_FEED_XP, MIN_FEED_XP, type ChainPet } from '@joygotchi/pet';
 
 /**
  * NEAR AI Cloud, behind an OpenAI-shaped chat endpoint.
@@ -137,9 +137,10 @@ export function mealGrader(pet: ChainPet): string {
     `${pet.star} stars.`,
     hungerFact(pet),
     'Grade how much this meal was worth to this pet, as one whole number from',
-    '1 to 36. Most meals are ordinary: answer between 12 and 20. Go above 28',
-    'only when the pet was famished or had starved. Go below 8 when it was',
-    'already well fed. Vary your answers rather than settling on a favourite.',
+    `${MIN_FEED_XP} to ${MAX_FEED_XP / 2}. Most meals are ordinary: answer`,
+    'between 16 and 24. Go above 30 only when the pet was famished or had',
+    `starved. Never go below ${MIN_FEED_XP}, even for a pet that needed`,
+    'nothing. Vary your answers rather than settling on a favourite.',
     'Reply with the number and nothing else.'
   ].join(' ');
 }

@@ -97,12 +97,32 @@ export function mealFrom(
 export const MAX_FEED_XP = 72;
 
 /**
+ * What a meal is worth at its very worst, before a lens.
+ *
+ * A third of the pre-lens ceiling, and the number exists because of what the
+ * grader measured: a starved pet scored ~32 and a well-fed one ~6, so buying
+ * a meal for a healthy pet earned a fifth of what neglecting it first would.
+ * Food being worth more to a hungry animal is correct; paying five times for
+ * letting it get that way is a reward for neglect.
+ *
+ * Twelve narrows that to under three times. It also sets the floor for a
+ * grader that will not answer at all, which was paying 1 — a rounding error
+ * on a meal the player was charged for.
+ */
+export const MIN_FEED_XP = 12;
+
+/**
  * Turn a model's answer into XP.
  *
  * The model writes a number in a sentence and sometimes a sentence with no
- * number. Anything unreadable scores the floor rather than nothing: the meal
- * was bought and paid for, and a model having an off day is not the player's
- * fault.
+ * number. Anything unreadable scores `MIN_FEED_XP` rather than nothing: the
+ * meal was bought and paid for, and a model having an off day is not the
+ * player's fault.
+ *
+ * The clamp is here rather than only in the prompt because a prompt is a
+ * request and this is a guarantee. The grader is asked to respect the same
+ * floor so that the two agree — if the model's answer had to be corrected on
+ * every call, nothing would reveal that grading had stopped working.
  *
  * A Focus Lens doubles it, which is what the item promises, and the clamp is
  * the contract's own cap applied before the call rather than after — a
@@ -112,6 +132,8 @@ export const MAX_FEED_XP = 72;
 export function xpFrom(answer: string, lensApplied: boolean): number {
   const found = answer.match(/\d+/);
   const base = found ? Number(found[0]) : 0;
-  const scored = Number.isFinite(base) ? Math.min(Math.max(base, 1), MAX_FEED_XP / 2) : 1;
+  const scored = Number.isFinite(base)
+    ? Math.min(Math.max(base, MIN_FEED_XP), MAX_FEED_XP / 2)
+    : MIN_FEED_XP;
   return Math.min(lensApplied ? scored * 2 : scored, MAX_FEED_XP);
 }

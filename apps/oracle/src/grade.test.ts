@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { MIN_FEED_XP } from '@joygotchi/pet';
 import { gradeMeal, gradeIn, type Grader } from './grade.ts';
 
 const STAKE = 'jg-stake-5656.testnet';
@@ -78,6 +79,7 @@ describe('gradeMeal', () => {
   });
 
   it('still pays the floor when the grader will not answer', async () => {
+    // The floor, not 1: the meal was bought and charged for.
     const result = await gradeMeal(
       'MEAL1',
       OWNER,
@@ -87,7 +89,7 @@ describe('gradeMeal', () => {
         }
       })
     );
-    expect(result).toMatchObject({ ok: true, xp: 1 });
+    expect(result).toMatchObject({ ok: true, xp: MIN_FEED_XP });
   });
 
   it('reports a failed signature rather than claiming the XP was paid', async () => {

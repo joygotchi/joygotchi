@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FEED_XP, mealFrom, xpFrom, type TxStatus } from './meal.js';
+import { MAX_FEED_XP, MIN_FEED_XP, mealFrom, xpFrom, type TxStatus } from './meal.js';
 
 const STAKE = 'jg-stake-5656.testnet';
 const WHO = 'alice.testnet';
@@ -115,7 +115,40 @@ describe('xpFrom', () => {
   it('scores the floor when the model writes no number', () => {
     // The meal was bought and paid for. A model having an off day is not
     // the player's problem.
-    expect(xpFrom('that smelled wonderful', false)).toBe(1);
-    expect(xpFrom('0', false)).toBe(1);
+    expect(xpFrom('that smelled wonderful', false)).toBe(MIN_FEED_XP);
+    expect(xpFrom('0', false)).toBe(MIN_FEED_XP);
+  });
+});
+
+describe('the feed XP floor', () => {
+  /*
+   * Measured before this existed: a starved pet graded ~32 and a well-fed one
+   * ~6, so a meal bought for a healthy pet paid a fifth of one bought after
+   * letting it starve. The floor is what keeps that from being a reward for
+   * neglect.
+   */
+  it('keeps a well-graded-low meal worth having', () => {
+    expect(xpFrom('6', false)).toBe(MIN_FEED_XP);
+    expect(xpFrom('1', false)).toBe(MIN_FEED_XP);
+  });
+
+  it('narrows neglect to under three times, from five', () => {
+    const neglected = xpFrom('32', false);
+    const cared = xpFrom('6', false);
+    expect(neglected / cared).toBeLessThan(3);
+  });
+
+  it('leaves a grade above the floor alone', () => {
+    expect(xpFrom('20', false)).toBe(20);
+    expect(xpFrom('32', false)).toBe(32);
+  });
+
+  it('doubles the floor for a lens, like any other grade', () => {
+    expect(xpFrom('6', true)).toBe(MIN_FEED_XP * 2);
+  });
+
+  it('still never exceeds what the contract allows', () => {
+    expect(xpFrom('36', true)).toBe(MAX_FEED_XP);
+    expect(MIN_FEED_XP).toBeLessThan(MAX_FEED_XP / 2);
   });
 });

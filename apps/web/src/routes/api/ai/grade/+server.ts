@@ -3,7 +3,7 @@ import { GAME_CONTRACT } from '#lib/config';
 import { AiUnavailableError, complete, mealGrader } from '#lib/server/near-ai';
 import { corsHeaders, preflight } from '#lib/server/cors';
 import { viewFunction } from '#lib/near/rpc';
-import { MAX_FEED_XP, mealFrom, type ChainPet, type TxStatus } from '@joygotchi/pet';
+import { MAX_FEED_XP, MIN_FEED_XP, mealFrom, type ChainPet, type TxStatus } from '@joygotchi/pet';
 import { RPC_URL } from '#lib/config';
 import type { RequestHandler } from './$types';
 
@@ -106,7 +106,9 @@ export const POST: RequestHandler = async ({ request }) => {
 function gradeFrom(answer: string): number {
   const found = answer.match(/\d+/);
   const base = found ? Number(found[0]) : 0;
-  return Number.isFinite(base) ? Math.min(Math.max(base, 1), MAX_FEED_XP / 2) : 1;
+  return Number.isFinite(base)
+    ? Math.min(Math.max(base, MIN_FEED_XP), MAX_FEED_XP / 2)
+    : MIN_FEED_XP;
 }
 
 /** The transaction, with every receipt it produced. */
