@@ -649,12 +649,16 @@
     </div>
   {:else if showStyle}
     <div class="view">
-      <p class="lead" title={accessory}>
-        Accessories are tokens. Wear them, or sell them.
-        {#if !wearSignsHere}
-          Wearing opens your browser until you connect again.
-        {/if}
-      </p>
+      <!--
+        No sentence here any more. "Yours" and "Shop" below already say what
+        they are, and a line of capitals across the top of a 340px panel is
+        the part people have to read past to get to the hats. The warning
+        stays, because it is the one thing a player cannot work out by
+        looking.
+      -->
+      {#if !wearSignsHere}
+        <p class="lead">Wearing opens your browser until you connect again.</p>
+      {/if}
 
       {#if worn}
         <ul class="grid jg-screen">
@@ -1017,7 +1021,8 @@
    */
   .panel {
     position: absolute;
-    inset: 2px;
+    /* Everything but the strip the name plate occupies. */
+    inset: 2px 2px calc(var(--jg-plate, 42px) + 6px) 2px;
     display: flex;
     flex-direction: column;
     gap: 5px;
@@ -1409,8 +1414,6 @@
     margin: 0;
     padding: 4px;
     list-style: none;
-    max-height: 270px;
-    overflow-y: auto;
   }
 
   .card {

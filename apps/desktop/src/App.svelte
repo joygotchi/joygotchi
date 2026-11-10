@@ -60,7 +60,6 @@
       open: showSettings || showPanel || spectating !== null
     }).catch(() => {});
   });
-  let overPet = $state(false);
 
   const active = $derived(
     pets.find((pet) => pet.slug === activeSlug) ?? pets[0] ?? null
@@ -200,7 +199,6 @@
    * so the flag that was supposed to clear on hover could never clear. The
    * switch lives in Settings instead, outside the window it silences.
    */
-  const setOverPet = (over: boolean) => (overPet = over);
 
   /**
    * Touch the pet and it answers.
@@ -350,8 +348,6 @@
   {#if !active}
     <div
       class="empty"
-      onmouseenter={() => setOverPet(true)}
-      onmouseleave={() => setOverPet(false)}
       role="status"
     >
       <p>No pet installed yet.</p>
@@ -377,8 +373,6 @@
       class="pet"
       data-state={pose}
       data-tauri-drag-region
-      onmouseenter={() => setOverPet(true)}
-      onmouseleave={() => setOverPet(false)}
       onclick={petTouched}
       ondblclick={() => (showSettings = true)}
       onkeydown={(event) => {
@@ -443,7 +437,7 @@
       can lose you the pet if you miss them — how long until it starves, and
       whether it is at work — so neither needs the panel open to be seen.
     -->
-    <div class="plate" class:dim={!overPet}>
+    <div class="plate">
       <div class="row">
         <span class="name">{active.displayName}</span>
         {#if chainSelf}
@@ -571,6 +565,15 @@
   }
 
   .stage {
+    /*
+     * One number for how tall the name plate is, used twice: the plate claims
+     * it, and the panel leaves it alone. They used to overlap — the panel was
+     * `inset: 2px` over the whole window and the plate painted on top of it —
+     * so the bar looked like a layer covering the content rather than part of
+     * the window, and it cut whatever was underneath.
+     */
+    --jg-plate: 42px;
+
     position: relative;
     display: flex;
     flex-direction: column;
@@ -742,7 +745,8 @@
   .plate {
     position: relative;
     z-index: 2;
-    transition: opacity 0.15s;
+    min-height: var(--jg-plate);
+    box-sizing: border-box;
     display: flex;
     flex-direction: column;
     gap: 2px;
@@ -754,11 +758,6 @@
     background: var(--jg-bevel);
     border: 2px solid var(--jg-edge);
     box-shadow: inset -2px -2px 0 #c3d2da;
-  }
-
-  /* Visible but out of the way until the cursor is near. */
-  .plate.dim {
-    opacity: 0.55;
   }
 
   .row {
