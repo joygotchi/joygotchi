@@ -130,11 +130,13 @@ until that becomes stored state. Still the largest item.
   contract calls `feed_from_stake` on the game contract, and the game
   contract did not have it — the feature spans both and only one half was
   ever deployed here. Ported and live, which also unblocked `feed_pet`.
-- **Nothing runs the feed oracle.** `auto_feed` and `award_feed_xp` are both
-  gated to `feeder.jg-stake-5656.testnet`, the app can now set a budget for
-  it, and no process anywhere calls either. Until one exists, auto-feed is
-  permission granted to nobody, and the credit feed earns no XP — so the AI
-  meal tile is disabled. What it would do without the oracle: charge 0.002,
+- **~~Nothing runs the feed oracle.~~** Half done: `apps/oracle` polls for
+  accounts with auto-feed on and buys the meals their budgets allow, so the
+  switch in the app finally reaches something. It needs a function-call key
+  for `auto_feed` and somewhere to run. The other half — `award_feed_xp`
+  after a meal — still needs event discovery, so a fed pet earns no XP yet.
+- **The AI meal tile is still disabled**, because its XP needs the half of
+  the oracle that is not written. What it would do without the oracle: charge 0.002,
   roll 3.6% for a Tonic worth 0.01 at a weight of 160, nothing at all at
   zero weight, and spend a Focus Lens bought for 0.02 on a bonus that cannot
   arrive. This is the single highest-value thing left to build.
