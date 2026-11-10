@@ -36,6 +36,19 @@ fn script_path(app_dir: &Path) -> PathBuf {
     app_dir.join("agent-hook.sh")
 }
 
+/// A path the agent's shell will read as one word.
+///
+/// The app's own data directory is `~/Library/Application Support/...` on
+/// macOS, so the command string contains a space and an unquoted path runs
+/// `/Users/you/Library/Application` with arguments. The hooks installed, the
+/// settings looked right, and nothing ever fired.
+///
+/// Single quotes, with the only character they cannot hold — a single quote —
+/// spliced in the usual way.
+fn shell_quote(path: &Path) -> String {
+    format!("'{}'", path.display().to_string().replace('\'', r"'\''"))
+}
+
 /// The forwarder.
 ///
 /// Three rules, all of them about never being the reason a tool call fails:
@@ -174,7 +187,7 @@ pub fn install(app_dir: &Path) -> Result<String, String> {
             "matcher": "*",
             "hooks": [{
                 "type": "command",
-                "command": format!("{} {kind}", script.display())
+                "command": format!("{} {kind}", shell_quote(&script))
             }]
         }));
     }
@@ -216,6 +229,21 @@ mod tests {
         assert!(body.contains("-m 1"), "a hung pet must not hang a tool call");
         assert!(body.ends_with("exit 0\n"), "always succeeds");
         assert!(body.contains(&HOOK_PORT.to_string()));
+    }
+
+    #[test]
+    fn a_path_with_a_space_survives_the_agent_shell() {
+        // The bug this pins shipped: macOS puts app data under
+        // `Application Support`, so the unquoted command ran
+        // `/Users/you/Library/Application` and the hooks never fired once.
+        let quoted = shell_quote(Path::new("/Users/me/Library/Application Support/x/a.sh"));
+        assert_eq!(quoted, "'/Users/me/Library/Application Support/x/a.sh'");
+    }
+
+    #[test]
+    fn a_path_with_a_quote_in_it_cannot_break_out() {
+        let quoted = shell_quote(Path::new("/tmp/it's/a.sh"));
+        assert_eq!(quoted, r"'/tmp/it'\''s/a.sh'");
     }
 
     #[test]
