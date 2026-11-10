@@ -38,6 +38,14 @@ export function serve(
   log: (message: string, extra?: Record<string, unknown>) => void
 ) {
   const server = createServer(async (request, response) => {
+    /*
+     * Every request, before anything can reject it. A grade that never
+     * arrives and a grade that arrives and is refused look identical in a
+     * log that only records the second — which is exactly the hole I fell
+     * into chasing a feed that earned no XP.
+     */
+    log('request', { method: request.method, url: request.url });
+
     const send = (status: number, body: unknown) => {
       response.writeHead(status, {
         'content-type': 'application/json',
