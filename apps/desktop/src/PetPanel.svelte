@@ -624,11 +624,10 @@
     </div>
   {:else if showStyle}
     <div class="view">
-      <p class="lead">
-        Accessories are tokens on {accessory}. Yours to wear, or to sell.
+      <p class="lead" title={accessory}>
+        Accessories are tokens. Wear them, or sell them.
         {#if !wearSignsHere}
-          Wearing opens your browser until you connect again — this session
-          predates the key for them.
+          Wearing opens your browser until you connect again.
         {/if}
       </p>
 
@@ -648,7 +647,7 @@
         </ul>
       {/if}
 
-      <p class="lead">Yours</p>
+      <p class="section">Yours</p>
       <ul class="grid jg-screen">
         {#each owned.filter((a) => a.token_id !== worn?.token_id) as item (item.token_id)}
           <li class="card">
@@ -671,7 +670,7 @@
         {/if}
       </ul>
 
-      <p class="lead">Shop</p>
+      <p class="section">Shop</p>
       <ul class="grid jg-screen">
         {#each kinds as kind (kind.slug)}
           {@const gone = kind.supply_cap !== 0 && kind.minted >= kind.supply_cap}
@@ -697,7 +696,7 @@
         {/each}
       </ul>
 
-      <p class="lead">Backdrop — this one is just a preference, kept here</p>
+      <p class="section">Backdrop</p>
       <ul class="grid jg-screen">
         {#each BACKDROPS as item (item.id)}
           <li class="card" class:picked={dressed.backdrop === item.id}>
@@ -715,7 +714,7 @@
     </div>
   {:else if showBag}
     <div class="view">
-      <p class="lead">{pet.displayName}'s bag</p>
+      <p class="section">Bag</p>
       <ul class="grid jg-screen">
         {#each Object.values(ITEMS) as item (item.id)}
           {@const owned = inventory.find(([id]) => id === item.id)?.[1] ?? 0}
@@ -815,14 +814,21 @@
               the moment the account gains a pet, and the one that is true is
               the allowance the contract will actually enforce.
             -->
-            Auto-feed allowed · {formatCredits(account?.auto_feed_budget ?? '0')}/day
+            <!--
+              Two short facts, not a sentence: the allowance and what is left
+              of it. The reading is the point and a wrapped line hides it.
+            -->
+            Auto-feed {formatCredits(account?.auto_feed_budget ?? '0')}/day
             {#if autoFeedUsed > 0}
-              · {autoFeedUsed.toFixed(3)} used today
-            {:else}
-              · nothing spent yet
+              · {autoFeedUsed.toFixed(3)} used
             {/if}
           {:else}
-            Auto-feed off — {pet.displayName} starves if you are away
+            <!--
+              Short, but it still says what is at stake. "Auto-feed off" on
+              its own is a setting; the pet starving while nobody is looking
+              is the reason anyone would turn it on.
+            -->
+            Auto-feed off · no cover while away
           {/if}
         </span>
         <button
@@ -1205,9 +1211,14 @@
   }
 
   /* Four across: the widest label still fits at 300px of usable width. */
+  /*
+   * Three columns, because there are nine tiles. Four left a row of one —
+   * the bag sitting alone under three empty cells — and the panel is 340px
+   * wide, so the fourth column was buying ragged edges with icon size.
+   */
   .tiles {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(3, 1fr);
     gap: 4px;
   }
 
@@ -1289,10 +1300,35 @@
     border-color: var(--jg-good);
   }
 
+  /*
+   * Silkscreen has no lowercase — every glyph is a capital — so a sentence
+   * set in it reads as shouting and a long one is genuinely hard to scan.
+   * That is a reason to write less here, not to restyle: these are kept to
+   * one line at 340px.
+   */
   .lead {
     margin: 0;
     font-size: 9px;
     color: var(--jg-muted);
+  }
+
+  /* A section marker, which is a different job from a sentence. */
+  .section {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 2px 0 0;
+    font-size: 8px;
+    letter-spacing: 0.1em;
+    color: var(--jg-muted);
+  }
+
+  .section::after {
+    content: '';
+    flex: 1;
+    height: 2px;
+    background: var(--jg-edge);
+    opacity: 0.35;
   }
 
   .targets {
@@ -1327,9 +1363,14 @@
    * show you at a glance that you own two Tonics. A card gives the sprite the
    * room it was drawn at and puts the count on it.
    */
+  /*
+   * Three across rather than two. These lists are short — one hat, one kind
+   * in the shop — and at two columns every one of them left half a row of
+   * white, which read as something missing rather than as a small list.
+   */
   .grid {
     display: grid;
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(3, 1fr);
     gap: 4px;
     margin: 0;
     padding: 4px;
@@ -1415,6 +1456,24 @@
 
   .span2 {
     grid-column: 1 / -1;
+  }
+
+  /*
+   * What the pet is wearing is one thing, and a card shaped for a grid gave
+   * it a column's worth of height and three columns' worth of width, nearly
+   * all of it white. A row puts the art, the name and the button on one
+   * line.
+   */
+  .card.worn {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+  }
+
+  .card.worn .title {
+    flex: 1;
+    text-align: left;
   }
 
   .target-name {
