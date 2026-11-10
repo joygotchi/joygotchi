@@ -21,6 +21,7 @@
     forgetReads,
     getAccessoryKinds,
     getCreditItems,
+    getListings,
     isAttackable,
     miningAvailableAt,
     listPets,
@@ -28,6 +29,7 @@
     wornBy,
     type AccessoryKind,
     type ChainPetSummary,
+    type Listing,
     type OwnedAccessory
   } from './chain';
   import { convertFileSrc } from '@tauri-apps/api/core';
@@ -42,6 +44,7 @@
     readableError,
     reactToGame,
     requestAccessoryAction,
+    requestMarketAction,
     requestWalletAction,
     session as walletSession,
     signAndSend,
@@ -180,6 +183,9 @@
       void loadTargets(current);
       void getCreditItems(pet.chain.network, stake)
         .then((items: Array<[number, string]>) => (shop = items))
+        .catch(() => {});
+      void getListings(pet.chain.network, stake)
+        .then((found) => (listings = found))
         .catch(() => {});
       void loadAccessories(current);
     } catch (cause) {
@@ -403,6 +409,16 @@
   let shop = $state<Array<[number, string]>>([]);
   let showShop = $state(false);
 
+  /**
+   * The item market: other players' prices, so buying needs a wallet.
+   *
+   * The shop next door is the contract's own prices, which a session key may
+   * pay. The difference is who chose the number, and it is the whole reason
+   * one signs here and the other does not.
+   */
+  let showMarket = $state(false);
+  let listings = $state<Listing[]>([]);
+
   /** The drawn item for each id, so the bag reads as a bag. */
   const ITEM_ART: Record<number, string> = {
     101: '/assets/items/holy_water.png',
@@ -592,6 +608,71 @@
         {/if}
       </ul>
       <button class="jg-btn wide" onclick={() => (showTargets = false)}>Back</button>
+    </div>
+  {:else if showMarket}
+    <div class="view">
+      <p class="lead">
+        Other players' prices, so buying opens your browser. The shop next
+        door is the contract's own, and signs here.
+      </p>
+      <p class="section">For sale</p>
+      <ul class="targets jg-screen">
+        {#if listings.length === 0}
+          <li class="muted">Nothing listed yet.</li>
+        {:else}
+          {#each listings as entry (entry.id)}
+            {@const mine = entry.seller_id === session?.accountId}
+            <li>
+              <img class="jg-px" alt="" src={ITEM_ART[entry.item_id] ?? '/assets/items/food.png'} />
+              <span class="target-name">
+                {itemName(entry.item_id)}
+                <small>
+                  ×{entry.quantity} · {formatCredits(entry.price_each)} each
+                  {#if mine}· yours{/if}
+                </small>
+              </span>
+              <button
+                class="jg-btn"
+                class:primary={!mine}
+                disabled={walletAction.running !== null}
+                onclick={() =>
+                  requestMarketAction(mine ? 'cancel_listing' : 'buy_listing', stake, {
+                    listing_id: entry.id,
+                    quantity: mine ? undefined : 1
+                  })}
+                title={mine ? 'Take it down and get the items back' : `Buy one from ${entry.seller_id}`}
+              >
+                {mine ? 'Cancel ↗' : 'Buy ↗'}
+              </button>
+            </li>
+          {/each}
+        {/if}
+      </ul>
+
+      <p class="section">Sell from your bag</p>
+      <ul class="targets jg-screen">
+        {#if inventory.length === 0}
+          <li class="muted">Nothing to sell. Items drop while you play.</li>
+        {:else}
+          {#each inventory as [id, owned] (id)}
+            <li>
+              <img class="jg-px" alt="" src={ITEM_ART[id] ?? '/assets/items/food.png'} />
+              <span class="target-name">
+                {itemName(id)}<small>×{owned}</small>
+              </span>
+              <button
+                class="jg-btn"
+                disabled={walletAction.running !== null}
+                onclick={() => requestMarketAction('list_item', stake, { item_id: id, quantity: 1 })}
+                title="You set the price on the next screen"
+              >
+                Sell ↗
+              </button>
+            </li>
+          {/each}
+        {/if}
+      </ul>
+      <button class="jg-btn wide" onclick={() => (showMarket = false)}>Back</button>
     </div>
   {:else if showShop}
     <div class="view">
@@ -949,6 +1030,13 @@
           () => (showShop = true),
           busy !== null,
           'Tonics, wards and lenses, paid in credits'
+        )}
+        {@render tile(
+          'Market',
+          '/assets/item/coin.png',
+          () => (showMarket = true),
+          busy !== null,
+          'Buy and sell items with other players'
         )}
         {@render tile(
           'Evolve',

@@ -9,6 +9,7 @@
   import { GAS } from '#lib/config';
   import { formatNear } from '#lib/near/amount';
   import { viewFunction } from '#lib/near/rpc';
+  import { formatCredits, itemName, toMicroCredits } from '@joygotchi/pet';
 
   /**
    * Sign one transaction for the desktop app.
@@ -48,6 +49,26 @@
     unequip: {
       label: 'Take this off',
       blurb: 'The accessory stays yours. Nothing is spent.'
+    },
+    /*
+     * The item market signs here rather than in the app, and not because it
+     * is payable — all three spend credits and attach nothing. A session key
+     * may only spend prices the contract fixed, so a stolen one has a
+     * ceiling. These two have none: `buy_listing` pays whatever a seller
+     * asked and the seller can be the thief, `list_item` sells the kit to an
+     * account they own. That is worth a wallet signature.
+     */
+    list_item: {
+      label: 'Put these up for sale',
+      blurb: 'They leave your bag now, and come back if you cancel the listing.'
+    },
+    buy_listing: {
+      label: 'Buy these',
+      blurb: 'Paid in credits, at the price the seller set.'
+    },
+    cancel_listing: {
+      label: 'Take this listing down',
+      blurb: 'Whatever is left of it goes back to your bag.'
     }
   } as const;
 
@@ -58,7 +79,10 @@
     buy_item: /^jg-game-[a-z0-9-]+\.(testnet|near)$/,
     mint: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/,
     equip: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/,
-    unequip: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/
+    unequip: /^jg-acc-[a-z0-9-]+\.(testnet|near)$/,
+    list_item: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
+    buy_listing: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/,
+    cancel_listing: /^jg-stake-[a-z0-9-]+\.(testnet|near)$/
   } as const;
 
   type AccessoryKind = {
@@ -96,6 +120,15 @@
   const itemId = $derived(Number(params.get('item_id') ?? '0'));
   const kindSlug = $derived(params.get('kind') ?? '');
   const tokenId = $derived(params.get('token_id') ?? '');
+  const listingId = $derived(params.get('listing_id') ?? '');
+  const quantity = $derived(Math.max(1, Number(params.get('quantity') ?? '1')));
+
+  /*
+   * The asking price is typed here, never carried in the link. Every other
+   * number on this page is read off the chain for the same reason: a link
+   * that can set what you are about to sign is a link that signs for you.
+   */
+  let askEach = $state('');
 
   /**
    * The accessory's price, read from its contract for the same reason the
@@ -120,6 +153,40 @@
    */
   let item = $state<ShopItem | null>(null);
   let itemError = $state<string | null>(null);
+
+  /**
+   * The listing being bought or cancelled, read off the chain.
+   *
+   * The link says which one; everything shown and everything signed comes
+   * from the contract. A seller could otherwise put one price in the link and
+   * another on chain.
+   */
+  type Listing = {
+    id: string;
+    seller_id: string;
+    item_id: number;
+    quantity: number;
+    price_each: string;
+  };
+  let listing = $state<Listing | null>(null);
+  let listingError = $state<string | null>(null);
+
+  /*
+   * Found by paging `get_listings`, because the contract has no view for one
+   * by id. Worth saying so: it is a page of fifty, and a market bigger than
+   * that needs `get_listing(id)` on chain rather than a bigger page here.
+   */
+  $effect(() => {
+    if (!contractOk || !listingId) return;
+    if (method !== 'buy_listing' && method !== 'cancel_listing') return;
+
+    void viewFunction<Listing[]>(contractId, 'get_listings', { from_index: 0, limit: 50 })
+      .then((all) => {
+        listing = all.find((one) => String(one.id) === listingId) ?? null;
+        if (!listing) listingError = `No listing ${listingId} on ${contractId}`;
+      })
+      .catch((error) => (listingError = error instanceof Error ? error.message : String(error)));
+  });
 
   $effect(() => {
     if (method !== 'buy_item' || !contractOk || itemId <= 0) return;
@@ -151,8 +218,26 @@
   const needsItem = $derived(method === 'buy_item');
   const needsKind = $derived(method === 'mint');
   const needsToken = $derived(method === 'equip' || method === 'unequip');
-  /** Only the pet-shaped calls need a pet. */
-  const needsPet = $derived(method !== 'mint' && method !== 'unequip');
+  /*
+   * Named rather than inferred. This was "everything except mint and
+   * unequip", which quietly demanded a pet from every method added after it —
+   * the market calls have no pet, and would have been invalid with nothing on
+   * screen explaining why.
+   */
+  const needsPet = $derived(
+    method === 'stake_pet' ||
+      method === 'unstake_pet' ||
+      method === 'buy_item' ||
+      method === 'equip'
+  );
+  const needsListing = $derived(method === 'buy_listing' || method === 'cancel_listing');
+  const needsAsk = $derived(method === 'list_item');
+
+  /** What the seller typed, in credits, or null when it is not a price. */
+  const ask = $derived.by(() => {
+    const value = Number(askEach);
+    return Number.isFinite(value) && value > 0 ? value : null;
+  });
 
   const valid = $derived(
     known !== null &&
@@ -161,7 +246,9 @@
       (!needsPet || petId > 0) &&
       (!needsItem || item !== null) &&
       (!needsKind || kind !== null) &&
-      (!needsToken || tokenId !== '')
+      (!needsToken || tokenId !== '') &&
+      (!needsListing || listing !== null) &&
+      (!needsAsk || (itemId > 0 && ask !== null))
   );
 
   $effect(() => {
@@ -212,6 +299,35 @@
     return raw.length > 200 ? `${raw.slice(0, 200)}…` : raw;
   }
 
+  /**
+   * What each method is actually sent.
+   *
+   * A switch rather than the ladder of ternaries this grew into: adding a
+   * method to the whitelist and forgetting its arguments used to fall through
+   * to `{ pet_id }`, which is a transaction that signs the wrong thing rather
+   * than refusing to.
+   */
+  function argsFor(): Record<string, unknown> {
+    switch (method) {
+      case 'buy_item':
+        return { pet_id: petId, item_id: itemId };
+      case 'mint':
+        return { kind: kindSlug };
+      case 'equip':
+        return { token_id: tokenId, pet_id: petId };
+      case 'unequip':
+        return { token_id: tokenId };
+      case 'list_item':
+        return { item_id: itemId, quantity, price_each: toMicroCredits(ask ?? 0) };
+      case 'buy_listing':
+        return { listing_id: listingId, quantity };
+      case 'cancel_listing':
+        return { listing_id: listingId };
+      default:
+        return { pet_id: petId };
+    }
+  }
+
   async function sign() {
     if (!valid) return;
     phase = 'signing';
@@ -229,15 +345,7 @@
             type: 'FunctionCall',
             params: {
               methodName: method,
-              args: needsItem
-                ? { pet_id: petId, item_id: itemId }
-                : needsKind
-                  ? { kind: kindSlug }
-                  : method === 'equip'
-                    ? { token_id: tokenId, pet_id: petId }
-                    : method === 'unequip'
-                      ? { token_id: tokenId }
-                      : { pet_id: petId },
+              args: argsFor(),
               gas: GAS.heavy,
               // Staking takes none — the method is not payable any more, and a
               // non-payable method rejects a deposit rather than ignoring it.
@@ -332,6 +440,59 @@
             <dt class="text-muted">Accessory</dt>
             <dd>#{tokenId}</dd>
           </div>
+        {/if}
+        {#if listing}
+          <!-- Every number here is the contract's, not the link's. -->
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Item</dt>
+            <dd>{itemName(listing.item_id)}</dd>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Seller</dt>
+            <dd>{listing.seller_id}</dd>
+          </div>
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">{method === 'buy_listing' ? 'You pay' : 'Comes back'}</dt>
+            <dd>
+              {#if method === 'buy_listing'}
+                {formatCredits(
+                  (BigInt(listing.price_each) * BigInt(Math.min(quantity, listing.quantity))).toString()
+                )} credits
+                for {Math.min(quantity, listing.quantity)}
+              {:else}
+                {listing.quantity} × {itemName(listing.item_id)}
+              {/if}
+            </dd>
+          </div>
+        {/if}
+        {#if listingError}
+          <div class="px-4 py-2 text-warn">{listingError}</div>
+        {/if}
+        {#if needsAsk}
+          <div class="flex justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">Selling</dt>
+            <dd>{quantity} × {itemName(itemId)}</dd>
+          </div>
+          <div class="flex items-center justify-between gap-3 px-4 py-2">
+            <dt class="text-muted">
+              <label for="ask">Price each</label>
+            </dt>
+            <dd class="flex items-center gap-2">
+              <input
+                id="ask"
+                class="w-24 rounded border border-line bg-transparent px-2 py-1 text-right"
+                bind:value={askEach}
+                inputmode="decimal"
+                placeholder="0.05"
+              />
+              <span class="text-muted">credits</span>
+            </dd>
+          </div>
+          <!--
+            Typed here, never carried in the link. Every other number on this
+            page is read off the chain for the same reason: a link that can
+            set what you are about to sign is a link that signs for you.
+          -->
         {/if}
         {#if kind}
           <!-- Name, art and price all read from the contract, not the link. -->

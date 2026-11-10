@@ -267,6 +267,28 @@ export type ShopItem = {
  * the app stopped showing: a player earns credits by staking and should not
  * need a second token to spend them beside.
  */
+/** One listing on the credit item market. */
+export type Listing = {
+  id: string;
+  seller_id: string;
+  item_id: number;
+  quantity: number;
+  price_each: string;
+};
+
+/**
+ * What is for sale, priced in credits by other players.
+ *
+ * Separate from `getCreditItems`, which is the shop: the shop's prices are
+ * the contract's and a session key may pay them, while these are whatever a
+ * seller asked and buying one needs a wallet.
+ */
+export const getListings = (network: string, stakeContract: string) =>
+  viewFunction<Listing[]>(network, stakeContract, 'get_listings', {
+    from_index: 0,
+    limit: 50
+  });
+
 export const getCreditItems = (network: string, stakeContract: string) =>
   viewFunction<Array<[number, string]>>(network, stakeContract, 'get_items', {});
 

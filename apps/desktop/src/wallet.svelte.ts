@@ -301,60 +301,63 @@ export const walletAction = $state<{ running: string | null; error: string | nul
  * `requestWalletAction`: that one is about a pet on the staking or game
  * contract, and three of the four arguments here would be unused by it.
  */
-export async function requestAccessoryAction(
+/**
+ * Open the signing page for one transaction.
+ *
+ * Everything that cannot be signed with a session key comes through here:
+ * anything payable, and the item market — which attaches nothing but spends
+ * at a price a seller chose, so a stolen session key would have no ceiling.
+ *
+ * The link chooses *which* thing. It never carries an amount: the page reads
+ * prices off the contract, and the one number it cannot read — what you are
+ * asking for your own items — is typed there.
+ */
+async function openAct(
+  method: string,
+  contractId: string,
+  params: Record<string, string | number | undefined>
+) {
+  walletAction.running = method;
+  walletAction.error = null;
+  walletAction.done = null;
+
+  const callback = await invoke<string>('wallet_callback_url');
+  const url = new URL('/act', SITE());
+  url.searchParams.set('method', method);
+  url.searchParams.set('contract', contractId);
+  for (const [key, value] of Object.entries(params)) {
+    if (value !== undefined && value !== '') url.searchParams.set(key, String(value));
+  }
+  url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
+
+  try {
+    await invoke('open_url', { url: url.toString() });
+  } catch (cause) {
+    walletAction.running = null;
+    walletAction.error = cause instanceof Error ? cause.message : String(cause);
+  }
+}
+
+export const requestAccessoryAction = (
   method: 'mint' | 'equip' | 'unequip',
   contractId: string,
   petId: number,
   args: { kind?: string; token_id?: string }
-) {
-  walletAction.running = method;
-  walletAction.error = null;
-  walletAction.done = null;
+) => openAct(method, contractId, { pet_id: petId, ...args });
 
-  const callback = await invoke<string>('wallet_callback_url');
-  const url = new URL('/act', SITE());
-  url.searchParams.set('method', method);
-  url.searchParams.set('contract', contractId);
-  url.searchParams.set('pet_id', String(petId));
-  if (args.kind) url.searchParams.set('kind', args.kind);
-  if (args.token_id) url.searchParams.set('token_id', args.token_id);
-  url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
-
-  try {
-    await invoke('open_url', { url: url.toString() });
-  } catch (cause) {
-    walletAction.running = null;
-    walletAction.error = cause instanceof Error ? cause.message : String(cause);
-  }
-}
-
-export async function requestWalletAction(
+export const requestWalletAction = (
   method: 'stake_pet' | 'unstake_pet' | 'buy_item',
   contractId: string,
   petId: number,
   itemId?: number
-) {
-  walletAction.running = method;
-  walletAction.error = null;
-  walletAction.done = null;
+) => openAct(method, contractId, { pet_id: petId, item_id: itemId });
 
-  const callback = await invoke<string>('wallet_callback_url');
-  const url = new URL('/act', SITE());
-  url.searchParams.set('method', method);
-  url.searchParams.set('contract', contractId);
-  url.searchParams.set('pet_id', String(petId));
-  // Which item, not what it costs: the page reads the price off the contract,
-  // so a link can choose the purchase but never the amount.
-  if (itemId !== undefined) url.searchParams.set('item_id', String(itemId));
-  url.searchParams.set('callback', callback.replace('/wallet-callback', '/act-callback'));
-
-  try {
-    await invoke('open_url', { url: url.toString() });
-  } catch (cause) {
-    walletAction.running = null;
-    walletAction.error = cause instanceof Error ? cause.message : String(cause);
-  }
-}
+/** The item market, which has no pet and sometimes no item either. */
+export const requestMarketAction = (
+  method: 'list_item' | 'buy_listing' | 'cancel_listing',
+  contractId: string,
+  args: { item_id?: number; listing_id?: string; quantity?: number }
+) => openAct(method, contractId, args);
 
 /** Start a connect. The result arrives through `watchConnect`. */
 export async function connect(gameContract: string) {
