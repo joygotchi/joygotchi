@@ -6,8 +6,8 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `3Vt83sgUhhi4dLBeaop1wo7fai7Nn8csUhcfhMntZo7s` |
-| `jg-stake-5656.testnet` | `6qpqe8fkZe6Jkg5dai2JHm1bQmWtVnQCDabfJdoxi32C` |
+| `jg-game-5656.testnet` | `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` |
+| `jg-stake-5656.testnet` | `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
 
@@ -23,6 +23,20 @@ added to any stored struct, which is why it went out `without-init-call` and
 kept its state. `get_staked_pets` was read immediately afterwards and still
 returns `attrs` and `staked_at` correctly, which is the check the section
 below exists for.
+
+Redeployed again the same day so that a pet at work can fight. The rule
+refusing it sat in three places — `attack` on the game contract,
+`is_attackable` here, and an explicit `!is_staked(winner)` in
+`report_battle` — and because staking is the only way to earn credits, it
+left no legal pairing anywhere: one of eight pets was both alive and
+unlocked, and a fight needs two with different owners. Removing it from one
+contract would have been worse than leaving it, since the battle would roll
+on the game side and then be rejected in settlement.
+
+Wards and wounds still protect; `locked` still blocks transfer, which is all
+DECISION 3 ever claimed it was for. Code only again, no stored struct
+touched. Previous pair: `3Vt83sgUhhi4dLBeaop1wo7fai7Nn8csUhcfhMntZo7s` and
+`6qpqe8fkZe6Jkg5dai2JHm1bQmWtVnQCDabfJdoxi32C`.
 
 ## Why this file exists
 

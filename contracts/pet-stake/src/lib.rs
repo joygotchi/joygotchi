@@ -885,10 +885,14 @@ impl PetStake {
             self.is_attackable(loser_pet_id),
             "That pet is protected right now"
         );
-        require!(
-            !self.is_staked(winner_pet_id),
-            "A pet in the AI Lab cannot fight"
-        );
+        /*
+         * No check that the winner is out of the lab. Working and fighting
+         * are different things: `locked` is there so a staked pet cannot be
+         * transferred mid-sale, and a battle transfers nothing. The game
+         * contract's `sync_weight` already re-reads a winner's staking weight
+         * when a fight changes its level, which is machinery that only ever
+         * runs for a pet that was staked while it won.
+         */
 
         self.update_pool();
 
@@ -1383,10 +1387,14 @@ impl PetStake {
     /// it cannot be attacked. Without the second half the AI Lab would be a
     /// honeypot — staking would mark you as a target, and cutting another
     /// staker's weight raises the attacker's own share of the stream.
+    /// Whether this pet can be fought right now.
+    ///
+    /// A ward or a wound says no; being at work in the lab does not. That
+    /// check used to be the first line here, and together with the same rule
+    /// on the game contract it made battle impossible rather than
+    /// restricted — staking is the only way to earn credits, so every pet
+    /// worth fighting was staked and no legal pairing existed anywhere.
     pub fn is_attackable(&self, pet_id: u64) -> bool {
-        if self.pets.get(&pet_id).is_some() {
-            return false;
-        }
         let now = env::block_timestamp();
         let state = self.pet_state_or_default(pet_id);
         state.shielded_until <= now && state.wounded_until <= now
@@ -3643,10 +3651,25 @@ mod tests {
     }
 
     #[test]
-    fn staked_pet_cannot_be_attacked() {
+    fn a_staked_pet_can_be_attacked() {
+        // The opposite of what this asserted, and the reason battle worked
+        // for nobody: the same rule sat here and on the game contract, so
+        // every pet earning credits was unreachable in a fight.
         let mut contract = deploy();
         funded(&mut contract, alice(), 1);
         assert!(contract.get_pet_state(1).staked);
+        assert!(contract.is_attackable(1), "working is not protection");
+    }
+
+    #[test]
+    fn a_ward_still_protects_a_staked_pet() {
+        // Dropping the staked check must not drop the ones that mean
+        // something. A ward is a thing somebody bought.
+        let mut contract = deploy();
+        funded(&mut contract, alice(), 1);
+        contract.buy_credit_item(ITEM_WARD, 1);
+        contract.use_item(ITEM_WARD, 1);
+
         assert!(!contract.is_attackable(1));
     }
 
