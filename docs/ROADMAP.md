@@ -85,10 +85,10 @@ react.
 `buy_listing` (the credit item market), `evolve`. All deployed, all tested, none
 reachable from the app.
 
-### 3. Feed actually raising XP
-`spend_credits` records the meal; `award_feed_xp` on pet-stake writes the XP and
-is gated to an oracle account. The route and the key handling exist in the
-other repository (PR #15 there) and need porting here.
+### 3. ~~Feed actually raising XP~~ — done
+`spend_credits` records the meal and `award_feed_xp` writes the XP, gated to an
+oracle account. Both halves run: the web app grades a meal and the local oracle
+verifies the purchase and signs. Graded for real on 2026-11-10, pet 8.
 
 ### 4. The pet as an assistant
 Unblocked: NEAR AI answers now. Two things had to be true first — the model
@@ -130,16 +130,16 @@ until that becomes stored state. Still the largest item.
   contract calls `feed_from_stake` on the game contract, and the game
   contract did not have it — the feature spans both and only one half was
   ever deployed here. Ported and live, which also unblocked `feed_pet`.
-- **~~Nothing runs the feed oracle.~~** Half done: `apps/oracle` polls for
-  accounts with auto-feed on and buys the meals their budgets allow, so the
-  switch in the app finally reaches something. It needs a function-call key
-  for `auto_feed` and somewhere to run. The other half — `award_feed_xp`
-  after a meal — still needs event discovery, so a fed pet earns no XP yet.
-- **The AI meal tile is still disabled**, because its XP needs the half of
-  the oracle that is not written. What it would do without the oracle: charge 0.002,
-  roll 3.6% for a Tonic worth 0.01 at a weight of 160, nothing at all at
-  zero weight, and spend a Focus Lens bought for 0.02 on a bonus that cannot
-  arrive. This is the single highest-value thing left to build.
+- **~~Nothing runs the feed oracle.~~** Done, both halves. `apps/oracle` polls
+  for accounts with auto-feed on and buys the meals their budgets allow, and it
+  grades meals on a loopback port and pays their XP. It runs as a login agent
+  with one function-call key for `auto_feed` and `award_feed_xp`.
+
+  Event discovery turned out not to be needed: the app already knows the
+  transaction hash, and a hash is a pointer at the chain rather than a claim —
+  the pet, the account and the lens all come from the receipts. The signing
+  sits with the oracle rather than the web app, so no key that writes to the
+  contract has to live on a rented host.
 - **The desktop app installs no agent hooks.** Settings documents a `curl`; the
   one-click-per-agent install that makes the pet react while you work is not
   written.

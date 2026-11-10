@@ -172,7 +172,11 @@ directory, three gigabytes of Rust artifacts, and the deploy stalls before it st
 
 The repo is private and owned by an organisation, which Vercel's Hobby plan will not connect to
 Git — so deploys are from the CLI rather than on push. Making the repo public, or upgrading the
-plan, is what turns `vercel git connect` back on.
+plan, is what turns `vercel git connect` back on. Until then a push changes nothing that is
+serving, which is worth remembering before concluding a deploy went wrong.
+
+The web app holds no NEAR signing key. Feed XP is paid by the local oracle, which already has one
+— see `apps/oracle/README.md`. The web app only grades.
 
 ## Development
 
