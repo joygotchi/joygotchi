@@ -34,6 +34,33 @@ The secret is read from `~/.near-credentials/<network>/<account>.json`, where
 works if you would rather pass it, but a key that has been through a shell is
 in a history file, and there is no need to put it there.
 
+### Leaving it running
+
+It is only useful when it runs without being asked, so on macOS it installs
+as a login agent:
+
+```bash
+./launchd/install.sh feeder.jg-stake-5656.testnet testnet
+```
+
+An agent rather than a daemon: the key lives in this user's
+`~/.near-credentials`, so the process belongs to the user and not to the
+machine. A daemon runs as root and would need the secret somewhere root can
+read it, which is more to arrange for nothing gained.
+
+It restarts if it dies, with a minute between attempts so a crash loop does
+not spin. Logs land in `~/Library/Logs/joygotchi/`.
+
+```bash
+launchctl bootout   gui/$UID/dev.joygotchi.oracle   # stop
+launchctl kickstart -k gui/$UID/dev.joygotchi.oracle # restart
+```
+
+Re-running `install.sh` updates it in place rather than leaving a second
+copy, and it refuses to install at all when there is no key at the path the
+process will read — otherwise the first sign of trouble is a process
+restarting every minute and feeding nothing.
+
 A dry run needs no key at all and prints what it would buy:
 
 ```bash

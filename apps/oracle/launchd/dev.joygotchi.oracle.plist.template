@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The oracle as a login agent.
+
+  A LaunchAgent rather than a daemon on purpose: the key it signs with lives
+  in this user's `~/.near-credentials`, so the process belongs to this user
+  and not to the machine. A daemon would run as root and need the secret
+  somewhere root can read it, which is a larger thing to arrange for no gain.
+
+  `install.sh` fills in the three paths and loads it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>dev.joygotchi.oracle</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>__NODE__</string>
+    <string>--experimental-strip-types</string>
+    <string>__ORACLE_DIR__/src/index.ts</string>
+  </array>
+
+  <!-- pnpm resolves `@joygotchi/pet` from the workspace, so the process has
+       to start where its own node_modules is. -->
+  <key>WorkingDirectory</key>
+  <string>__ORACLE_DIR__</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>ORACLE_ACCOUNT</key>
+    <string>__ORACLE_ACCOUNT__</string>
+    <key>NETWORK</key>
+    <string>__NETWORK__</string>
+    <key>POLL_SECONDS</key>
+    <string>300</string>
+    <!-- launchd starts with almost no PATH; near-api-js needs none, but
+         anything shelling out would. -->
+    <key>PATH</key>
+    <string>/usr/local/bin:/usr/bin:/bin</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <!-- Restart if it dies. The point of this process is to be running when
+       nobody is watching, which is exactly when a crash would go unnoticed. -->
+  <key>KeepAlive</key>
+  <true/>
+
+  <!-- Without this, a crash loop restarts as fast as the machine allows. -->
+  <key>ThrottleInterval</key>
+  <integer>60</integer>
+
+  <key>StandardOutPath</key>
+  <string>__LOG_DIR__/oracle.log</string>
+  <key>StandardErrorPath</key>
+  <string>__LOG_DIR__/oracle.err.log</string>
+</dict>
+</plist>
