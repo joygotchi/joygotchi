@@ -162,10 +162,6 @@ pub fn save_secret_key(app_dir: &Path, secret: &str) -> Result<(), String> {
     save_secret_key_for(app_dir, "lab", secret)
 }
 
-pub fn load_secret_key(app_dir: &Path) -> Option<String> {
-    load_secret_key_for(app_dir, "lab")
-}
-
 /// Store one key by slot. Three entries in one file.
 pub fn save_secret_key_for(app_dir: &Path, slot: &str, secret: &str) -> Result<(), String> {
     let mut keys = read_keys(app_dir);
