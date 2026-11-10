@@ -19,6 +19,37 @@
   };
   let { pets, active, onclose, onpick, onrefresh }: Props = $props();
 
+  /**
+   * Wiring the coding agent to the pet.
+   *
+   * The hook server has always listened on 127.0.0.1 and the pet has always
+   * known how to react to a tool call. What was missing was the step that
+   * makes it happen: the README gave a `curl` to paste, so the feature worked
+   * for whoever read the README and for nobody else.
+   */
+  let hooked = $state(false);
+  let hookNote = $state<string | null>(null);
+
+  const readHooks = () =>
+    void invoke<boolean>('agent_hooks_installed').then((on) => (hooked = on));
+  readHooks();
+
+  async function toggleHooks() {
+    hookNote = null;
+    try {
+      if (hooked) {
+        await invoke('uninstall_agent_hooks');
+        hookNote = 'Disconnected.';
+      } else {
+        const where = await invoke<string>('install_agent_hooks');
+        hookNote = `Written to ${where}. Restart the agent.`;
+      }
+      readHooks();
+    } catch (cause) {
+      hookNote = cause instanceof Error ? cause.message : String(cause);
+    }
+  }
+
   let port = $state<number | null>(null);
   let root = $state('');
   let clickThrough = $state(false);
@@ -81,6 +112,23 @@
       {/each}
     </ul>
   {/if}
+
+  <section class="wallet">
+    <div class="row">
+      <span class="muted">Coding agent</span>
+      <button onclick={toggleHooks}>{hooked ? 'Disconnect' : 'Connect'}</button>
+    </div>
+    <p class="fine">
+      {#if hooked}
+        The pet reacts while you work — running on a tool call, waving when it
+        lands, idle when you stop.
+      {:else}
+        Let the pet watch Claude Code and react to what it does. Nothing is
+        read: the agent posts to 127.0.0.1 and the pet animates.
+      {/if}
+    </p>
+    {#if hookNote}<p class="fine accent">{hookNote}</p>{/if}
+  </section>
 
   <section class="wallet">
     <label class="row toggle">

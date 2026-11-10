@@ -1,3 +1,4 @@
+mod agent_hooks;
 mod hooks;
 mod pets;
 mod session;
@@ -151,6 +152,28 @@ fn clear_session(app: AppHandle) -> Result<(), String> {
     session::clear_session(&app_dir(&app)?)
 }
 
+/// Whether the coding agent is wired to the pet right now.
+#[tauri::command]
+fn agent_hooks_installed() -> bool {
+    agent_hooks::installed()
+}
+
+/// Wire it, and say where the change was written.
+///
+/// The hook server has always listened and the pet has always known how to
+/// react; what was missing was telling the agent to post. The README gave a
+/// `curl` to paste, which made the feature work for whoever read the README.
+#[tauri::command]
+fn install_agent_hooks(app: AppHandle) -> Result<String, String> {
+    agent_hooks::install(&app_dir(&app)?)
+}
+
+/// Unwire it, leaving anything else in the agent's settings untouched.
+#[tauri::command]
+fn uninstall_agent_hooks() -> Result<(), String> {
+    agent_hooks::uninstall()
+}
+
 fn app_dir(app: &AppHandle) -> Result<std::path::PathBuf, String> {
     app.path()
         .app_data_dir()
@@ -216,7 +239,10 @@ pub fn run() {
             get_session,
             sign_bytes,
             has_session_key,
-            clear_session
+            clear_session,
+            agent_hooks_installed,
+            install_agent_hooks,
+            uninstall_agent_hooks
         ])
         .setup(|app| {
             let handle = app.handle().clone();
