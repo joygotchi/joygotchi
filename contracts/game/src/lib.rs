@@ -808,8 +808,27 @@ impl Game {
         let now = env::block_timestamp();
         require!(mine.is_alive(now), "Your pet has starved — feed it first");
         require!(target.is_alive(now), "That pet has already starved");
-        require!(!mine.locked, "This pet is at work in the AI Lab");
-        require!(!target.locked, "That pet is at work in the AI Lab");
+
+        /*
+         * A pet at work in the lab may still fight.
+         *
+         * `locked` exists for one documented reason — DECISION 3, a staked
+         * pet cannot be transferred or approved, because a sale has to be
+         * atomic and a cross-contract view cannot be. Fighting moves no
+         * ownership, so that reason does not reach it.
+         *
+         * Refusing a locked pet here made battle impossible rather than
+         * restricted. Staking is the only way to earn credits, so every pet
+         * worth fighting was at work, and the pool of legal opponents was
+         * empty: of eight pets on this contract, one was both alive and
+         * unlocked, and it needs an opponent with a different owner.
+         *
+         * The contract already disagreed with itself about this.
+         * `sync_weight` re-reads a pet's staking weight after a battle
+         * changes its level or star, and its first line returns unless the
+         * pet is locked — machinery written for a staked pet winning a fight,
+         * which this rule made unreachable.
+         */
 
         require!(
             now.saturating_sub(mine.last_attack_used)
@@ -1795,8 +1814,10 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "at work in the AI Lab")]
-    fn cannot_attack_a_staked_pet() {
+    fn a_pet_at_work_can_be_attacked() {
+        // The other half of the rule that is gone. A pet in the lab is a
+        // legal target, or every pet worth fighting is unreachable: staking
+        // is the only income, so the healthy pets are exactly the staked ones.
         let mut contract = deploy();
         let mine = mint(&mut contract, alice(), 100);
         let theirs = mint(&mut contract, bob(), 100);
@@ -1817,6 +1838,64 @@ mod tests {
 
         testing_env!(ctx(alice(), 100 + STARVE_SECONDS + 1, 0).build());
         let _ = contract.attack(mine, theirs);
+    }
+
+    #[test]
+    fn a_pet_at_work_can_still_fight() {
+        // The rule that refused this made battle impossible rather than
+        // restricted: staking is the only way to earn credits, so every pet
+        // worth fighting was at work and no legal pairing existed.
+        let mut contract = deploy();
+        let mine = mint(&mut contract, alice(), 100);
+        let theirs = mint(&mut contract, bob(), 100);
+
+        testing_env!(ctx(stake(), 100, 0).build());
+        contract.set_locked(mine, true);
+        contract.set_locked(theirs, true);
+
+        testing_env!(ctx(alice(), 100, 0).build());
+        let _ = contract.attack(mine, theirs);
+    }
+
+    #[test]
+    fn a_staked_winner_that_levels_asks_for_a_re_weight() {
+        // `sync_weight` returns early unless the pet is locked, so until a
+        // staked pet could fight, this branch could never run after a battle.
+        let mut contract = deploy();
+        let mine = mint(&mut contract, alice(), 100);
+        let theirs = mint(&mut contract, bob(), 100);
+
+        testing_env!(ctx(stake(), 100, 0).build());
+        contract.set_locked(mine, true);
+
+        // Right up against the threshold, so one win crosses it.
+        testing_env!(ctx(stake(), 100, 0).build());
+        contract.award_xp(mine, contract.get_pet(mine).unwrap().xp_for_next_level - 1);
+        let before = contract.get_pet(mine).unwrap().level;
+
+        contract.on_battle_settled(
+            mine,
+            theirs,
+            Ok(BattleOutcome { transferred: U128(0), rake: U128(0), star_protected: false }),
+        );
+
+        assert!(contract.get_pet(mine).unwrap().level > before, "the win levelled it");
+        assert!(contract.get_pet(mine).unwrap().locked, "and it is still at work");
+    }
+
+    #[test]
+    #[should_panic(expected = "at work in the AI Lab")]
+    fn a_pet_at_work_still_cannot_be_sold() {
+        // DECISION 3, which is the whole of what `locked` is for. Battling
+        // moves no ownership; a sale does.
+        let mut contract = deploy();
+        let mine = mint(&mut contract, alice(), 100);
+
+        testing_env!(ctx(stake(), 100, 0).build());
+        contract.set_locked(mine, true);
+
+        testing_env!(ctx(alice(), 100, ONE_NEAR).build());
+        contract.list_pet(mine, U128(ONE_NEAR));
     }
 
     #[test]

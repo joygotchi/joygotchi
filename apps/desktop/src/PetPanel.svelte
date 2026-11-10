@@ -86,7 +86,9 @@
   let account = $state<StakeAccount | null>(null);
   let status = $state<PetStatus | null>(null);
   let inventory = $state<Array<[number, number]>>([]);
-  let targets = $state<ChainPetSummary[]>([]);
+  /** Everyone else's pets; `why` is null when this one can actually be fought. */
+  type Target = ChainPetSummary & { why: string | null };
+  let targets = $state<Target[]>([]);
   let showTargets = $state(false);
   let opponent = $state<ChainPetSummary | null>(null);
   let fight = $state<'ready' | 'fighting' | 'won' | 'lost'>('ready');
@@ -279,20 +281,35 @@
    * or still wounded. The game contract checks all of this again — these
    * filters exist so nobody clicks a button that was never going to work.
    */
+  /**
+   * Everyone else's pets, with the reason each one cannot be fought.
+   *
+   * It used to filter them away and leave the list empty, which is what
+   * "nobody to fight" meant — and for a long time that was every single pet,
+   * because a staked pet could not be attacked and staking is the only way
+   * to earn. A silently empty roster reads as a broken button. Showing the
+   * roster with reasons says what the game is actually waiting for.
+   */
   async function loadTargets(owner: string) {
     const all = await listPets(net(), pet.chain.contract).catch(() => []);
-    const candidates = all.filter(
-      (other) =>
-        other.pet_id !== pet.petId &&
-        other.owner_id !== owner &&
-        !other.locked &&
-        Number(other.seconds_until_starving ?? 1) > 0
-    );
+    const others = all.filter((o) => o.pet_id !== pet.petId && o.owner_id !== owner);
 
     const allowed = await Promise.all(
-      candidates.map((other) => isAttackable(net(), stake, other.pet_id))
+      others.map((other) => isAttackable(net(), stake, other.pet_id))
     );
-    targets = candidates.filter((_, index) => allowed[index]);
+
+    targets = others
+      .map((other, index) => ({
+        ...other,
+        why:
+          Number(other.seconds_until_starving ?? 1) <= 0
+            ? 'starved'
+            : allowed[index]
+              ? null
+              : 'warded or just fought'
+      }))
+      // Fightable first; the rest are context, not choices.
+      .sort((a, b) => Number(a.why !== null) - Number(b.why !== null));
   }
 
   /**
@@ -526,24 +543,30 @@
       <p class="lead">Who should {pet.displayName} fight?</p>
       <ul class="targets jg-screen">
         {#if targets.length === 0}
-          <li class="muted">Nobody to fight — everyone is at work, warded or hurt.</li>
+          <li class="muted">No other pets on this contract yet.</li>
         {:else}
           {#each targets as target (target.pet_id)}
-            <li>
+            <li class:unavailable={target.why !== null}>
               <img class="jg-px" alt="" src={artPathFor(target)} />
               <span class="target-name">
                 {target.name}
-                <small>lv {target.level}{target.star ? ` ·${target.star}★` : ''}</small>
+                <small>
+                  lv {target.level}{target.star ? ` ·${target.star}★` : ''}
+                  {#if target.why}· {target.why}{/if}
+                </small>
               </span>
               <button
-                class="jg-btn primary"
-                disabled={busy !== null}
+                class="jg-btn"
+                class:primary={target.why === null}
+                disabled={busy !== null || target.why !== null}
                 onclick={() => {
                   opponent = target;
                   fight = 'ready';
                   wager = null;
                 }}
-                title="Wager credits against {target.owner_id}"
+                title={target.why
+                  ? `${target.name} cannot be fought right now — ${target.why}`
+                  : `Wager credits against ${target.owner_id}`}
               >
                 Fight
               </button>
@@ -1474,6 +1497,11 @@
   .card.worn .title {
     flex: 1;
     text-align: left;
+  }
+
+  /* Still listed, visibly not a choice. */
+  .targets li.unavailable {
+    opacity: 0.45;
   }
 
   .target-name {
