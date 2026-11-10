@@ -209,8 +209,14 @@
    * One tile did forget. Collapsing Feed and Revive into a single tile
    * dropped the `mine` check that `canFeed` had always carried, and Evolve
    * was written afterwards without it.
+   *
+   * Auto-feed is the worst of the three, and the only one that would not
+   * have refunded. The row reads the *owner's* allowance and the call sets
+   * the *signer's*, so pressing it on somebody else's pet quietly configures
+   * your own account while the number on screen — theirs — does not move. It
+   * looks exactly like a button that does nothing.
    */
-  const OWNER_ONLY = ['feed', 'revive', 'evolve', 'stake'];
+  const OWNER_ONLY = ['feed', 'revive', 'evolve', 'stake', 'auto'];
 
   async function act(label: string, run: () => Promise<unknown>, after: string) {
     if (OWNER_ONLY.includes(label) && !mine) {
@@ -979,9 +985,11 @@
         <button
           class="jg-btn"
           class:primary={!autoFeedOn}
-          disabled={busy !== null}
+          disabled={busy !== null || !mine}
           onclick={toggleAutoFeed}
-          title={autoFeedOn
+          title={!mine
+            ? `This allowance belongs to ${owner} — connect as them to change it`
+            : autoFeedOn
             ? 'Stop the oracle feeding this account'
             : `${ACTION_PRICE.auto_feed} credits a meal, each buying ${AUTO_FEED_HOURS} hours — the daily allowance covers every pet this account owns`}
         >
