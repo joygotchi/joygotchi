@@ -32,6 +32,12 @@
     <string>__ORACLE_ACCOUNT__</string>
     <key>NETWORK</key>
     <string>__NETWORK__</string>
+    <!-- Which key file to read. `add-key … save-to-legacy-keychain` refuses
+         to overwrite an existing `<account>.json`, so a regranted key lands
+         in a per-key file beside it and the legacy path keeps serving the old
+         one. Naming the file is how a regrant actually takes effect. -->
+    <key>ORACLE_KEY_FILE</key>
+    <string>__KEY_FILE__</string>
     <key>POLL_SECONDS</key>
     <string>300</string>
     <!-- The loopback port the app posts meal hashes to. -->
