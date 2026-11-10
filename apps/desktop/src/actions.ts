@@ -1,4 +1,8 @@
+import { invoke } from '@tauri-apps/api/core';
 import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
+
+/** One line into the app's output, where a terminal can read it. */
+const trace = (message: string) => void invoke('log_line', { message }).catch(() => {});
 import { reactToGame, signAndSend } from './wallet.svelte';
 
 /**
@@ -143,6 +147,7 @@ export async function gradeFeed(
   accountId: string,
   oracle: string = ORACLE_URL
 ): Promise<{ xp: number | null; line?: string | null; why?: string }> {
+  trace(`grade: asking ${oracle} about ${hash}`);
   try {
     const response = await fetch(`${oracle}/grade`, {
       method: 'POST',
@@ -150,12 +155,14 @@ export async function gradeFeed(
       body: JSON.stringify({ txHash: hash, accountId })
     });
     const body = (await response.json()) as { xp?: number; line?: string; error?: string };
+    trace(`grade: ${response.status} ${JSON.stringify(body)}`);
     return {
       xp: typeof body.xp === 'number' ? body.xp : null,
       line: body.line ?? null,
       why: body.error
     };
-  } catch {
+  } catch (cause) {
+    trace(`grade: fetch failed — ${cause instanceof Error ? cause.message : String(cause)}`);
     /*
      * Unreachable means the oracle is not running on this machine. Saying
      * "fetch failed" would send someone looking at their network; the meal

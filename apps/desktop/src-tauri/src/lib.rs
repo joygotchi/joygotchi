@@ -152,6 +152,16 @@ fn clear_session(app: AppHandle) -> Result<(), String> {
     session::clear_session(&app_dir(&app)?)
 }
 
+/// Let the window write one line to the app's own output.
+///
+/// A webview's console goes nowhere a terminal can see, so a `fetch` that
+/// fails inside the panel is invisible from outside it — which is how a feed
+/// that earned no XP stayed unexplained through three rounds of guessing.
+#[tauri::command]
+fn log_line(message: String) {
+    println!("[app] {}", message.chars().take(400).collect::<String>());
+}
+
 /// Whether the coding agent is wired to the pet right now.
 #[tauri::command]
 fn agent_hooks_installed() -> bool {
@@ -240,6 +250,7 @@ pub fn run() {
             sign_bytes,
             has_session_key,
             clear_session,
+            log_line,
             agent_hooks_installed,
             install_agent_hooks,
             uninstall_agent_hooks
