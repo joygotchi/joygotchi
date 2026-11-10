@@ -30,14 +30,23 @@ import type { RequestHandler } from './$types';
  * Measured, 24 samples per cell, because a grader is the kind of thing that
  * looks fine and returns a constant:
  *
- *            | pet graded itself | neutral grader
- *   well fed |      36 x24       |  5-6,  mean 6.0
- *   starved  |      36 x24       | 31-34, mean 31.8
+ *            | pet graded itself | neutral grader | + floor and anchors
+ *   well fed |      36 x24       | 5-6,  mean 6.0 | 18-22, mean 19.6
+ *   starved  |      36 x24       | 31-34, mean 31.8 | 34 x24
  *
- * The left column is why `mealGrader` exists. The right one is the number
- * actually depending on the pet's state. Worth re-measuring after any change
- * to the prompt: nothing else here will fail if the grade stops meaning
- * anything.
+ * Column one is why `mealGrader` exists at all. Column three is the current
+ * behaviour, and it holds a result worth stating plainly: the neglect gap
+ * fell from 5.3x to 1.7x, but `MIN_FEED_XP` is not what closed it. The
+ * lowest grade observed is 18, so the floor never fires — the anchors did
+ * the work, and the floor is dormant insurance against a model that ignores
+ * them.
+ *
+ * It may now be too narrow. A well-fed pet scores an ordinary grade rather
+ * than a low one, so hunger barely changes the payout. Widening it means
+ * moving the anchors, not the floor.
+ *
+ * Worth re-measuring after any change to the prompt: nothing else here will
+ * fail if the grade stops meaning anything.
  *
  * The number is the grade and nothing else: a Focus Lens doubles it, and
  * that doubling belongs to whoever read the receipt that burned the lens. If
