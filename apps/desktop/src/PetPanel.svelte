@@ -229,7 +229,16 @@
     note = null;
     try {
       await run();
-      note = after;
+      /*
+       * Only when there is one to set. A runner that writes its own note —
+       * feeding does, because it has the XP and the pet's line to report —
+       * passes an empty string, and this used to overwrite that with it.
+       *
+       * Five feeds in a row told the player nothing at all for this reason,
+       * including the message saying the XP had not been paid. A failure you
+       * cannot see is worse than the failure.
+       */
+      if (after) note = after;
       // The chain just changed, so the few seconds of read coalescing would
       // otherwise show the state from before the thing that was signed.
       forgetReads();
@@ -257,12 +266,14 @@
       async () => {
         const hash = await feedPet(net(), pet.petId, account);
         const graded = await gradeFeed(hash, session?.accountId ?? '');
-        note =
-          graded.xp !== null
-            ? graded.line
-              ? `+${graded.xp} XP — “${graded.line}”`
-              : `Fed. ${pet.displayName} earned ${graded.xp} XP.`
-            : `Fed, but no XP yet: ${graded.why ?? 'the feeder did not answer'}.`;
+        if (graded.xp === null) {
+          // Louder than a note: the meal was paid for and earned nothing.
+          refused = `Fed, but no XP: ${graded.why ?? 'the feeder did not answer'}`;
+          return;
+        }
+        note = graded.line
+          ? `+${graded.xp} XP — “${graded.line}”`
+          : `Fed. ${pet.displayName} earned ${graded.xp} XP.`;
       },
       ''
     );
