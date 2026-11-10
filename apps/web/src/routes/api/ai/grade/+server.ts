@@ -27,6 +27,18 @@ import type { RequestHandler } from './$types';
  * the model tokens, because without it a bare hash buys a NEAR AI call for
  * free.
  *
+ * Measured, 24 samples per cell, because a grader is the kind of thing that
+ * looks fine and returns a constant:
+ *
+ *            | pet graded itself | neutral grader
+ *   well fed |      36 x24       |  5-6,  mean 6.0
+ *   starved  |      36 x24       | 31-34, mean 31.8
+ *
+ * The left column is why `mealGrader` exists. The right one is the number
+ * actually depending on the pet's state. Worth re-measuring after any change
+ * to the prompt: nothing else here will fail if the grade stops meaning
+ * anything.
+ *
  * The number is the grade and nothing else: a Focus Lens doubles it, and
  * that doubling belongs to whoever read the receipt that burned the lens. If
  * both sides applied it, a lens meal would pay four times.
