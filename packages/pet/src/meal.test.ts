@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FEED_XP, MIN_FEED_XP, mealFrom, xpFrom, type TxStatus } from './meal.js';
+import { FEED_BANDS, MAX_FEED_XP, MIN_FEED_XP, feedXp, mealFrom, type TxStatus } from './meal.js';
 
 const STAKE = 'jg-stake-5656.testnet';
 const WHO = 'alice.testnet';
@@ -97,58 +97,81 @@ describe('mealFrom', () => {
   });
 });
 
-describe('xpFrom', () => {
-  it('takes the number out of a sentence', () => {
-    expect(xpFrom('I would say 20 out of 36', false)).toBe(20);
+describe('feedXp', () => {
+  const HASH = '81Jn2xyLNwprqNon9JXusWznhH4S9NqjNaWC1QDS3NmU';
+  const xp = (hours: number, meal = HASH, lensApplied = false) =>
+    feedXp({ secondsUntilStarving: hours * 3_600, meal, lensApplied });
+
+  it('pays the hungriest band to a pet that has already starved', () => {
+    expect(xp(0)).toBeGreaterThanOrEqual(26);
+    expect(xp(0)).toBeLessThanOrEqual(MAX_FEED_XP / 2);
   });
 
-  it('doubles for a Focus Lens, which is what the item promises', () => {
-    expect(xpFrom('18', true)).toBe(36);
+  it('puts each hunger state in its own band', () => {
+    const starved = xp(0);
+    const famished = xp(0.5);
+    const peckish = xp(3);
+    const wellFed = xp(40);
+
+    expect(famished).toBe(starved);
+    expect(peckish).toBeGreaterThanOrEqual(18);
+    expect(peckish).toBeLessThanOrEqual(24);
+    expect(wellFed).toBeGreaterThanOrEqual(MIN_FEED_XP);
+    expect(wellFed).toBeLessThanOrEqual(16);
+    expect(starved).toBeGreaterThan(peckish);
+    expect(peckish).toBeGreaterThan(wellFed);
   });
 
-  it('never exceeds the contract cap, so nothing is cut silently on chain', () => {
-    // A request for 500 is clamped to 72 by the contract and the caller
-    // never learns it, which makes the number nobody can check.
-    expect(xpFrom('500', true)).toBe(MAX_FEED_XP);
-  });
-
-  it('scores the floor when the model writes no number', () => {
-    // The meal was bought and paid for. A model having an off day is not
-    // the player's problem.
-    expect(xpFrom('that smelled wonderful', false)).toBe(MIN_FEED_XP);
-    expect(xpFrom('0', false)).toBe(MIN_FEED_XP);
-  });
-});
-
-describe('the feed XP floor', () => {
   /*
-   * Measured before this existed: a starved pet graded ~32 and a well-fed one
-   * ~6, so a meal bought for a healthy pet paid a fifth of one bought after
-   * letting it starve. The floor is what keeps that from being a reward for
-   * neglect.
+   * The whole point of dropping the model: the same meal always pays the
+   * same, and anyone holding the hash can check it.
    */
-  it('keeps a well-graded-low meal worth having', () => {
-    expect(xpFrom('6', false)).toBe(MIN_FEED_XP);
-    expect(xpFrom('1', false)).toBe(MIN_FEED_XP);
+  it('is reproducible for the same meal', () => {
+    expect(xp(0)).toBe(xp(0));
+    expect(xp(3, 'AAAA')).toBe(xp(3, 'AAAA'));
   });
 
-  it('narrows neglect to under three times, from five', () => {
-    const neglected = xpFrom('32', false);
-    const cared = xpFrom('6', false);
-    expect(neglected / cared).toBeLessThan(3);
+  it('varies with the meal, so a band is not one flat number', () => {
+    const hashes = ['AAAA', 'BBBB', 'CCCC', HASH, 'zzzz9', '11111', 'Qm7xKd'];
+    const scores = new Set(hashes.map((meal) => xp(0, meal)));
+    expect(scores.size).toBeGreaterThan(1);
   });
 
-  it('leaves a grade above the floor alone', () => {
-    expect(xpFrom('20', false)).toBe(20);
-    expect(xpFrom('32', false)).toBe(32);
+  it('does not give an anagram of a hash the same roll', () => {
+    expect(xp(0, 'ABCD')).not.toBe(xp(0, 'DCBA'));
   });
 
-  it('doubles the floor for a lens, like any other grade', () => {
-    expect(xpFrom('6', true)).toBe(MIN_FEED_XP * 2);
+  it('keeps the neglect gap near what was measured, around 2.2x', () => {
+    const hashes = ['AAAA', 'BBBB', 'CCCC', HASH, 'zzzz9', '11111', 'Qm7xKd', 'abc123'];
+    const mean = (hours: number) =>
+      hashes.reduce((total, meal) => total + xp(hours, meal), 0) / hashes.length;
+
+    const ratio = mean(0) / mean(40);
+    expect(ratio).toBeGreaterThan(1.8);
+    expect(ratio).toBeLessThan(2.6);
   });
 
-  it('still never exceeds what the contract allows', () => {
-    expect(xpFrom('36', true)).toBe(MAX_FEED_XP);
-    expect(MIN_FEED_XP).toBeLessThan(MAX_FEED_XP / 2);
+  it('doubles for a Focus Lens and never passes the contract cap', () => {
+    expect(xp(0, HASH, true)).toBe(xp(0) * 2);
+    for (const hours of [0, 0.5, 3, 40]) {
+      expect(xp(hours, HASH, true)).toBeLessThanOrEqual(MAX_FEED_XP);
+    }
+  });
+
+  it('treats a negative or absurd deadline as starved rather than crashing', () => {
+    expect(xp(-100)).toBeGreaterThanOrEqual(26);
+    expect(feedXp({ secondsUntilStarving: Infinity, meal: HASH, lensApplied: false }))
+      .toBeGreaterThanOrEqual(MIN_FEED_XP);
+  });
+
+  it('never leaves a band asking for more than the contract allows', () => {
+    for (const band of FEED_BANDS) {
+      expect(band.low).toBeGreaterThanOrEqual(MIN_FEED_XP);
+      expect(band.high).toBeLessThanOrEqual(MAX_FEED_XP / 2);
+    }
+  });
+
+  it('copes with an empty meal reference', () => {
+    expect(xp(0, '')).toBeGreaterThanOrEqual(26);
   });
 });

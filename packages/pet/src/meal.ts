@@ -112,28 +112,75 @@ export const MAX_FEED_XP = 72;
 export const MIN_FEED_XP = 12;
 
 /**
- * Turn a model's answer into XP.
+ * What a meal is worth, by how hungry the pet was when it ate.
  *
- * The model writes a number in a sentence and sometimes a sentence with no
- * number. Anything unreadable scores `MIN_FEED_XP` rather than nothing: the
- * meal was bought and paid for, and a model having an off day is not the
- * player's fault.
+ * This replaced a model, and the reason is measurement rather than taste.
+ * Across four prompts and 168 samples the grader never varied meaningfully
+ * inside a band: it picked one number per hunger state and stayed on it, so
+ * the "grade" was already a function of `starves_at` — evaluated over a
+ * network, with a key, at a model's latency, and unverifiable by the player
+ * who was paying for it.
  *
- * The clamp is here rather than only in the prompt because a prompt is a
- * request and this is a guarantee. The grader is asked to respect the same
- * floor so that the two agree — if the model's answer had to be corrected on
- * every call, nothing would reveal that grading had stopped working.
+ * The same three numbers come out of arithmetic. The difference is that this
+ * costs nothing, cannot be unavailable, and anyone holding the meal hash can
+ * recompute it and check they were paid correctly.
+ */
+export const FEED_BANDS = [
+  /*
+   * Ordered hungriest first, and matched on the first threshold that holds.
+   * The hours mirror `hungerOf` on the web app, which is what a pet says
+   * about itself — a pet describing itself as famished while the payout
+   * called it well fed would be the app disagreeing with itself in front of
+   * the player.
+   */
+  // One hour covers both famished and already starved: a starved pet has
+  // zero seconds left, which is under an hour.
+  { hours: 1, low: 26, high: MAX_FEED_XP / 2 },
+  { hours: 6, low: 18, high: 24 },
+  { hours: Infinity, low: MIN_FEED_XP, high: 16 }
+] as const;
+
+/**
+ * A stable position inside a band, from the hash of the meal that bought it.
  *
- * A Focus Lens doubles it, which is what the item promises, and the clamp is
- * the contract's own cap applied before the call rather than after — a
+ * Deterministic variety, which is a different thing from randomness: two
+ * people with the same meal hash get the same number, and nobody can roll
+ * again by asking twice. A flat payout per state would work, but every meal
+ * scoring exactly 14 reads like a stub, and the spread costs nothing here.
+ */
+function positionIn(meal: string, width: number): number {
+  if (width <= 0) return 0;
+  let sum = 0;
+  for (let index = 0; index < meal.length; index++) {
+    // Mixed with the position so an anagram of a hash is not the same roll.
+    sum = (sum + meal.charCodeAt(index) * (index + 1)) % 1_000_003;
+  }
+  return sum % width;
+}
+
+/**
+ * The XP a meal earns.
+ *
+ * `secondsUntilStarving` is read off the chain by whoever is about to sign,
+ * not sent by the client: it is the one input that decides the payout, and a
+ * caller who could set it could pay itself the ceiling every time.
+ *
+ * A Focus Lens doubles it, which is what the item promises, and the result is
+ * clamped to the contract's own cap before the call rather than after — a
  * request for 500 would be silently cut to 72 on chain, and a number the
  * caller never sees is a number nobody can check.
  */
-export function xpFrom(answer: string, lensApplied: boolean): number {
-  const found = answer.match(/\d+/);
-  const base = found ? Number(found[0]) : 0;
-  const scored = Number.isFinite(base)
-    ? Math.min(Math.max(base, MIN_FEED_XP), MAX_FEED_XP / 2)
-    : MIN_FEED_XP;
-  return Math.min(lensApplied ? scored * 2 : scored, MAX_FEED_XP);
+export function feedXp(input: {
+  secondsUntilStarving: number;
+  meal: string;
+  lensApplied: boolean;
+}): number {
+  const hoursLeft = Math.max(0, input.secondsUntilStarving) / 3_600;
+  // The last band is open-ended, so this always matches; the fallback is for
+  // the type, and for a caller that hands over a non-finite number.
+  const band = FEED_BANDS.find((candidate) => hoursLeft < candidate.hours) ?? FEED_BANDS[0]!;
+
+  const scored = band.low + positionIn(input.meal, band.high - band.low + 1);
+  const bounded = Math.min(Math.max(scored, MIN_FEED_XP), MAX_FEED_XP / 2);
+  return Math.min(input.lensApplied ? bounded * 2 : bounded, MAX_FEED_XP);
 }

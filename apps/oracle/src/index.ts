@@ -28,7 +28,7 @@ import { readFileSync } from 'node:fs';
 import { Account, JsonRpcProvider, KeyPairSigner, type KeyPairString } from 'near-api-js';
 import { ACTION_PRICE } from '@joygotchi/pet';
 import { DEFAULT_RULES, decideMeals, type AutoFeedAccount, type OwnedPet } from './decide.ts';
-import { gradeIn } from './grade.ts';
+
 import { serve } from './serve.ts';
 import type { TxStatus } from '@joygotchi/pet';
 
@@ -158,19 +158,20 @@ async function txStatus(txHash: string, accountId: string): Promise<TxStatus> {
 }
 
 /**
- * What the web service thinks the meal was worth.
+ * Something for the pet to say about its meal.
  *
- * It holds the NEAR AI key, which is why it is asked rather than called
- * directly from here. It is trusted for the number and nothing else — the
- * pet and the lens come from the receipts this process read itself.
+ * The web service holds the NEAR AI key, which is why it is asked rather
+ * than called from here. It used to decide the XP as well; `feedXp` does
+ * that now, from the chain, so this is flavour and nothing depends on it.
  */
-async function opinion(txHash: string, accountId: string): Promise<string> {
+async function line(petId: number): Promise<string | null> {
   const response = await fetch(`${SITE}/api/ai/grade`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ txHash, accountId })
+    body: JSON.stringify({ petId })
   });
-  return gradeIn(await response.json());
+  const body = (await response.json()) as { line?: unknown };
+  return typeof body.line === 'string' && body.line.trim() ? body.line.trim() : null;
 }
 
 async function round(account: Account | null) {
@@ -254,9 +255,10 @@ async function main() {
     PORT,
     {
       stake: STAKE,
+      game: GAME,
       view,
       txStatus,
-      opinion,
+      line,
       award: account
         ? async (petId, xp, meal) => {
             const outcome = await account.callFunctionRaw({

@@ -115,10 +115,11 @@ export const ORACLE_URL = 'http://127.0.0.1:8787';
  * only thing missing — which is a far better failure than a meal that did
  * not happen because a server was unreachable.
  *
- * The grade is asked of the local oracle rather than the web app, because
- * paying the XP means calling `award_feed_xp`, and that key stays on this
- * machine. The oracle verifies this transaction itself and asks the web app
- * only for the number.
+ * The XP is asked of the local oracle rather than the web app, because
+ * paying it means calling `award_feed_xp` and that key stays on this
+ * machine. The oracle verifies this transaction and works the XP out from
+ * the pet's hunger on chain — no model decides it. The line the pet says
+ * about the meal is flavour that arrives with it, or does not.
  */
 export async function aiMeal(
   network: string,
@@ -126,7 +127,7 @@ export async function aiMeal(
   account: StakeAccount | null,
   accountId: string,
   oracle: string = ORACLE_URL
-): Promise<{ xp: number | null; why?: string }> {
+): Promise<{ xp: number | null; line?: string | null; why?: string }> {
   const balance = Number(account ? formatCredits(account.credit_balance, 6) : 0);
   const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
   if (balance + pending < ACTION_PRICE.ai_feed) {
@@ -150,8 +151,12 @@ export async function aiMeal(
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ txHash: hash, accountId })
     });
-    const body = (await response.json()) as { xp?: number; error?: string };
-    return { xp: typeof body.xp === 'number' ? body.xp : null, why: body.error };
+    const body = (await response.json()) as { xp?: number; line?: string; error?: string };
+    return {
+      xp: typeof body.xp === 'number' ? body.xp : null,
+      line: body.line ?? null,
+      why: body.error
+    };
   } catch {
     /*
      * Unreachable means the oracle is not running on this machine. Saying

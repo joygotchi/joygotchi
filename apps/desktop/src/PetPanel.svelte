@@ -223,8 +223,10 @@
         const graded = await aiMeal(net(), pet.petId, account, session?.accountId ?? '');
         note =
           graded.xp !== null
-            ? `Fed. ${pet.displayName} earned ${graded.xp} XP.`
-            : `Fed, but no XP: ${graded.why ?? 'the grader did not answer'}.`;
+            ? graded.line
+              ? `+${graded.xp} XP — “${graded.line}”`
+              : `Fed. ${pet.displayName} earned ${graded.xp} XP.`
+            : `Fed, but no XP: ${graded.why ?? 'the feeder did not answer'}.`;
       },
       ''
     );

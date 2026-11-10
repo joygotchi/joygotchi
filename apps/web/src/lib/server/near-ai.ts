@@ -1,5 +1,5 @@
 import { NEAR_AI_API_KEY, NEAR_AI_BASE_URL, NEAR_AI_MODEL } from '$app/env/private';
-import { MAX_FEED_XP, MIN_FEED_XP, type ChainPet } from '@joygotchi/pet';
+import type { ChainPet } from '@joygotchi/pet';
 
 /**
  * NEAR AI Cloud, behind an OpenAI-shaped chat endpoint.
@@ -100,74 +100,6 @@ function hungerOf(pet: ChainPet): string {
   if (secondsLeft < 60 * 60) return 'You are famished and it is all you can think about.';
   if (secondsLeft < 6 * 60 * 60) return 'You are getting peckish.';
   return 'You are well fed and content; food is not on your mind.';
-}
-
-/**
- * The same facts as `hungerOf`, told about the pet rather than to it.
- *
- * The wording is load-bearing: each line has to contain the name of a band
- * in `GRADE_BANDS`, because matching them is the only instruction the grader
- * is given. A state described in words no band uses leaves the model to
- * invent a number.
- */
-function hungerFact(pet: ChainPet): string {
-  const deadline = Number(pet.starves_at ?? 0);
-  if (!deadline) return 'It has eaten recently and is well fed.';
-
-  const secondsLeft = (deadline - Date.now() * 1e6) / 1e9;
-  if (secondsLeft <= 0) return 'It has starved and is weak.';
-  if (secondsLeft < 60 * 60) return 'It is famished — food is all it can think about.';
-  if (secondsLeft < 6 * 60 * 60) return 'It is getting peckish.';
-  return 'It is well fed; this food adds little it needs.';
-}
-
-/**
- * What a meal is worth, by how much the pet needed it.
- *
- * These bands are the whole mechanism, measured rather than guessed. With no
- * anchors at all the grader answered 36 out of 36 every time; with a single
- * "ordinary" band it answered 19.6 for a well-fed pet and 34 for a starved
- * one — too narrow, because a pet that needed nothing scored an ordinary
- * grade. Three explicit bands restore the spread without returning to the
- * fivefold gap that paid players for letting a pet starve.
- *
- * The extremes come from the clamp in `xpFrom`, so a band can never ask for
- * a number the code would have to correct.
- */
-const GRADE_BANDS = [
-  { when: 'well fed', low: MIN_FEED_XP, high: 16 },
-  { when: 'peckish', low: 18, high: 24 },
-  { when: 'famished or starved', low: 26, high: MAX_FEED_XP / 2 }
-] as const;
-
-/**
- * The system prompt for grading a meal, which is deliberately not a pet.
- *
- * Grading used to run through `petPersona`, which asked the beneficiary — a
- * persona explicitly told "You like them and you show it" — how good its
- * owner's gift was. Across 24 samples at temperature 0.8 it answered the
- * maximum 36 every single time. A scale that only ever returns its ceiling
- * is not a scale, and a model call that always returns the same number is a
- * constant with a latency cost.
- *
- * So the grader is a third party. It never speaks to the owner, and it gets
- * the pet's state as fact rather than as a role to play. The bands are what
- * make the number mean something: left alone, "a number from 12 to 36" reads
- * as an invitation to say 36.
- */
-export function mealGrader(pet: ChainPet): string {
-  return [
-    'You grade bowls of pet food in a game. You are not the pet and you never',
-    'speak to its owner.',
-    `The pet is ${pet.name}, a ${pet.rarity} ${pet.category}, level ${pet.level},`,
-    `${pet.star} stars.`,
-    hungerFact(pet),
-    'Grade how much this meal was worth to this pet, as one whole number.',
-    'Use the band matching its condition above:',
-    GRADE_BANDS.map((b) => `${b.when} ${b.low} to ${b.high}`).join('; ') + '.',
-    'Pick a different number inside that band each time rather than settling',
-    'on its edge. Reply with the number and nothing else.'
-  ].join(' ');
 }
 
 export function petPersona(pet: ChainPet, extra: { viewerIsOwner: boolean }): string {

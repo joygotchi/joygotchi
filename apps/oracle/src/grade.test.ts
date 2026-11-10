@@ -1,8 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MIN_FEED_XP } from '@joygotchi/pet';
-import { gradeMeal, gradeIn, type Grader } from './grade.ts';
+import { feedXp } from '@joygotchi/pet';
+import { gradeMeal, type Grader } from './grade.ts';
 
 const STAKE = 'jg-stake-5656.testnet';
+const GAME = 'jg-game-5656.testnet';
 const OWNER = 'kurodenjiro2.testnet';
 
 /** A transaction shaped like the real one that bought pet 8 its meal. */
@@ -34,37 +35,80 @@ const meal = (over: Record<string, unknown> = {}) => ({
   ]
 });
 
+/*
+ * `view` answers two different questions now: `meal_was_graded` on the stake
+ * contract, and `get_pet` on the game contract. The default says no to the
+ * first and gives a starved pet for the second, which is the shape the real
+ * KURO meal had.
+ */
 const deps = (over: Partial<Grader> = {}): Grader => ({
   stake: STAKE,
-  view: async () => false as never,
+  game: GAME,
+  view: (async (contractId: string) =>
+    contractId === GAME ? { seconds_until_starving: 0 } : false) as Grader['view'],
   txStatus: async () => meal(),
-  opinion: async () => '30',
   award: async () => 'TXHASH',
   ...over
 });
 
 describe('gradeMeal', () => {
-  it('pays the graded XP for a real meal', async () => {
+  it('pays the XP the meal earns for a real meal', async () => {
     const award = vi.fn(async () => 'TXHASH');
+    const expected = feedXp({ secondsUntilStarving: 0, meal: 'MEAL1', lensApplied: false });
+
     const result = await gradeMeal('MEAL1', OWNER, deps({ award }));
-    expect(result).toMatchObject({ ok: true, petId: 8, xp: 30, lens: false });
-    expect(award).toHaveBeenCalledWith(8, 30, 'MEAL1');
+
+    expect(result).toMatchObject({ ok: true, petId: 8, xp: expected, lens: false });
+    expect(award).toHaveBeenCalledWith(8, expected, 'MEAL1');
   });
 
   it('doubles for a Focus Lens, once', async () => {
+    const plain = feedXp({ secondsUntilStarving: 0, meal: 'MEAL1', lensApplied: false });
+
     const result = await gradeMeal(
       'MEAL1',
       OWNER,
       deps({ txStatus: async () => meal({ lens_applied: true }) })
     );
-    expect(result).toMatchObject({ ok: true, xp: 60 });
+
+    expect(result).toMatchObject({ ok: true, xp: plain * 2 });
+  });
+
+  it('reads hunger off the chain, so a hungry pet is paid more', async () => {
+    const wellFed = (await gradeMeal(
+      'MEAL1',
+      OWNER,
+      deps({
+        view: (async (contractId: string) =>
+          contractId === GAME ? { seconds_until_starving: 40 * 3_600 } : false) as Grader['view']
+      })
+    )) as { xp: number };
+    const starved = (await gradeMeal('MEAL1', OWNER, deps())) as { xp: number };
+
+    expect(starved.xp).toBeGreaterThan(wellFed.xp);
   });
 
   it('refuses a meal the contract has already graded, without reading anything', async () => {
     const txStatus = vi.fn(async () => meal());
-    const result = await gradeMeal('MEAL1', OWNER, deps({ view: async () => true as never, txStatus }));
+    const result = await gradeMeal(
+      'MEAL1',
+      OWNER,
+      deps({ view: (async () => true) as Grader['view'], txStatus })
+    );
     expect(result).toMatchObject({ ok: false, status: 409 });
     expect(txStatus).not.toHaveBeenCalled();
+  });
+
+  it('refuses when the pet cannot be read, rather than guessing its hunger', async () => {
+    const result = await gradeMeal(
+      'MEAL1',
+      OWNER,
+      deps({
+        view: (async (contractId: string) =>
+          contractId === GAME ? null : false) as Grader['view']
+      })
+    );
+    expect(result).toMatchObject({ ok: false, status: 404 });
   });
 
   it('refuses a transaction signed by somebody else', async () => {
@@ -78,18 +122,20 @@ describe('gradeMeal', () => {
     expect(result).toMatchObject({ ok: false, status: 400 });
   });
 
-  it('still pays the floor when the grader will not answer', async () => {
-    // The floor, not 1: the meal was bought and charged for.
+  it('pays in full when the pet has nothing to say', async () => {
+    // The line is flavour. It is fetched after the signature, so a service
+    // that is down costs the player a sentence and not the XP.
+    const expected = feedXp({ secondsUntilStarving: 0, meal: 'MEAL1', lensApplied: false });
     const result = await gradeMeal(
       'MEAL1',
       OWNER,
       deps({
-        opinion: async () => {
+        line: async () => {
           throw new Error('NEAR AI is down');
         }
       })
     );
-    expect(result).toMatchObject({ ok: true, xp: MIN_FEED_XP });
+    expect(result).toMatchObject({ ok: true, xp: expected, line: null });
   });
 
   it('reports a failed signature rather than claiming the XP was paid', async () => {
@@ -106,8 +152,9 @@ describe('gradeMeal', () => {
   });
 
   it('decides without signing in a dry run', async () => {
+    const expected = feedXp({ secondsUntilStarving: 0, meal: 'MEAL1', lensApplied: false });
     const result = await gradeMeal('MEAL1', OWNER, deps({ award: null }));
-    expect(result).toMatchObject({ ok: true, xp: 30 });
+    expect(result).toMatchObject({ ok: true, xp: expected });
     // No transaction, because none was sent.
     expect(result).not.toHaveProperty('tx');
   });
@@ -115,23 +162,5 @@ describe('gradeMeal', () => {
   it('wants a transaction hash', async () => {
     expect(await gradeMeal('', OWNER, deps())).toMatchObject({ status: 400 });
     expect(await gradeMeal('x'.repeat(65), OWNER, deps())).toMatchObject({ status: 400 });
-  });
-});
-
-describe('gradeIn', () => {
-  it('takes the grade and clamps it to what the contract allows', () => {
-    expect(gradeIn({ grade: 30 })).toBe('30');
-    expect(gradeIn({ grade: 500 })).toBe('36');
-    expect(gradeIn({ grade: 0 })).toBe('1');
-  });
-
-  it('ignores a lens the reply tries to claim, so it cannot double the pay', () => {
-    // `xpFrom` applies the lens, from the receipt. Nothing in the reply can.
-    expect(gradeIn({ grade: 10, lens: true, xp: 999 })).toBe('10');
-  });
-
-  it('is empty when there is no number, which scores the floor', () => {
-    expect(gradeIn({ error: 'no key' })).toBe('');
-    expect(gradeIn(null)).toBe('');
   });
 });
