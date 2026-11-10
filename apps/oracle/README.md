@@ -4,24 +4,38 @@
 account, and until this existed nothing called either. The auto-feed switch in
 the app was permission granted to nobody.
 
-This process polls the contract for accounts that turned auto-feed on, works
+It does two jobs, because both need the same key.
+
+On a timer it polls the contract for accounts that turned auto-feed on, works
 out which of their pets are close to starving, and buys those meals out of the
 budget each player set on chain.
 
+On a loopback port it grades meals the app has just bought and pays their XP.
+That half used to live in the web app, which meant a key that writes to the
+contract had to sit on Vercel. It bought nothing: this process already holds a
+key, already runs, and has to read the transaction anyway. So the split now
+follows the secrets — the web service keeps the NEAR AI key and returns a
+grade, this keeps the NEAR key and signs.
+
 ## What it can do, and what it cannot
 
-The key it holds is a NEAR **function-call access key** for `auto_feed` on the
-staking contract. That is the whole of its power:
+The key it holds is a NEAR **function-call access key** for `auto_feed` and
+`award_feed_xp` on the staking contract. That is the whole of its power:
 
 - It cannot move NEAR. Function-call keys attach no deposit, ever.
 - It cannot transfer, sell or evolve a pet.
 - It cannot spend more of a player's credits than the daily budget that player
   set, because the contract checks the budget, not this process.
 - It cannot feed somebody who never turned auto-feed on.
+- It cannot pay XP for a meal nobody bought, or pay the same meal twice: the
+  contract records each graded meal and refuses the repeat.
+- It cannot mint XP without limit. The contract caps a single award, and the
+  grade it is given is clamped before the call as well.
 
 If this machine is taken, what goes with it is the ability to feed people's
-pets on schedule. Give it a key that can do only `auto_feed`, and nothing else
-— a full-access key here would be a far larger thing to lose than a service.
+pets on schedule and to pay out XP for meals they really bought. Give it a key
+for those two methods and nothing else — a full-access key here would be a far
+larger thing to lose than a service.
 
 ## Running it
 
@@ -86,10 +100,15 @@ method:
 ```bash
 near account add-key feeder.jg-stake-5656.testnet \
   grant-function-call-access --allowance '1 NEAR' \
-  --contract-account-id jg-stake-5656.testnet --function-names 'auto_feed' \
+  --receiver-account-id jg-stake-5656.testnet \
+  --method-names 'auto_feed,award_feed_xp' \
   autogenerate-new-keypair save-to-legacy-keychain \
   network-config testnet sign-with-keychain send
 ```
+
+Both methods in one key, because a function-call key's method list is fixed
+when it is granted and can never be widened. A key for `auto_feed` alone keeps
+feeding and fails every grade with `does not allow method award_feed_xp`.
 
 `save-to-legacy-keychain` rather than `print-to-terminal`: the secret goes
 straight to the file this process reads and is never displayed.
@@ -114,8 +133,32 @@ decision, not one to make on their behalf.
 Where a budget cannot cover every hungry pet, the hungriest eat first. If it
 has to run out, it should run out on the pets with the most time left.
 
-## Not yet: feed XP
+## Grading a meal
 
-`award_feed_xp` is the other half, and it needs to know a meal happened. That
-means reading `pet_fed` events, which means an indexer or a verified
-transaction hash from the app — neither is here. A fed pet still earns no XP.
+```
+POST http://127.0.0.1:8787/grade   {"txHash": "...", "accountId": "..."}
+```
+
+Loopback and nothing else, with no token on it. This process holds a key, and
+anything already running as this user could call the port — but anything
+running as this user can read the key file too, so a token would be guarding
+the smaller of the two doors. What a local caller can actually achieve is
+bounded by the contract: a meal must have been bought with real credits to
+exist at all, and it is paid once.
+
+The hash is a pointer at the chain, not a claim. Which pet, whose account and
+whether a Focus Lens burned all come from the transaction's receipts, read
+here. Lying means producing a transaction, and producing one costs the credits
+it is asking to be paid for.
+
+The grade comes from the web service, which holds the NEAR AI key, and it is
+trusted for the number alone. The lens multiplier is applied here, against the
+receipt — if both sides applied it, a lens meal would pay four times.
+
+A grader that will not answer scores the floor rather than nothing. The meal
+was bought and paid for; a model having an off day is not the player's fault.
+
+| Variable | Default | |
+| --- | --- | --- |
+| `ORACLE_PORT` | `8787` | the loopback port |
+| `SITE` | `https://joygotchi.vercel.app` | asked for the grade |

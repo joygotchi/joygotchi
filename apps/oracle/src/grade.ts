@@ -85,10 +85,21 @@ export async function gradeMeal(
     const tx = await deps.award(found.meal.petId, xp, txHash);
     return { ok: true, petId: found.meal.petId, xp, lens: found.meal.lensApplied, tx };
   } catch (error) {
+    const why = error instanceof Error ? error.message : String(error);
+    /*
+     * This one is worth naming. A function-call key is bound to a list of
+     * methods at the moment it is granted and can never be widened, so a key
+     * that only covers `auto_feed` fails here every time and looks like a
+     * network problem. It is a key that needs regranting, and the message
+     * should say which.
+     */
     return {
       ok: false,
       status: 502,
-      why: error instanceof Error ? error.message : String(error)
+      why: /does not allow method/.test(why)
+        ? `${why} — this process holds a key for \`auto_feed\` only. Regrant it for both ` +
+          'methods; see the README.'
+        : why
     };
   }
 }
