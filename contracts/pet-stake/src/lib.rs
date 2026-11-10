@@ -48,6 +48,7 @@ enum StorageKey {
     ItemPrices,
     Listings,
     AutoFeedSpend,
+    GradedMeals,
 }
 
 /// The view this contract needs from the game contract. A deployment whose game
@@ -146,6 +147,15 @@ pub struct PetStake {
     /// collection rather than on `Account` so the migration stays O(1) — see
     /// `AutoFeedWindow` in types.rs.
     auto_feed_spend: LookupMap<AccountId, AutoFeedWindow>,
+
+    /// Meals already paid XP for, by the transaction that bought them.
+    ///
+    /// Appended last, like the two above. It exists because the oracle grades
+    /// a meal from a transaction hash somebody hands it, and without a record
+    /// here the same hash earns XP again every time it is sent. The oracle
+    /// cannot keep that record itself — it is a stateless request handler, and
+    /// a restart would forget every meal it had ever graded.
+    graded_meals: LookupMap<String, u64>,
 }
 
 #[near]
@@ -191,6 +201,7 @@ impl PetStake {
             market_rake_bps: 500, // 5%
             paused: false,
             auto_feed_spend: LookupMap::new(StorageKey::AutoFeedSpend),
+            graded_meals: LookupMap::new(StorageKey::GradedMeals),
         };
 
         // Keep these in step with src/lib/economy/params.ts.
@@ -1108,7 +1119,15 @@ impl PetStake {
     /// `xp` is clamped to `MAX_FEED_XP` rather than trusted: the caller is a
     /// server, and a server can be compromised. One feed is worth at most one
     /// perfect feed.
-    pub fn award_feed_xp(&mut self, pet_id: u64, xp: u32) -> Promise {
+    ///
+    /// `meal` is the transaction that bought the food, and each one pays
+    /// once. The oracle grades a meal from a hash it is handed, and a hash
+    /// can be handed to it again: without this, one bought meal is an XP tap
+    /// anybody can keep pulling. The oracle cannot hold that record itself —
+    /// it answers requests and forgets, and a restart would forget everything
+    /// it had ever graded — so the ledger that already outlives restarts
+    /// keeps it.
+    pub fn award_feed_xp(&mut self, pet_id: u64, xp: u32, meal: String) -> Promise {
         self.assert_running();
         let caller = env::predecessor_account_id();
         require!(
@@ -1116,11 +1135,17 @@ impl PetStake {
             "Only the feed oracle can award XP"
         );
         require!(xp > 0, "Nothing to award");
+        require!(!meal.is_empty() && meal.len() <= 64, "Bad meal reference");
+        require!(
+            self.graded_meals.get(&meal).is_none(),
+            "That meal has already earned its XP"
+        );
 
         let awarded = xp.min(MAX_FEED_XP);
+        self.graded_meals.insert(&meal, &pet_id);
         self.log_event(
             "feed_xp_awarded",
-            json!({ "pet_id": pet_id, "xp": awarded, "requested": xp }),
+            json!({ "pet_id": pet_id, "xp": awarded, "requested": xp, "meal": meal }),
         );
 
         ext_game::ext(self.game_contract.clone())
@@ -1649,6 +1674,14 @@ impl PetStake {
         self.mining_reward = amount.0;
     }
 
+    /// Whether a meal has already been paid XP for.
+    ///
+    /// The oracle checks this before grading, so a replay costs a view call
+    /// rather than a failed transaction.
+    pub fn meal_was_graded(&self, meal: String) -> bool {
+        self.graded_meals.get(&meal).is_some()
+    }
+
     /// When a player can mine again. 0 means now.
     pub fn mining_available_at(&self, account_id: AccountId) -> U64 {
         let account = self.account_or_default(&account_id);
@@ -1739,6 +1772,38 @@ struct PetStakeV2 {
     oracle: AccountId,
 }
 
+/// The layout before `graded_meals`, which is what is deployed today.
+#[derive(near_sdk::borsh::BorshDeserialize)]
+#[cfg_attr(test, derive(near_sdk::borsh::BorshSerialize))]
+#[borsh(crate = "near_sdk::borsh")]
+struct PetStakeV3 {
+    owner_id: AccountId,
+    game_contract: AccountId,
+    granter: AccountId,
+    epoch_budget: u128,
+    total_weight: u128,
+    acc_credit_per_weight: u128,
+    updated_at: u64,
+    accounts: UnorderedMap<AccountId, Account>,
+    pets: UnorderedMap<u64, StakedPet>,
+    prices: LookupMap<String, u128>,
+    pet_states: UnorderedMap<u64, PetState>,
+    item_prices: LookupMap<u16, u128>,
+    battle_wager: u128,
+    battle_rake_bps: u16,
+    total_distributed: u128,
+    total_spent: u128,
+    sale_reserve: u128,
+    faucet_amount: u128,
+    mining_reward: u128,
+    listings: UnorderedMap<u64, Listing>,
+    next_listing_id: u64,
+    market_rake_bps: u16,
+    paused: bool,
+    oracle: AccountId,
+    auto_feed_spend: LookupMap<AccountId, AutoFeedWindow>,
+}
+
 #[near]
 impl PetStake {
     /// Deploy over a contract that predates `oracle`, keeping every stake,
@@ -1756,6 +1821,7 @@ impl PetStake {
 
         Self {
             auto_feed_spend: LookupMap::new(StorageKey::AutoFeedSpend),
+            graded_meals: LookupMap::new(StorageKey::GradedMeals),
             owner_id: old.owner_id,
             game_contract: old.game_contract,
             granter: old.granter,
@@ -1823,6 +1889,50 @@ impl PetStake {
             paused: old.paused,
             oracle: old.oracle,
             auto_feed_spend: LookupMap::new(StorageKey::AutoFeedSpend),
+            graded_meals: LookupMap::new(StorageKey::GradedMeals),
+        }
+    }
+
+    /// Add the record of which meals have already earned XP.
+    ///
+    /// A pure append again: every field before it is read straight across and
+    /// the new state is an empty collection, which is correct — no meal has
+    /// ever been graded, because nothing could grade one.
+    #[init(ignore_state)]
+    pub fn migrate_graded_meals() -> Self {
+        let old: PetStakeV3 = env::state_read().expect("No state to migrate");
+        require!(
+            env::predecessor_account_id() == old.owner_id,
+            "Only the owner can migrate"
+        );
+
+        Self {
+            owner_id: old.owner_id,
+            game_contract: old.game_contract,
+            granter: old.granter,
+            epoch_budget: old.epoch_budget,
+            total_weight: old.total_weight,
+            acc_credit_per_weight: old.acc_credit_per_weight,
+            updated_at: old.updated_at,
+            accounts: old.accounts,
+            pets: old.pets,
+            prices: old.prices,
+            pet_states: old.pet_states,
+            item_prices: old.item_prices,
+            battle_wager: old.battle_wager,
+            battle_rake_bps: old.battle_rake_bps,
+            total_distributed: old.total_distributed,
+            total_spent: old.total_spent,
+            sale_reserve: old.sale_reserve,
+            faucet_amount: old.faucet_amount,
+            mining_reward: old.mining_reward,
+            listings: old.listings,
+            next_listing_id: old.next_listing_id,
+            market_rake_bps: old.market_rake_bps,
+            paused: old.paused,
+            oracle: old.oracle,
+            auto_feed_spend: old.auto_feed_spend,
+            graded_meals: LookupMap::new(StorageKey::GradedMeals),
         }
     }
 }
@@ -2216,7 +2326,7 @@ mod tests {
         // Owning the pet is not the point: XP comes from an inference this
         // contract cannot see, so only the backend that ran it may report it.
         testing_env!(ctx(alice(), 10).build());
-        let _ = contract.award_feed_xp(1, 60);
+        let _ = contract.award_feed_xp(1, 60, "tx1".to_string());
     }
 
     #[test]
@@ -2226,7 +2336,7 @@ mod tests {
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
 
         testing_env!(ctx(oracle(), 10).build());
-        let _ = contract.award_feed_xp(1, 63);
+        let _ = contract.award_feed_xp(1, 63, "tx2".to_string());
 
         let logs = near_sdk::test_utils::get_logs();
         let awarded = logs
@@ -2243,7 +2353,7 @@ mod tests {
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
         // Same escape hatch every other admin method has, so a broken oracle
         // key does not freeze levelling.
-        let _ = contract.award_feed_xp(1, 10);
+        let _ = contract.award_feed_xp(1, 10, "tx3".to_string());
     }
 
     #[test]
@@ -2253,7 +2363,7 @@ mod tests {
 
         // The game contract's own clamp is 500, which a compromised backend
         // could use to take a pet five levels in five calls.
-        let _ = contract.award_feed_xp(1, 500);
+        let _ = contract.award_feed_xp(1, 500, "tx4".to_string());
 
         let logs = near_sdk::test_utils::get_logs();
         let awarded = logs
@@ -2273,7 +2383,7 @@ mod tests {
     fn a_zero_xp_award_is_refused() {
         let mut contract = deploy();
         testing_env!(ctx(oracle(), 10).build());
-        let _ = contract.award_feed_xp(1, 0);
+        let _ = contract.award_feed_xp(1, 0, "tx5".to_string());
     }
 
     #[test]
@@ -2283,7 +2393,7 @@ mod tests {
         contract.set_oracle(bob());
 
         testing_env!(ctx(bob(), 10).build());
-        let _ = contract.award_feed_xp(1, 20);
+        let _ = contract.award_feed_xp(1, 20, "tx6".to_string());
     }
 
     #[test]
@@ -2302,7 +2412,7 @@ mod tests {
         contract.set_oracle(bob());
 
         testing_env!(ctx(oracle(), 10).build());
-        let _ = contract.award_feed_xp(1, 20);
+        let _ = contract.award_feed_xp(1, 20, "tx7".to_string());
     }
 
     #[test]
@@ -2605,6 +2715,88 @@ mod tests {
     /// still readable, and the only way to ask is to write them and read them
     /// back. §9 of docs/GAME_CONTRACT_V2.md is two deployments lost to getting
     /// this wrong.
+    /// The same question for the layout that is live right now.
+    ///
+    /// Reading the code cannot answer it: what matters is whether the bytes
+    /// the deployed contract wrote are still readable after a field is
+    /// appended, and the only way to ask is to write them and read them back.
+    #[test]
+    fn migrating_from_the_auto_feed_layout_keeps_every_number() {
+        let mut contract = deploy();
+        fund_balance(&mut contract, alice(), 50_000);
+        testing_env!(ctx(owner(), 0).build());
+        contract.admin_set_pet(1, alice(), attrs(2, 1, 2, Rarity::Rare));
+        testing_env!(ctx(alice(), 0).build());
+        contract.set_auto_feed_budget(U128(90_000));
+
+        let weight = contract.total_weight;
+        let balance = contract.get_account(alice()).unwrap().credit_balance.0;
+        let budget = contract.get_account(alice()).unwrap().auto_feed_budget.0;
+
+        testing_env!(ctx(owner(), 0).build());
+        env::state_write(&PetStakeV3 {
+            owner_id: contract.owner_id.clone(),
+            game_contract: contract.game_contract.clone(),
+            granter: contract.granter.clone(),
+            epoch_budget: contract.epoch_budget,
+            total_weight: contract.total_weight,
+            acc_credit_per_weight: contract.acc_credit_per_weight,
+            updated_at: contract.updated_at,
+            accounts: contract.accounts,
+            pets: contract.pets,
+            prices: contract.prices,
+            pet_states: contract.pet_states,
+            item_prices: contract.item_prices,
+            battle_wager: contract.battle_wager,
+            battle_rake_bps: contract.battle_rake_bps,
+            total_distributed: contract.total_distributed,
+            total_spent: contract.total_spent,
+            sale_reserve: contract.sale_reserve,
+            faucet_amount: contract.faucet_amount,
+            mining_reward: contract.mining_reward,
+            listings: contract.listings,
+            next_listing_id: contract.next_listing_id,
+            market_rake_bps: contract.market_rake_bps,
+            paused: contract.paused,
+            oracle: contract.oracle.clone(),
+            auto_feed_spend: contract.auto_feed_spend,
+        });
+
+        let migrated = PetStake::migrate_graded_meals();
+        assert_eq!(migrated.total_weight, weight);
+        assert_eq!(migrated.get_account(alice()).unwrap().credit_balance.0, balance);
+        assert_eq!(migrated.get_account(alice()).unwrap().auto_feed_budget.0, budget);
+        // The new map starts empty, which is right: nothing could grade a
+        // meal before there was somewhere to record it.
+        assert!(!migrated.meal_was_graded("anything".into()));
+    }
+
+    #[test]
+    #[should_panic(expected = "already earned its XP")]
+    fn a_meal_pays_xp_once() {
+        // The oracle grades a meal from a hash it is handed, and a hash can
+        // be handed to it twice. Without this one bought meal is a tap.
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
+        testing_env!(ctx(oracle(), 0).build());
+        let _ = contract.award_feed_xp(1, 20, "same-tx".into());
+        let _ = contract.award_feed_xp(1, 20, "same-tx".into());
+    }
+
+    #[test]
+    fn a_different_meal_still_pays() {
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
+        testing_env!(ctx(oracle(), 0).build());
+        let _ = contract.award_feed_xp(1, 20, "tx-a".into());
+        let _ = contract.award_feed_xp(1, 20, "tx-b".into());
+        assert!(contract.meal_was_graded("tx-a".into()));
+        assert!(contract.meal_was_graded("tx-b".into()));
+        assert!(!contract.meal_was_graded("tx-c".into()));
+    }
+
     #[test]
     fn migrating_from_the_oracle_layout_keeps_every_number() {
         let mut contract = deploy();

@@ -33,7 +33,7 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
-  import { canAfford, feedPet } from './actions';
+  import { aiMeal, canAfford, feedPet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { clearThread, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
@@ -208,6 +208,35 @@
   const net = () => pet.chain.network;
 
   const feed = () => act('feed', () => feedPet(net(), pet.petId, account), 'Fed.');
+
+  /**
+   * The AI meal, which is the only thing that earns XP.
+   *
+   * The grade arrives after the purchase and can fail on its own, so the
+   * note says which happened. "Fed, no XP" is a true and useful sentence;
+   * silence after a charge is not.
+   */
+  const SITE = () => localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
+
+  function eatAi() {
+    void act(
+      'ai',
+      async () => {
+        const graded = await aiMeal(
+          net(),
+          pet.petId,
+          account,
+          session?.accountId ?? '',
+          SITE()
+        );
+        note =
+          graded.xp !== null
+            ? `Fed. ${pet.displayName} earned ${graded.xp} XP.`
+            : `Fed, but no XP: ${graded.why ?? 'the grader did not answer'}.`;
+      },
+      ''
+    );
+  }
 
   /**
    * Hand the pet's survival to the oracle, or take it back.
@@ -863,21 +892,18 @@
           'Food, shields and revival, paid in NEAR'
         )}
         <!--
-          Off until something runs the oracle.
-          `spend_credits("ai_feed")` charges, burns a Focus Lens, rolls for a
-          drop and logs the meal for the oracle to turn into XP. No oracle
-          runs, so the XP never arrives. What is left is a 3.6% chance of a
-          Tonic worth 0.01 for 0.002 — and a Lens, bought for 0.02, spent on
-          a bonus that cannot be delivered. A pet with nothing staked does
-          not even get the roll: `drop_odds` returns zero at zero weight.
+          The only thing that earns XP. It costs less than a real meal and
+          moves no part of the hunger clock: the grade is the product.
         -->
         {@render tile(
           'AI meal',
           '/assets/items/food.png',
-          feed,
-          true,
-          'Off: this earns XP through the feed oracle, and nothing runs one yet. ' +
-            'It would charge credits and spend a Focus Lens for nothing.'
+          eatAi,
+          busy !== null || !canFeed,
+          canFeed
+            ? `${ACTION_PRICE.ai_feed} credits — earns XP, does not feed`
+            : 'Not enough credits',
+          busy === 'ai' ? '…' : undefined
         )}
         {@render tile(
           'Claim',

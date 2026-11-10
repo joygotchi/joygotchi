@@ -51,6 +51,21 @@ export const variables = defineEnvVars({
     schema: withDefault('https://cloud-api.near.ai/v1'),
     description: 'NEAR AI Cloud base URL.'
   },
+  ORACLE_ACCOUNT: {
+    schema: optional(),
+    description:
+      'The account that may call `award_feed_xp`, which the staking contract names as its ' +
+      'oracle. Empty disables grading: a meal is still bought and still feeds, it just earns ' +
+      'no XP.'
+  },
+  ORACLE_KEY: {
+    schema: optional(),
+    description:
+      "That account's secret key, scoped by a function-call access key to `award_feed_xp` " +
+      'alone. It can mint XP up to the contract\'s own cap and do nothing else — no NEAR, no ' +
+      'pet, no credits.'
+  },
+
   NEAR_AI_MODEL: {
     schema: withDefault('google/gemini-3.1-flash-lite'),
     description:
