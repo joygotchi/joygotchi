@@ -259,6 +259,17 @@ export type ShopItem = {
   is_revival: boolean;
 };
 
+/**
+ * The credit shop's prices, as the staking contract holds them.
+ *
+ * `get_shop` on the game contract is the other one, priced in NEAR. Both
+ * sold overlapping things in different currencies, which is the duplication
+ * the app stopped showing: a player earns credits by staking and should not
+ * need a second token to spend them beside.
+ */
+export const getCreditItems = (network: string, stakeContract: string) =>
+  viewFunction<Array<[number, string]>>(network, stakeContract, 'get_items', {});
+
 export const getShop = (network: string, gameContract: string) =>
   viewFunction<ShopItem[]>(network, gameContract, 'get_shop', {});
 

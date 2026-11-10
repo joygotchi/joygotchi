@@ -459,7 +459,7 @@
             disabled={!canFeed}
             onclick={quickFeed}
             title={canAfford(account)
-              ? `Feed ${active.displayName} · ${ACTION_PRICE.ai_feed} credits`
+              ? `Feed ${active.displayName} · ${ACTION_PRICE.feed} credits`
               : 'Not enough credits to feed'}
           >
             <img class="jg-px" alt="Feed" src="/assets/items/beef.png" />

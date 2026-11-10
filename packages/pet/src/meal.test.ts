@@ -4,7 +4,7 @@ import { FEED_BANDS, MAX_FEED_XP, MIN_FEED_XP, feedXp, mealFrom, type TxStatus }
 const STAKE = 'jg-stake-5656.testnet';
 const WHO = 'alice.testnet';
 
-const event = (data: Record<string, unknown>, name = 'credit_spent') =>
+const event = (data: Record<string, unknown>, name = 'pet_fed') =>
   `EVENT_JSON:${JSON.stringify({
     standard: 'joygotchi',
     version: '1.0.0',
@@ -21,7 +21,6 @@ const tx = (logs: string[], over: Partial<TxStatus> = {}): TxStatus => ({
 const meal = (over: Record<string, unknown> = {}) =>
   event({
     account_id: WHO,
-    action: 'ai_feed',
     pet_id: 6,
     amount: '2000',
     lens_applied: false,
@@ -68,7 +67,7 @@ describe('mealFrom', () => {
   });
 
   it('ignores an event for a different action', () => {
-    const found = mealFrom(tx([meal({ action: 'train' })]), {
+    const found = mealFrom(tx([event({ account_id: WHO, pet_id: 6 }, 'credits_claimed')]), {
       stakeContract: STAKE,
       accountId: WHO
     });
@@ -93,7 +92,7 @@ describe('mealFrom', () => {
 
   it('says so when the transaction bought no meal', () => {
     const found = mealFrom(tx([]), { stakeContract: STAKE, accountId: WHO });
-    expect(found).toEqual({ ok: false, why: 'no AI meal in that transaction' });
+    expect(found).toEqual({ ok: false, why: 'no meal in that transaction' });
   });
 });
 

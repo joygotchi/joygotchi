@@ -503,6 +503,57 @@ impl Game {
         true
     }
 
+    /// Bring a starved pet back, paid for in credits on the staking contract.
+    ///
+    /// Holy Water did this for NEAR and still can. This exists so that
+    /// credits are the one currency a player needs: the item shop and the
+    /// AI-credit balance were two ways to buy overlapping things, and the
+    /// shop's prices are in a token nobody earns by playing.
+    ///
+    /// Same shape as `feed_from_stake` on purpose — caller-gated, and every
+    /// refusal comes back as `false` rather than a panic so the staking
+    /// contract can refund rather than lose the player's credits in a failed
+    /// receipt.
+    pub fn revive_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool {
+        require!(
+            env::predecessor_account_id() == self.stake_contract
+                || env::predecessor_account_id() == self.owner_id,
+            "Only the staking contract can revive a pet for its owner"
+        );
+
+        let Some(mut pet) = self.pets.get(&pet_id) else {
+            env::log_str("No such pet");
+            return false;
+        };
+        if pet.owner_id != owner_id {
+            env::log_str("That pet belongs to someone else");
+            return false;
+        }
+
+        let now = env::block_timestamp();
+        // Reviving a living pet would charge for nothing. Feeding is the call
+        // for that, and it is cheaper.
+        if pet.is_alive(now) {
+            env::log_str("This pet has not starved — feed it instead");
+            return false;
+        }
+
+        pet.starves_at = now + REVIVE_SECONDS * NANOS_PER_SECOND;
+        self.pets.insert(&pet_id, &pet);
+
+        self.log_event(
+            "pet_revived",
+            json!({
+                "pet_id": pet_id,
+                "owner_id": owner_id,
+                "seconds": REVIVE_SECONDS,
+                "starves_at": U64(pet.starves_at),
+            }),
+        );
+
+        true
+    }
+
     /// Add XP and level up as far as it goes. Returns whether the level moved.
     fn grant_xp(&self, pet: &mut Pet, xp: u32) -> bool {
         if xp == 0 {
@@ -1582,6 +1633,69 @@ mod tests {
         contract.buy_item(pet_id, 4); // Holy Water
 
         assert!(contract.is_pet_alive(pet_id));
+    }
+
+    #[test]
+    fn credits_revive_a_starved_pet() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        let at = 100 + STARVE_SECONDS + 1;
+        testing_env!(ctx(stake(), at, 0).build());
+        assert!(contract.revive_from_stake(pet_id, alice()));
+        assert!(contract.is_pet_alive(pet_id));
+    }
+
+    #[test]
+    fn a_revival_buys_a_full_meal_of_time() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        let at = 100 + STARVE_SECONDS + 1;
+        testing_env!(ctx(stake(), at, 0).build());
+        contract.revive_from_stake(pet_id, alice());
+
+        // Twelve hours, not Holy Water's three: a pet revived with three
+        // hours left dies again before most people look at it.
+        let pet = contract.get_pet(pet_id).unwrap();
+        assert_eq!(pet.starves_at.0, (at + REVIVE_SECONDS) * NANOS_PER_SECOND);
+    }
+
+    #[test]
+    fn reviving_a_living_pet_is_refused_rather_than_charged() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        testing_env!(ctx(stake(), 200, 0).build());
+        assert!(!contract.revive_from_stake(pet_id, alice()));
+    }
+
+    #[test]
+    fn a_revival_refuses_somebody_elses_pet() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        let at = 100 + STARVE_SECONDS + 1;
+        testing_env!(ctx(stake(), at, 0).build());
+        assert!(!contract.revive_from_stake(pet_id, bob()));
+    }
+
+    #[test]
+    fn a_revival_refuses_a_pet_that_does_not_exist() {
+        let mut contract = deploy();
+        testing_env!(ctx(stake(), 200, 0).build());
+        assert!(!contract.revive_from_stake(999, alice()));
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the staking contract")]
+    fn nobody_else_may_revive() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        let at = 100 + STARVE_SECONDS + 1;
+        testing_env!(ctx(alice(), at, 0).build());
+        contract.revive_from_stake(pet_id, alice());
     }
 
     #[test]

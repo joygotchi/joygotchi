@@ -6,10 +6,23 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `8ozFwCvfMRn4vakW6bpETHXdJwaniAzYEu5BkRGRzSWL` |
-| `jg-stake-5656.testnet` | `Gd4A7eMoyVtrZ6s6PEYXMhHPABXEUXPgq5ydNWzfKRqC` |
+| `jg-game-5656.testnet` | `3Vt83sgUhhi4dLBeaop1wo7fai7Nn8csUhcfhMntZo7s` |
+| `jg-stake-5656.testnet` | `6qpqe8fkZe6Jkg5dai2JHm1bQmWtVnQCDabfJdoxi32C` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
+
+Both were redeployed on 2026-11-10 to move the game onto one currency: credits
+revive a pet (`revive_pet` → `revive_from_stake`), feeding spends the Focus
+Lens and rolls for drops, and `spend_credits` refuses an action that has a
+call of its own. The previous pair was
+`8ozFwCvfMRn4vakW6bpETHXdJwaniAzYEu5BkRGRzSWL` (game) and
+`Gd4A7eMoyVtrZ6s6PEYXMhHPABXEUXPgq5ydNWzfKRqC` (stake), at block 277052299.
+
+That deploy added only methods, constants and event fields — no field was
+added to any stored struct, which is why it went out `without-init-call` and
+kept its state. `get_staked_pets` was read immediately afterwards and still
+returns `attrs` and `staked_at` correctly, which is the check the section
+below exists for.
 
 ## Why this file exists
 

@@ -80,12 +80,16 @@ export const itemName = (id: number) => ITEMS[id as ItemId]?.name ?? `Item ${id}
 export const ACTION_PRICE = {
   /** A real meal: twelve hours on the clock, charged in credits. */
   feed: 0.015,
-  ai_feed: 0.002,
+  /**
+   * Bringing a starved pet back, which used to be Holy Water at 0.5 NEAR.
+   * Five meals, the same ratio Holy Water had against Beef — so the decision
+   * keeps its shape now that there is only one currency to make it in.
+   */
+  revive: 0.075,
   train: 0.008,
   evolve: 0.5,
   craft_item: 0.02,
   chat: 0.001,
-  revive: 1,
   auto_feed: 0.015
 } as const;
 
@@ -185,7 +189,12 @@ export const STAKE_METHODS = [
   // Setting your own auto-feed budget takes no deposit, so the app can sign
   // it. Turning the pet's survival over to the oracle should not need a trip
   // through a browser — the point of it is to stop needing you at all.
-  'set_auto_feed_budget'
+  'set_auto_feed_budget',
+  // Coming back from starvation, priced in credits. Holy Water does the same
+  // thing for NEAR through the payable shop, which no session key can reach,
+  // so losing a pet used to mean a browser round trip and a token the player
+  // never earned by playing. This one takes no deposit.
+  'revive_pet'
 ] as const;
 
 /**

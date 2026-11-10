@@ -6,7 +6,10 @@ const STAKE = 'jg-stake-5656.testnet';
 const GAME = 'jg-game-5656.testnet';
 const OWNER = 'kurodenjiro2.testnet';
 
-/** A transaction shaped like the real one that bought pet 8 its meal. */
+/**
+ * A transaction shaped like a real feed: `feed_pet` to the staking contract,
+ * and the `pet_fed` event its callback writes once the game has accepted.
+ */
 const meal = (over: Record<string, unknown> = {}) => ({
   transaction: { signer_id: OWNER, receiver_id: STAKE },
   receipts_outcome: [
@@ -17,11 +20,10 @@ const meal = (over: Record<string, unknown> = {}) => ({
           'EVENT_JSON:' +
             JSON.stringify({
               standard: 'joygotchi',
-              event: 'credit_spent',
+              event: 'pet_fed',
               data: [
                 {
                   account_id: OWNER,
-                  action: 'ai_feed',
                   pet_id: 8,
                   amount: 2000,
                   lens_applied: false,

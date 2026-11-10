@@ -74,6 +74,11 @@ trait Game {
     /// false, rather than panicking, when the pet is gone, belongs to someone
     /// else, or has already starved.
     fn feed_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool;
+
+    /// Bring a starved pet back, paid for here in credits. Same contract as
+    /// `feed_from_stake`: caller-gated there, and every refusal is `false`
+    /// rather than a panic so this side can refund.
+    fn revive_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool;
 }
 
 #[ext_contract(ext_self)]
@@ -82,7 +87,12 @@ trait SelfCallbacks {
     fn on_pet_attrs(&mut self, pet_id: u64, account_id: AccountId) -> bool;
     fn on_auto_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
     fn on_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
+    fn on_revived(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
 }
+
+/// Priced actions that `spend_credits` must never charge for, because they
+/// have a call of their own that actually does the thing.
+const OWN_PATH_ACTIONS: [&str; 2] = ["feed", "revive"];
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
@@ -206,8 +216,7 @@ impl PetStake {
 
         // Keep these in step with src/lib/economy/params.ts.
         for (action, credits) in [
-            ("ai_feed", 2_000u128),
-            ("train", 8_000),
+            ("train", 8_000u128),
             ("evolve", 500_000),
             ("craft_item", 20_000),
             ("chat", 1_000),
@@ -215,6 +224,10 @@ impl PetStake {
             // Same meal as auto-feed, bought by the player rather than the
             // oracle, so it costs the same.
             ("feed", 15_000),
+            // Five meals, which is what Holy Water cost against Beef in NEAR.
+            // Keeping the ratio keeps the decision the same shape now that
+            // the currency has changed.
+            ("revive", 75_000),
         ] {
             contract.prices.insert(&action.to_string(), &credits);
         }
@@ -505,9 +518,22 @@ impl PetStake {
     /// transaction, but the contract charges its own configured price — the
     /// backend reads this call to decide whether to run NEAR AI inference, so
     /// the price must not be something the client can talk down.
+    ///
+    /// Actions with an entry point of their own are refused. This method
+    /// debits a price and returns; whatever the action *means* has to happen
+    /// elsewhere, and for `feed` and `revive` that elsewhere is a call to the
+    /// game contract through `feed_pet` and `revive_pet`. Charging for them
+    /// here would take credits and move nothing — the same charged-for-
+    /// nothing fault that retired the first revive sink, and `feed` has had
+    /// it since the day it was priced.
     pub fn spend_credits(&mut self, action: String, pet_id: Option<u64>, amount: U128) -> U128 {
         self.assert_running();
         self.update_pool();
+
+        require!(
+            !OWN_PATH_ACTIONS.contains(&action.as_str()),
+            "That action has its own call — use feed_pet or revive_pet"
+        );
 
         let price = self.prices.get(&action).expect("Unknown action");
         require!(
@@ -528,24 +554,16 @@ impl PetStake {
         self.accounts.insert(&account_id, &account);
         self.total_spent += price;
 
-        // A Focus Lens is consumed here, and whether it applied goes into the
-        // event: the backend reads this transaction's logs to decide the XP
-        // multiplier, so the bonus cannot be claimed by a client that merely
-        // says it has one.
-        let mut lens_applied = false;
-        if action == "ai_feed" {
-            if let Some(id) = pet_id {
-                let mut state = self.pet_state_or_default(id);
-                if state.lens_feeds_left > 0 {
-                    state.lens_feeds_left -= 1;
-                    lens_applied = true;
-                    self.pet_states.insert(&id, &state);
-                }
-            }
-        }
+        /*
+         * The Focus Lens moved to `on_fed`, with the feed it belongs to. It
+         * was spent here, by `ai_feed` — a purchase that recorded a meal and
+         * never moved the hunger clock — so the item promising "bonus XP on
+         * your next ten feeds" was never touched by the call that feeds.
+         */
+        let lens_applied = false;
 
         // Doing things with your pet is what turns something up.
-        let dropped = if matches!(action.as_str(), "ai_feed" | "train" | "craft_item") {
+        let dropped = if matches!(action.as_str(), "train" | "craft_item") {
             let mut account = self.account_or_default(&account_id);
             let dropped = self.roll_drop(&account_id, &mut account, action.len() as u8);
             if dropped.is_some() {
@@ -1600,6 +1618,79 @@ impl PetStake {
             )
     }
 
+    /// Bring a starved pet back, paid for in credits.
+    ///
+    /// The same shape as `feed_pet`, and for the same reason: the deadline
+    /// lives on the game contract, the credits live here, and a cross-
+    /// contract call can fail — so the charge is taken now and given back in
+    /// the callback if the game refuses.
+    ///
+    /// This replaced Holy Water as the ordinary way back. Holy Water still
+    /// works and still costs NEAR; what changed is that a player who has
+    /// never bought NEAR can now recover a pet with credits they earned by
+    /// staking, which is the one currency this game asks anyone to understand.
+    pub fn revive_pet(&mut self, pet_id: u64) -> Promise {
+        self.assert_running();
+        self.update_pool();
+
+        let account_id = env::predecessor_account_id();
+        let price = self
+            .prices
+            .get(&"revive".to_string())
+            .expect("Reviving has no price set");
+
+        let mut account = self.account_or_default(&account_id);
+        self.harvest(&mut account);
+        require!(
+            account.credit_balance >= price,
+            "Not enough credits — claim or earn some first"
+        );
+
+        account.credit_balance -= price;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent += price;
+
+        // The game checks the pet is this account's, and refuses one that is
+        // still alive. Both answers come back as `false`, and the credits go
+        // back.
+        ext_game::ext(self.game_contract.clone())
+            .with_static_gas(GAS_FOR_FEED)
+            .revive_from_stake(pet_id, account_id.clone())
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_RESOLVE)
+                    .on_revived(account_id, pet_id, U128(price)),
+            )
+    }
+
+    #[private]
+    pub fn on_revived(
+        &mut self,
+        account_id: AccountId,
+        pet_id: u64,
+        price: U128,
+        #[callback_result] result: Result<bool, PromiseError>,
+    ) -> bool {
+        if matches!(result, Ok(true)) {
+            self.log_event(
+                "pet_revived",
+                json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+            );
+            return true;
+        }
+
+        let mut account = self.account_or_default(&account_id);
+        account.credit_balance += price.0;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent = self.total_spent.saturating_sub(price.0);
+
+        self.log_event(
+            "revive_refunded",
+            json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+        );
+        false
+    }
+
     #[private]
     pub fn on_fed(
         &mut self,
@@ -1609,9 +1700,43 @@ impl PetStake {
         #[callback_result] result: Result<bool, PromiseError>,
     ) -> bool {
         if matches!(result, Ok(true)) {
+            /*
+             * The Focus Lens and the drop roll used to hang off
+             * `spend_credits("ai_feed")`, which meant the lens promised
+             * "bonus XP on your next ten feeds" and was never spent by the
+             * call that actually feeds. Both belong to a meal that happened.
+             *
+             * Here rather than in `feed_pet` on purpose: this runs only when
+             * the game accepted the feed, so there is no lens to give back
+             * and no drop to take away when it refuses.
+             */
+            let mut lens_applied = false;
+            let mut state = self.pet_state_or_default(pet_id);
+            if state.lens_feeds_left > 0 {
+                state.lens_feeds_left -= 1;
+                lens_applied = true;
+                self.pet_states.insert(&pet_id, &state);
+            }
+
+            // Doing things with your pet is what turns something up, and
+            // feeding is the thing people actually do.
+            let mut account = self.account_or_default(&account_id);
+            let dropped = self.roll_drop(&account_id, &mut account, b'f');
+            if dropped.is_some() {
+                self.accounts.insert(&account_id, &account);
+            }
+
             self.log_event(
                 "pet_fed",
-                json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+                json!({
+                    "account_id": account_id,
+                    "pet_id": pet_id,
+                    "amount": price,
+                    // Read by whoever awards the XP, so the multiplier cannot
+                    // be claimed by a client that merely says it has a lens.
+                    "lens_applied": lens_applied,
+                    "dropped": dropped,
+                }),
             );
             return true;
         }
@@ -2026,6 +2151,76 @@ mod tests {
     }
 
     #[test]
+    fn a_refused_revival_gives_the_credits_back() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        let before = contract.get_account(alice()).unwrap().credit_balance.0;
+        testing_env!(ctx(alice(), 100).build());
+        contract.revive_pet(1);
+
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+        assert_eq!(before - charged, 75_000, "five meals, as Holy Water was five Beef");
+
+        // The game refuses a pet that is not dead, or not theirs.
+        contract.on_revived(alice(), 1, U128(75_000), Ok(false));
+        assert_eq!(
+            contract.get_account(alice()).unwrap().credit_balance.0,
+            before,
+            "a refused revival is a free one"
+        );
+    }
+
+    #[test]
+    fn a_revival_the_game_accepted_stays_paid_for() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        testing_env!(ctx(alice(), 100).build());
+        contract.revive_pet(1);
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+
+        contract.on_revived(alice(), 1, U128(75_000), Ok(true));
+        assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, charged);
+    }
+
+    #[test]
+    fn a_failed_revival_receipt_refunds_like_a_refusal() {
+        // A promise that failed outright, rather than a game that said no.
+        // Both have to give the credits back; only one is the game's answer.
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        let before = contract.get_account(alice()).unwrap().credit_balance.0;
+        testing_env!(ctx(alice(), 100).build());
+        contract.revive_pet(1);
+        contract.on_revived(alice(), 1, U128(75_000), Err(PromiseError::Failed));
+
+        assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, before);
+    }
+
+    #[test]
+    #[should_panic(expected = "Not enough credits")]
+    fn reviving_without_credits_never_reaches_the_game() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 100).build());
+        contract.revive_pet(1);
+    }
+
+    #[test]
+    fn a_revival_refund_does_not_leave_total_spent_inflated() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        let before = contract.get_pool().total_spent.0;
+        testing_env!(ctx(alice(), 100).build());
+        contract.revive_pet(1);
+        contract.on_revived(alice(), 1, U128(75_000), Ok(false));
+
+        assert_eq!(contract.get_pool().total_spent.0, before);
+    }
+
+    #[test]
     fn a_meal_the_game_accepted_stays_paid_for() {
         let mut contract = deploy();
         fund_alice(&mut contract);
@@ -2101,12 +2296,12 @@ mod tests {
         let claimed = contract.claim_credits().0;
         assert!(claimed > 0);
 
-        let spent = contract.spend_credits("ai_feed".to_string(), Some(1), U128(2_000)).0;
-        assert_eq!(spent, 2_000);
+        let spent = contract.spend_credits("chat".to_string(), Some(1), U128(1_000)).0;
+        assert_eq!(spent, 1_000);
 
         let view = contract.get_account(alice()).unwrap();
-        assert_eq!(view.credit_balance.0, claimed - 2_000);
-        assert_eq!(contract.get_pool().total_spent.0, 2_000);
+        assert_eq!(view.credit_balance.0, claimed - 1_000);
+        assert_eq!(contract.get_pool().total_spent.0, 1_000);
     }
 
     #[test]
@@ -2114,7 +2309,7 @@ mod tests {
     fn cannot_spend_what_you_do_not_have() {
         let mut contract = deploy();
         testing_env!(ctx(alice(), 10).build());
-        contract.spend_credits("ai_feed".to_string(), None, U128(2_000));
+        contract.spend_credits("chat".to_string(), None, U128(1_000));
     }
 
     #[test]
@@ -2231,12 +2426,12 @@ mod tests {
     // ── Credit sinks ─────────────────────────────────────────────────────────
 
     #[test]
-    #[should_panic(expected = "Unknown action")]
-    fn revive_is_not_a_sink() {
-        // It was priced at 1 credit and listed in the client, and no contract
-        // ever implemented it: `spend_credits("revive")` debited a balance and
-        // did nothing. Reviving a starved pet is the game contract's Holy
-        // Water, bought with NEAR, and always was.
+    #[should_panic(expected = "has its own call")]
+    fn revive_cannot_be_charged_through_spend_credits() {
+        // It was once priced at 1 credit with nothing implementing it, so
+        // `spend_credits("revive")` debited a balance and did nothing. It is
+        // a real sink now, through `revive_pet`, and this is the guard that
+        // keeps the old charge-for-nothing path from coming back with it.
         let mut contract = deploy();
         testing_env!(ctx(owner(), 0).build());
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
@@ -2244,6 +2439,20 @@ mod tests {
         testing_env!(ctx(alice(), EPOCH_SECONDS).build());
         contract.claim_credits();
         contract.spend_credits("revive".to_string(), Some(1), U128(ONE_CREDIT));
+    }
+
+    #[test]
+    #[should_panic(expected = "has its own call")]
+    fn feeding_cannot_be_charged_through_spend_credits_either() {
+        // `feed` has been priced since the day feeding moved here, and
+        // `spend_credits("feed")` would take the credits and move no clock.
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
+
+        testing_env!(ctx(alice(), EPOCH_SECONDS).build());
+        contract.claim_credits();
+        contract.spend_credits("feed".to_string(), Some(1), U128(ONE_CREDIT));
     }
 
     #[test]
@@ -2252,20 +2461,21 @@ mod tests {
         testing_env!(ctx(owner(), 0).build());
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
 
-        // A deployment that predates this still has the price in state, so
-        // stand one back up the only way state can be written.
-        contract.set_action_price("revive".to_string(), U128(ONE_CREDIT));
+        // `ai_feed` is the live case: deployments made before the AI meal was
+        // retired still carry its price in state, where a code deploy cannot
+        // reach it. Stand one back up the only way state can be written.
+        contract.set_action_price("ai_feed".to_string(), U128(ONE_CREDIT));
 
         testing_env!(ctx(alice(), EPOCH_SECONDS).build());
         contract.claim_credits();
         // Spendable again, which is the problem this call is for.
-        contract.spend_credits("revive".to_string(), Some(1), U128(ONE_CREDIT));
+        contract.spend_credits("ai_feed".to_string(), Some(1), U128(ONE_CREDIT));
 
         testing_env!(ctx(owner(), EPOCH_SECONDS).build());
-        assert!(contract.remove_action_price("revive".to_string()));
+        assert!(contract.remove_action_price("ai_feed".to_string()));
         // Idempotent: nothing left to remove the second time.
-        assert!(!contract.remove_action_price("revive".to_string()));
-        assert!(contract.get_action_price("revive".to_string()).is_none());
+        assert!(!contract.remove_action_price("ai_feed".to_string()));
+        assert!(contract.get_action_price("ai_feed".to_string()).is_none());
     }
 
     #[test]
@@ -2274,12 +2484,12 @@ mod tests {
         let mut contract = deploy();
         testing_env!(ctx(owner(), 0).build());
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
-        contract.set_action_price("revive".to_string(), U128(ONE_CREDIT));
-        contract.remove_action_price("revive".to_string());
+        contract.set_action_price("chat".to_string(), U128(ONE_CREDIT));
+        contract.remove_action_price("chat".to_string());
 
         testing_env!(ctx(alice(), EPOCH_SECONDS).build());
         contract.claim_credits();
-        contract.spend_credits("revive".to_string(), Some(1), U128(ONE_CREDIT));
+        contract.spend_credits("chat".to_string(), Some(1), U128(ONE_CREDIT));
     }
 
     #[test]
@@ -2290,13 +2500,11 @@ mod tests {
         let mut contract = deploy();
         testing_env!(ctx(owner(), 0).build());
         contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
-        contract.set_action_price("revive".to_string(), U128(0));
+        contract.set_action_price("chat".to_string(), U128(0));
 
         testing_env!(ctx(alice(), EPOCH_SECONDS).build());
         assert_eq!(
-            contract
-                .spend_credits("revive".to_string(), Some(1), U128(0))
-                .0,
+            contract.spend_credits("chat".to_string(), Some(1), U128(0)).0,
             0
         );
     }
@@ -3391,13 +3599,17 @@ mod tests {
         contract.use_item(ITEM_LENS, 1);
         assert_eq!(contract.get_pet_state(1).lens_feeds_left, LENS_FEEDS);
 
+        // Through the feed callback, which is where the lens is spent now.
+        // `ai_feed` used to do it, and that purchase never fed anything — so
+        // the item promising bonus XP on your next ten feeds was untouched by
+        // feeding.
         for _ in 0..LENS_FEEDS {
-            contract.spend_credits("ai_feed".to_string(), Some(1), U128(2_000));
+            contract.on_fed(alice(), 1, U128(15_000), Ok(true));
         }
         assert_eq!(contract.get_pet_state(1).lens_feeds_left, 0);
 
         // Feeding past the lens must not underflow the counter.
-        contract.spend_credits("ai_feed".to_string(), Some(1), U128(2_000));
+        contract.on_fed(alice(), 1, U128(15_000), Ok(true));
         assert_eq!(contract.get_pet_state(1).lens_feeds_left, 0);
     }
 

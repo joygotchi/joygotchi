@@ -91,7 +91,7 @@ describe('credits', () => {
   });
 
   it('round trips a price through micro-credits', () => {
-    expect(toMicroCredits(ACTION_PRICE.ai_feed)).toBe('2000');
+    expect(toMicroCredits(ACTION_PRICE.revive)).toBe('75000');
     expect(formatCredits(toMicroCredits(0.5), 3)).toBe('0.5');
   });
 

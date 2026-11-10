@@ -12,6 +12,14 @@ pub const MAX_STARVE_SECONDS: u64 = 7 * 24 * 60 * 60;
 /// What one meal bought through the staking contract is worth.
 pub const AUTO_FEED_SECONDS: u64 = 12 * 60 * 60;
 
+/// What a credit revival puts back on the clock.
+///
+/// Twelve hours, the same as a meal, rather than Holy Water's three. A pet
+/// that comes back with three hours left has to be fed inside three hours or
+/// it dies again and the revival is wasted — and the whole point of paying in
+/// credits is that it is the routine way back, not an emergency.
+pub const REVIVE_SECONDS: u64 = 12 * 60 * 60;
+
 /// A pet cannot attack again until this has passed.
 pub const ATTACK_COOLDOWN_SECONDS: u64 = 60 * 60;
 /// A pet cannot be attacked again until this has passed.

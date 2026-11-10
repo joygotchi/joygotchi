@@ -1,9 +1,4 @@
-import {
-  ACTION_PRICE,
-  formatCredits,
-  toMicroCredits,
-  type StakeAccount
-} from '@joygotchi/pet';
+import { ACTION_PRICE, formatCredits, type StakeAccount } from '@joygotchi/pet';
 import { reactToGame, signAndSend } from './wallet.svelte';
 
 /**
@@ -71,80 +66,83 @@ export async function feedPet(
   network: string,
   petId: number,
   account: StakeAccount | null
-): Promise<void> {
-  if (!canAfford(account)) {
+): Promise<string> {
+  if (!canSpend(account, ACTION_PRICE.feed)) {
     throw new Error(`Feeding costs ${ACTION_PRICE.feed} credits, and there are not enough.`);
   }
+  await claimIfShort(network, account, ACTION_PRICE.feed);
 
-  const balance = Number(account ? formatCredits(account.credit_balance, 6) : 0);
-  const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
-
-  if (balance < ACTION_PRICE.feed && pending > 0) {
-    await signAndSend(network, 'claim_credits', {});
-  }
-
-  const { logs } = await signAndSend(network, 'feed_pet', { pet_id: petId });
+  const { hash, logs } = await signAndSend(network, 'feed_pet', { pet_id: petId });
 
   const refused = refusalIn(logs, 'feed_refunded');
   if (refused) throw new RefundedError(refused);
 
   reactToGame('fed');
+
+  // Returned so the caller can have the XP paid for this exact meal. The
+  // hash is the meal's identity on chain, and the contract pays each one
+  // once.
+  return hash;
 }
 
 /**
- * Whether a feed can go through at all — balance and claimable together,
+ * Whether an action can go through at all — balance and claimable together,
  * because the claim happens on the way.
  */
-export function canAfford(account: StakeAccount | null): boolean {
+export function canSpend(account: StakeAccount | null, price: number): boolean {
   if (!account) return false;
   const balance = Number(formatCredits(account.credit_balance, 6));
   const pending = Number(formatCredits(account.pending_credits, 6));
-  return balance + pending >= ACTION_PRICE.feed;
+  return balance + pending >= price;
+}
+
+/** Whether a feed can go through. The common case, kept for the callers. */
+export const canAfford = (account: StakeAccount | null) =>
+  canSpend(account, ACTION_PRICE.feed);
+
+/**
+ * Claim first when the balance alone will not cover the price.
+ *
+ * Earned credits sit in `pending` until `claim_credits` moves them, and the
+ * contract only ever spends the balance — so "not enough credits" while the
+ * window shows plenty is a thing that happens unless this runs first. Shared
+ * because feeding and reviving both need it, and two copies of this rule
+ * would be one copy away from an action that fails for a reason nobody can
+ * see.
+ */
+async function claimIfShort(
+  network: string,
+  account: StakeAccount | null,
+  price: number
+): Promise<void> {
+  const balance = Number(account ? formatCredits(account.credit_balance, 6) : 0);
+  const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
+  if (balance < price && pending > 0) {
+    await signAndSend(network, 'claim_credits', {});
+  }
 }
 
 /** Where the local feed oracle listens. Loopback, because it holds a key. */
 export const ORACLE_URL = 'http://127.0.0.1:8787';
 
 /**
- * Buy an AI meal and have it graded.
+ * Ask the local oracle to pay a feed's XP.
  *
- * Two steps on purpose, and in this order. `spend_credits` is the part that
- * costs something and the part the chain records; grading is a favour done
- * afterwards by a service that reads that record. If the grader is down the
- * meal still happened, the pet still earns its drop roll, and the XP is the
- * only thing missing — which is a far better failure than a meal that did
- * not happen because a server was unreachable.
+ * Separate from the feed, and in this order on purpose. `feed_pet` is the
+ * part that costs credits and the part the chain records; the XP is awarded
+ * afterwards by a process reading that record. If the oracle is not running
+ * the meal still happened, the pet still ate and still rolled for a drop,
+ * and the XP is the only thing missing — a far better failure than a meal
+ * that did not happen because a local service was down.
  *
- * The XP is asked of the local oracle rather than the web app, because
- * paying it means calling `award_feed_xp` and that key stays on this
- * machine. The oracle verifies this transaction and works the XP out from
- * the pet's hunger on chain — no model decides it. The line the pet says
- * about the meal is flavour that arrives with it, or does not.
+ * It goes to the oracle rather than the web app because paying means calling
+ * `award_feed_xp`, and that key stays on this machine.
  */
-export async function aiMeal(
-  network: string,
-  petId: number,
-  account: StakeAccount | null,
+export async function gradeFeed(
+  hash: string,
   accountId: string,
   oracle: string = ORACLE_URL
 ): Promise<{ xp: number | null; line?: string | null; why?: string }> {
-  const balance = Number(account ? formatCredits(account.credit_balance, 6) : 0);
-  const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
-  if (balance + pending < ACTION_PRICE.ai_feed) {
-    throw new Error(`An AI meal costs ${ACTION_PRICE.ai_feed} credits, and there are not enough.`);
-  }
-  if (balance < ACTION_PRICE.ai_feed && pending > 0) {
-    await signAndSend(network, 'claim_credits', {});
-  }
-
-  const { hash } = await signAndSend(network, 'spend_credits', {
-    action: 'ai_feed',
-    pet_id: petId,
-    amount: toMicroCredits(ACTION_PRICE.ai_feed)
-  });
-
-  reactToGame('fed');
-
   try {
     const response = await fetch(`${oracle}/grade`, {
       method: 'POST',
@@ -168,4 +166,31 @@ export async function aiMeal(
       why: 'The meal was bought, but the local feeder is not running, so it earned no XP yet.'
     };
   }
+}
+
+/**
+ * Bring a starved pet back, paid in credits.
+ *
+ * Holy Water does the same for NEAR through the game contract's shop, which
+ * is payable — so no session key can ever reach it, and losing a pet meant a
+ * browser round trip and a token nobody earns by playing. This signs here.
+ */
+export async function revivePet(
+  network: string,
+  petId: number,
+  account: StakeAccount | null
+): Promise<void> {
+  if (!canSpend(account, ACTION_PRICE.revive)) {
+    throw new Error(
+      `Reviving costs ${ACTION_PRICE.revive} credits, and there are not enough.`
+    );
+  }
+  await claimIfShort(network, account, ACTION_PRICE.revive);
+
+  const { logs } = await signAndSend(network, 'revive_pet', { pet_id: petId });
+
+  const refused = refusalIn(logs, 'revive_refunded');
+  if (refused) throw new RefundedError(refused);
+
+  reactToGame('fed');
 }

@@ -6,6 +6,7 @@
     formatCredits,
     ITEMS,
     itemName,
+    type ItemId,
     type PetStatus,
     type StakeAccount
   } from '@joygotchi/pet';
@@ -18,7 +19,7 @@
     accessoryContractFor,
     forgetReads,
     getAccessoryKinds,
-    getShop,
+    getCreditItems,
     isAttackable,
     miningAvailableAt,
     listPets,
@@ -26,13 +27,12 @@
     wornBy,
     type AccessoryKind,
     type ChainPetSummary,
-    type OwnedAccessory,
-    type ShopItem
+    type OwnedAccessory
   } from './chain';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
-  import { aiMeal, canAfford, feedPet } from './actions';
+  import { canAfford, canSpend, feedPet, gradeFeed, revivePet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { clearThread, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
@@ -173,8 +173,8 @@
       inventory = inv;
       miningAt = Number(minesAt) / 1e6;
       void loadTargets(current);
-      void getShop(pet.chain.network, pet.chain.contract)
-        .then((items) => (shop = items))
+      void getCreditItems(pet.chain.network, stake)
+        .then((items: Array<[number, string]>) => (shop = items))
         .catch(() => {});
       void loadAccessories(current);
     } catch (cause) {
@@ -206,31 +206,33 @@
 
   const net = () => pet.chain.network;
 
-  const feed = () => act('feed', () => feedPet(net(), pet.petId, account), 'Fed.');
-
   /**
-   * The AI meal, which is the only thing that earns XP.
+   * Feeding, which is now the only way to earn XP.
    *
-   * The grade arrives after the purchase and can fail on its own, so the
-   * note says which happened. "Fed, no XP" is a true and useful sentence;
-   * silence after a charge is not.
+   * It used to take two purchases: `feed_pet` moved the hunger clock and a
+   * separate "AI meal" bought the XP, the Focus Lens and the drop roll. One
+   * meal does all of it, so the note says what the pet got rather than which
+   * of two things you bought.
    */
-
-  function eatAi() {
+  function feed() {
     void act(
-      'ai',
+      'feed',
       async () => {
-        const graded = await aiMeal(net(), pet.petId, account, session?.accountId ?? '');
+        const hash = await feedPet(net(), pet.petId, account);
+        const graded = await gradeFeed(hash, session?.accountId ?? '');
         note =
           graded.xp !== null
             ? graded.line
               ? `+${graded.xp} XP — “${graded.line}”`
               : `Fed. ${pet.displayName} earned ${graded.xp} XP.`
-            : `Fed, but no XP: ${graded.why ?? 'the feeder did not answer'}.`;
+            : `Fed, but no XP yet: ${graded.why ?? 'the feeder did not answer'}.`;
       },
       ''
     );
   }
+
+  const revive = () =>
+    act('revive', () => revivePet(net(), pet.petId, account), `${pet.displayName} is back.`);
 
   /**
    * Hand the pet's survival to the oracle, or take it back.
@@ -357,27 +359,15 @@
   }
 
   /**
-   * The shop's art, by the contract's own item ids.
+   * The shop, in credits, as `[item_id, micro_credits]` from the contract.
    *
-   * These four sprites were drawn for this shop and had never reached the
-   * app — the only place in the product that can feed a pet was unreachable
-   * from it, so `Feed` charged credits and the starvation clock ran on.
+   * It used to be the game contract's NEAR shop, which sold food the credit
+   * balance can already buy and needed a browser round trip for every
+   * purchase, because `buy_item` is payable and no session key may attach a
+   * deposit. `buy_credit_item` takes none, so this signs in the app.
    */
-  const SHOP_ART: Record<number, string> = {
-    1: '/assets/items/beef.png',
-    2: '/assets/items/water.png',
-    3: '/assets/items/shield.png',
-    4: '/assets/items/holy_water.png'
-  };
-
-  let shop = $state<ShopItem[]>([]);
+  let shop = $state<Array<[number, string]>>([]);
   let showShop = $state(false);
-
-  /** NEAR, from yoctoNEAR, short enough for a 340px panel. */
-  const inNear = (yocto: string) => {
-    const n = Number(BigInt(yocto) / 10n ** 18n) / 1e6;
-    return n < 1 ? n.toFixed(2).replace(/0$/, '') : String(n);
-  };
 
   /** The drawn item for each id, so the bag reads as a bag. */
   const ITEM_ART: Record<number, string> = {
@@ -565,34 +555,24 @@
     </div>
   {:else if showShop}
     <div class="view">
-      <p class="lead" class:bad={starved}>
-        {#if starved}
-          {pet.displayName} has starved. Only a revival item brings it back —
-          the contract refuses everything else.
-        {:else}
-          Paid in NEAR, applied straight away. This is the only thing that moves
-          {pet.displayName}'s hunger.
-        {/if}
+      <p class="lead">
+        Paid in credits, and signed here. Feeding is what moves
+        {pet.displayName}'s hunger; these are everything else.
       </p>
       <ul class="grid jg-screen">
-        {#each shop as item (item.item_id)}
+        {#each shop as [id, price] (id)}
           <li class="card">
-            <img class="art jg-px" alt="" src={SHOP_ART[item.item_id] ?? '/assets/items/food.png'} />
-            <span class="title">{item.name}</span>
-            <span class="effect">
-              {#if item.time_extension}+{Math.round(item.time_extension / 3600)}h{/if}
-              {#if item.xp} +{item.xp}xp{/if}
-              {#if item.shield} +{item.shield} shield{/if}
-              {#if item.is_revival} revives{/if}
-            </span>
+            <img class="art jg-px" alt="" src={ITEM_ART[id] ?? '/assets/items/food.png'} />
+            <span class="title">{itemName(id)}</span>
+            <span class="effect">{ITEMS[id as ItemId]?.blurb ?? ''}</span>
             <button
               class="jg-btn primary buy"
-              disabled={walletAction.running !== null}
+              disabled={busy !== null || !canSpend(account, Number(formatCredits(price, 6)))}
               onclick={() =>
-                requestWalletAction('buy_item', pet.chain.contract, pet.petId, item.item_id)}
-              title="Opens your browser — paid in NEAR, so it needs a real signature"
+                act('shop', () => signAndSend(net(), 'buy_credit_item', { item_id: id, quantity: 1 }), `${itemName(id)} is in your bag.`)}
+              title={`${formatCredits(price, 6)} credits`}
             >
-              {inNear(item.price)} ↗
+              {formatCredits(price, 6)}
             </button>
           </li>
         {/each}
@@ -890,37 +870,20 @@
         {@render tile(
           starved ? 'Revive' : 'Feed',
           starved ? '/assets/items/holy_water.png' : '/assets/items/beef.png',
-          starved ? () => (showShop = true) : feed,
-          busy !== null || (!starved && (!feedSignsHere || !canFeed)),
-          starved
-            ? `${pet.displayName} has starved — only a revival item brings it back`
-            : !feedSignsHere
-              ? 'This session key was granted before feeding could be signed here — reconnect in Settings'
+          starved ? revive : feed,
+          busy !== null ||
+            !feedSignsHere ||
+            !canSpend(account, starved ? ACTION_PRICE.revive : ACTION_PRICE.feed),
+          !feedSignsHere
+            ? 'This session key was granted before this could be signed here — reconnect in Settings'
+            : starved
+              ? canSpend(account, ACTION_PRICE.revive)
+                ? `${ACTION_PRICE.revive} credits to bring ${pet.displayName} back`
+                : `Reviving costs ${ACTION_PRICE.revive} credits`
               : canFeed
-                ? `${ACTION_PRICE.feed} credits for 12 hours`
+                ? `${ACTION_PRICE.feed} credits for 12 hours, XP, and a roll for a drop`
                 : 'Not enough credits',
-          busy === 'feed' ? '…' : undefined
-        )}
-        {@render tile(
-          'Shop',
-          '/assets/items/water.png',
-          () => (showShop = true),
-          busy !== null,
-          'Food, shields and revival, paid in NEAR'
-        )}
-        <!--
-          The only thing that earns XP. It costs less than a real meal and
-          moves no part of the hunger clock: the grade is the product.
-        -->
-        {@render tile(
-          'AI meal',
-          '/assets/items/food.png',
-          eatAi,
-          busy !== null || !canFeed,
-          canFeed
-            ? `${ACTION_PRICE.ai_feed} credits — earns XP, does not feed`
-            : 'Not enough credits',
-          busy === 'ai' ? '…' : undefined
+          busy === 'feed' || busy === 'revive' ? '…' : undefined
         )}
         {@render tile(
           'Claim',

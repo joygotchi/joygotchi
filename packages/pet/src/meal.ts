@@ -1,16 +1,16 @@
 /**
- * Reading a meal out of the transaction that bought it.
+ * Reading a meal out of the transaction that fed the pet.
  *
- * The app hands this service a transaction hash and asks for XP. A hash is
- * not a claim to be trusted — it is a pointer at the chain, and the chain is
- * what gets read. Everything the grade depends on comes from the receipts:
- * which pet, whose account, whether a Focus Lens was burned.
+ * The app hands the oracle a transaction hash and asks for XP. A hash is not
+ * a claim to be trusted — it is a pointer at the chain, and the chain is what
+ * gets read. Which pet, whose account and whether a Focus Lens burned all
+ * come from the receipts.
  *
- * Shared, and read by two processes for two different reasons. The oracle
- * reads it because it holds the key: whoever signs has to be the one who
- * checked, or a verdict arriving over the network is just a claim again. The
- * web service reads it because grading costs model tokens, and an unverified
- * hash would buy those tokens for free.
+ * The event is `pet_fed`, written by the staking contract's own callback once
+ * the game contract has accepted the feed. It used to be
+ * `credit_spent{action:"ai_feed"}` — a separate purchase that recorded a meal
+ * and moved no hunger clock. Collapsing the two left one feed, and a feed
+ * that earns XP only when a pet actually ate.
  */
 
 export type Meal = {
@@ -35,7 +35,7 @@ const EVENT = 'EVENT_JSON:';
  * The meal a transaction bought, or why it bought none.
  *
  * `expect` is the staking contract this deployment uses. A transaction on
- * somebody else's contract can carry a perfectly well-formed `credit_spent`
+ * somebody else's contract can carry a perfectly well-formed `pet_fed`
  * event, and paying XP for it would mean anyone could mint XP by deploying
  * their own copy.
  */
@@ -67,10 +67,10 @@ export function mealFrom(
       } catch {
         continue;
       }
-      if (event.standard !== 'joygotchi' || event.event !== 'credit_spent') continue;
+      if (event.standard !== 'joygotchi' || event.event !== 'pet_fed') continue;
 
       const data = event.data?.[0];
-      if (!data || data.action !== 'ai_feed') continue;
+      if (!data) continue;
       if (data.account_id !== expect.accountId) continue;
 
       const petId = Number(data.pet_id);
@@ -90,7 +90,7 @@ export function mealFrom(
     }
   }
 
-  return { ok: false, why: 'no AI meal in that transaction' };
+  return { ok: false, why: 'no meal in that transaction' };
 }
 
 /** The contract's own ceiling, mirrored so a grade is clamped before it is sent. */
