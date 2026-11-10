@@ -1050,7 +1050,17 @@
               : canSpend(account, ACTION_PRICE.evolve)
                 ? `${ACTION_PRICE.evolve} credits for phase ${phase + 1}`
                 : `Evolving costs ${ACTION_PRICE.evolve} credits`,
-          busy === 'evolve' ? '…' : undefined
+          /*
+           * The label carries the gate. Greyed out with the reason only in a
+           * tooltip reads as broken — and this one takes twenty-six battles
+           * to clear, which is a long time to wonder whether the button
+           * works.
+           */
+          busy === 'evolve'
+            ? '…'
+            : needsLevel !== null && !canEvolve
+              ? `Evolve · lv ${needsLevel}`
+              : undefined
         )}
         {@render tile(
           'Claim',
