@@ -81,9 +81,16 @@ vocabulary at the same time, so feeding a pet on the web makes the desktop pet
 react.
 
 ### 2. The rest of the contract surface
-`attack` (battles), `list_pet` / `buy_pet` (the NEAR pet market), `list_item` /
-`buy_listing` (the credit item market), `evolve`. All deployed, all tested, none
-reachable from the app.
+`list_pet` / `buy_pet` (the NEAR pet market), `list_item` / `buy_listing` (the
+credit item market), `evolve`. All deployed, all tested, none reachable from
+the app.
+
+`attack` came off this list on 2026-11-10, and how it came off is the warning
+for the rest of it. It was reachable — there was a button, a roster and a
+battle scene — and it still could not happen: a staked pet was refused a
+fight, staking is the only way to earn credits, so of eight pets exactly one
+was ever eligible and a fight needs two. Reachable is not the same as
+possible, and nothing in the app said which one was missing.
 
 ### 3. ~~Feed actually raising XP~~ — done
 `spend_credits` records the meal and `award_feed_xp` writes the XP, gated to an
@@ -140,7 +147,8 @@ until that becomes stored state. Still the largest item.
   the pet, the account and the lens all come from the receipts. The signing
   sits with the oracle rather than the web app, so no key that writes to the
   contract has to live on a rented host.
-- **The desktop app installs no agent hooks.** Settings documents a `curl`; the
-  one-click-per-agent install that makes the pet react while you work is not
-  written.
+- **~~The desktop app installs no agent hooks.~~** Done. Settings writes them
+  into the agent's own settings and repairs a stale install in place. The
+  server logs what it receives, which is how you tell a hook that never fired
+  from one that fired into a window that ignored it.
 - **No signed desktop release.** It builds from source only.
