@@ -34,6 +34,12 @@
     <string>__NETWORK__</string>
     <key>POLL_SECONDS</key>
     <string>300</string>
+    <!-- The loopback port the app posts meal hashes to. -->
+    <key>ORACLE_PORT</key>
+    <string>8787</string>
+    <!-- Asked for a grade; it holds the model key, this holds the NEAR key. -->
+    <key>SITE</key>
+    <string>__SITE__</string>
     <!-- launchd starts with almost no PATH; near-api-js needs none, but
          anything shelling out would. -->
     <key>PATH</key>

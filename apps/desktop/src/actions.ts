@@ -54,6 +54,9 @@ export function canAfford(account: StakeAccount | null): boolean {
   return balance + pending >= ACTION_PRICE.feed;
 }
 
+/** Where the local feed oracle listens. Loopback, because it holds a key. */
+export const ORACLE_URL = 'http://127.0.0.1:8787';
+
 /**
  * Buy an AI meal and have it graded.
  *
@@ -63,13 +66,18 @@ export function canAfford(account: StakeAccount | null): boolean {
  * meal still happened, the pet still earns its drop roll, and the XP is the
  * only thing missing — which is a far better failure than a meal that did
  * not happen because a server was unreachable.
+ *
+ * The grade is asked of the local oracle rather than the web app, because
+ * paying the XP means calling `award_feed_xp`, and that key stays on this
+ * machine. The oracle verifies this transaction itself and asks the web app
+ * only for the number.
  */
 export async function aiMeal(
   network: string,
   petId: number,
   account: StakeAccount | null,
   accountId: string,
-  site: string
+  oracle: string = ORACLE_URL
 ): Promise<{ xp: number | null; why?: string }> {
   const balance = Number(account ? formatCredits(account.credit_balance, 6) : 0);
   const pending = Number(account ? formatCredits(account.pending_credits, 6) : 0);
@@ -89,14 +97,22 @@ export async function aiMeal(
   reactToGame('fed');
 
   try {
-    const response = await fetch(`${site}/api/ai/grade`, {
+    const response = await fetch(`${oracle}/grade`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ txHash: hash, accountId })
     });
     const body = (await response.json()) as { xp?: number; error?: string };
     return { xp: typeof body.xp === 'number' ? body.xp : null, why: body.error };
-  } catch (cause) {
-    return { xp: null, why: cause instanceof Error ? cause.message : String(cause) };
+  } catch {
+    /*
+     * Unreachable means the oracle is not running on this machine. Saying
+     * "fetch failed" would send someone looking at their network; the meal
+     * itself went through, so this names the one thing that did not.
+     */
+    return {
+      xp: null,
+      why: 'The meal was bought, but the local feeder is not running, so it earned no XP yet.'
+    };
   }
 }

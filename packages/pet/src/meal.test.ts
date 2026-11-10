@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAX_FEED_XP, mealFrom, xpFrom, type TxStatus } from './meal';
+import { MAX_FEED_XP, mealFrom, xpFrom, type TxStatus } from './meal.js';
 
 const STAKE = 'jg-stake-5656.testnet';
 const WHO = 'alice.testnet';

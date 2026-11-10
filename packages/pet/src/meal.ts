@@ -6,8 +6,11 @@
  * what gets read. Everything the grade depends on comes from the receipts:
  * which pet, whose account, whether a Focus Lens was burned.
  *
- * Kept apart from the endpoint so it can be tested against real receipt
- * shapes without a network or a key.
+ * Shared, and read by two processes for two different reasons. The oracle
+ * reads it because it holds the key: whoever signs has to be the one who
+ * checked, or a verdict arriving over the network is just a claim again. The
+ * web service reads it because grading costs model tokens, and an unverified
+ * hash would buy those tokens for free.
  */
 
 export type Meal = {

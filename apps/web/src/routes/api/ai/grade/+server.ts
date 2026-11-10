@@ -1,32 +1,35 @@
 import { json } from '@sveltejs/kit';
-import { Account, JsonRpcProvider, KeyPairSigner, type KeyPairString } from 'near-api-js';
-import { ORACLE_ACCOUNT, ORACLE_KEY } from '$app/env/private';
-import { GAME_CONTRACT, RPC_URL } from '#lib/config';
+import { GAME_CONTRACT } from '#lib/config';
 import { AiUnavailableError, complete, petPersona } from '#lib/server/near-ai';
 import { corsHeaders, preflight } from '#lib/server/cors';
-import { MAX_FEED_XP, mealFrom, xpFrom, type TxStatus } from '#lib/server/meal';
 import { viewFunction } from '#lib/near/rpc';
-import type { ChainPet } from '@joygotchi/pet';
+import { MAX_FEED_XP, mealFrom, type ChainPet, type TxStatus } from '@joygotchi/pet';
+import { RPC_URL } from '#lib/config';
 import type { RequestHandler } from './$types';
 
 /**
- * Grade a meal and pay its XP.
+ * What a meal was worth, as an opinion. Nothing here signs.
  *
  * `spend_credits("ai_feed")` charges for a meal and records it, and that is
  * all a contract can do: deciding whether the food was any good takes a
- * model, and a contract cannot run one. So the chain records the purchase,
- * this reads it back, asks NEAR AI what it was worth, and calls
- * `award_feed_xp` with a key that can do nothing else.
+ * model, and a contract cannot run one. So this reads the purchase back off
+ * the chain, asks NEAR AI what it was worth, and returns a number.
  *
- * The client sends a transaction hash, which is a pointer and not a claim.
- * Everything that decides the XP is read from that transaction's receipts:
- * whose account, which pet, whether a Focus Lens was burned. Lying takes
- * producing a transaction, and producing one costs the credits it is asking
- * to be paid for.
+ * Paying that number out is somebody else's job, deliberately. This service
+ * runs on a host we rent, and `award_feed_xp` is gated to one account — so
+ * putting the signing key here would mean leaving a key that writes to the
+ * contract on a third party's machine, to save the local oracle an RPC call
+ * it has to make anyway. The oracle already holds a key and already runs. It
+ * verifies the transaction itself and signs; this only has the model.
  *
- * Paying twice is the other half, and the contract holds that line:
- * `award_feed_xp` records the meal and refuses a repeat. This checks first
- * only to fail cheaply.
+ * Which is why the verification below is here too, duplicated on purpose. It
+ * is not protecting the XP — the oracle's copy does that. It is protecting
+ * the model tokens, because without it a bare hash buys a NEAR AI call for
+ * free.
+ *
+ * The number is the grade and nothing else: a Focus Lens doubles it, and
+ * that doubling belongs to whoever read the receipt that burned the lens. If
+ * both sides applied it, a lens meal would pay four times.
  */
 const STAKE_CONTRACT = GAME_CONTRACT.replace(/^jg-game-/, 'jg-stake-');
 
@@ -49,18 +52,6 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!accountId) {
     return json({ error: 'accountId is required' }, { status: 400, headers: cors });
   }
-  if (!ORACLE_KEY || !ORACLE_ACCOUNT) {
-    return json({ error: 'no oracle key is configured' }, { status: 503, headers: cors });
-  }
-
-  // Cheap refusal. The contract would refuse this too, and that refusal
-  // costs a transaction.
-  const already = await viewFunction<boolean>(STAKE_CONTRACT, 'meal_was_graded', {
-    meal: txHash
-  }).catch(() => false);
-  if (already) {
-    return json({ error: 'that meal has already earned its XP' }, { status: 409, headers: cors });
-  }
 
   const status = await txStatus(txHash, accountId).catch(() => null);
   if (!status) {
@@ -77,7 +68,6 @@ export const POST: RequestHandler = async ({ request }) => {
     return json({ error: `no pet ${found.meal.petId}` }, { status: 404, headers: cors });
   }
 
-  let xp: number;
   try {
     const answer = await complete(
       [
@@ -91,42 +81,26 @@ export const POST: RequestHandler = async ({ request }) => {
       ],
       { maxTokens: 20, temperature: 0.8 }
     );
-    xp = xpFrom(answer, found.meal.lensApplied);
+    return json({ petId: found.meal.petId, grade: gradeFrom(answer) }, { headers: cors });
   } catch (error) {
     if (error instanceof AiUnavailableError) {
       return json({ error: error.message }, { status: 503, headers: cors });
     }
     // The meal was bought. A model that will not answer is this service's
     // problem, not the player's, so it scores the floor rather than nothing.
-    xp = xpFrom('', found.meal.lensApplied);
-  }
-
-  try {
-    const signer = KeyPairSigner.fromSecretKey(ORACLE_KEY as KeyPairString);
-    const oracle = new Account(
-      ORACLE_ACCOUNT,
-      new JsonRpcProvider({ url: RPC_URL }),
-      signer
-    );
-    const outcome = await oracle.callFunctionRaw({
-      contractId: STAKE_CONTRACT,
-      methodName: 'award_feed_xp',
-      args: { pet_id: found.meal.petId, xp, meal: txHash },
-      gas: 100_000_000_000_000n,
-      deposit: 0n
-    });
-
-    return json(
-      { petId: found.meal.petId, xp, lens: found.meal.lensApplied, tx: outcome.transaction?.hash },
-      { headers: cors }
-    );
-  } catch (error) {
-    return json(
-      { error: error instanceof Error ? error.message : String(error) },
-      { status: 502, headers: cors }
-    );
+    return json({ petId: found.meal.petId, grade: gradeFrom('') }, { headers: cors });
   }
 };
+
+/**
+ * The model writes a number in a sentence, and sometimes a sentence with no
+ * number. Unreadable scores the floor rather than nothing.
+ */
+function gradeFrom(answer: string): number {
+  const found = answer.match(/\d+/);
+  const base = found ? Number(found[0]) : 0;
+  return Number.isFinite(base) ? Math.min(Math.max(base, 1), MAX_FEED_XP / 2) : 1;
+}
 
 /** The transaction, with every receipt it produced. */
 async function txStatus(txHash: string, accountId: string): Promise<TxStatus> {
@@ -140,7 +114,7 @@ async function txStatus(txHash: string, accountId: string): Promise<TxStatus> {
       params: { tx_hash: txHash, sender_account_id: accountId, wait_until: 'EXECUTED' }
     })
   });
-  const body = (await response.json()) as { result?: TxStatus; error?: unknown };
+  const body = (await response.json()) as { result?: TxStatus };
   if (!body.result) throw new Error('no such transaction');
   return body.result;
 }

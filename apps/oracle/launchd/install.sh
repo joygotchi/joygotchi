@@ -2,7 +2,7 @@
 #
 # Install the oracle as a login agent, or update it in place.
 #
-#   ./install.sh <oracle-account> [network]
+#   ./install.sh <oracle-account> [network] [site]
 #
 # Reads nothing secret. The key stays in ~/.near-credentials, where
 # `near account add-key … save-to-legacy-keychain` put it, and the process
@@ -12,6 +12,9 @@ set -euo pipefail
 
 ACCOUNT="${1:?usage: ./install.sh <oracle-account> [network]}"
 NETWORK="${2:-testnet}"
+# The web service the oracle asks for a meal's grade. It holds the model key;
+# this machine holds the NEAR key, and only this machine signs.
+SITE="${3:-https://joygotchi.vercel.app}"
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ORACLE_DIR="$(dirname "$HERE")"
@@ -36,6 +39,7 @@ sed -e "s|__NODE__|$NODE|g" \
     -e "s|__ORACLE_ACCOUNT__|$ACCOUNT|g" \
     -e "s|__NETWORK__|$NETWORK|g" \
     -e "s|__LOG_DIR__|$LOG_DIR|g" \
+    -e "s|__SITE__|$SITE|g" \
     "$HERE/$LABEL.plist.template" > "$PLIST"
 
 # Unload first so this is an update rather than a second copy. `|| true`
@@ -44,6 +48,7 @@ launchctl bootout "gui/$UID/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$UID" "$PLIST"
 
 echo "Installed $LABEL for $ACCOUNT on $NETWORK."
+echo "  grades:  POST http://127.0.0.1:8787/grade, graded against $SITE"
 echo "  logs:    $LOG_DIR/oracle.log"
 echo "  stop:    launchctl bootout gui/$UID/$LABEL"
 echo "  restart: launchctl kickstart -k gui/$UID/$LABEL"

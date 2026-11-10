@@ -216,19 +216,12 @@
    * note says which happened. "Fed, no XP" is a true and useful sentence;
    * silence after a charge is not.
    */
-  const SITE = () => localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
 
   function eatAi() {
     void act(
       'ai',
       async () => {
-        const graded = await aiMeal(
-          net(),
-          pet.petId,
-          account,
-          session?.accountId ?? '',
-          SITE()
-        );
+        const graded = await aiMeal(net(), pet.petId, account, session?.accountId ?? '');
         note =
           graded.xp !== null
             ? `Fed. ${pet.displayName} earned ${graded.xp} XP.`

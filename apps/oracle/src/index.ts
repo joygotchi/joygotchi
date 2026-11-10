@@ -15,6 +15,12 @@
  * It never decides who may be fed — the contract does. It decides only which
  * of the already-permitted meals are worth buying now, and `decide.ts` holds
  * that reasoning away from the network.
+ *
+ * It does two jobs, because they need the same key. On a timer it buys meals
+ * for pets about to starve. On a loopback port it grades meals the app just
+ * bought and pays their XP: the web service has the model and returns a
+ * number, and the signing happens here, so no key that writes to the
+ * contract has to live on a host we rent.
  */
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -22,6 +28,9 @@ import { readFileSync } from 'node:fs';
 import { Account, JsonRpcProvider, KeyPairSigner, type KeyPairString } from 'near-api-js';
 import { ACTION_PRICE } from '@joygotchi/pet';
 import { DEFAULT_RULES, decideMeals, type AutoFeedAccount, type OwnedPet } from './decide.ts';
+import { gradeIn } from './grade.ts';
+import { serve } from './serve.ts';
+import type { TxStatus } from '@joygotchi/pet';
 
 const required = (name: string): string => {
   const value = process.env[name];
@@ -37,6 +46,8 @@ const STAKE = process.env.STAKE_CONTRACT ?? 'jg-stake-5656.testnet';
 const GAME = process.env.GAME_CONTRACT ?? 'jg-game-5656.testnet';
 const EVERY_MS = Number(process.env.POLL_SECONDS ?? 300) * 1000;
 const DRY_RUN = process.env.DRY_RUN === '1';
+const PORT = Number(process.env.ORACLE_PORT ?? 8787);
+const SITE = (process.env.SITE ?? 'https://joygotchi.vercel.app').replace(/\/$/, '');
 
 /*
  * Two nodes. A single public endpoint is a single point of failure for a
@@ -121,6 +132,47 @@ async function view<T>(contractId: string, method: string, args: Record<string, 
   throw lastError;
 }
 
+/** A transaction with all its receipts, which `mealFrom` reads. */
+async function txStatus(txHash: string, accountId: string): Promise<TxStatus> {
+  let lastError: unknown;
+  for (const url of RPC_URLS) {
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          id: 'oracle',
+          method: 'tx',
+          params: { tx_hash: txHash, sender_account_id: accountId, wait_until: 'EXECUTED' }
+        })
+      });
+      const body = (await response.json()) as { result?: TxStatus };
+      if (!body.result) throw new Error('no such transaction');
+      return body.result;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError;
+}
+
+/**
+ * What the web service thinks the meal was worth.
+ *
+ * It holds the NEAR AI key, which is why it is asked rather than called
+ * directly from here. It is trusted for the number and nothing else — the
+ * pet and the lens come from the receipts this process read itself.
+ */
+async function opinion(txHash: string, accountId: string): Promise<string> {
+  const response = await fetch(`${SITE}/api/ai/grade`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ txHash, accountId })
+  });
+  return gradeIn(await response.json());
+}
+
 async function round(account: Account | null) {
   const accounts =
     (await view<AutoFeedAccount[]>(STAKE, 'get_auto_feed_accounts', {
@@ -197,6 +249,29 @@ async function main() {
       );
 
   log('started', { accountId, stake: STAKE, game: GAME, everySeconds: EVERY_MS / 1000, DRY_RUN });
+
+  serve(
+    PORT,
+    {
+      stake: STAKE,
+      view,
+      txStatus,
+      opinion,
+      award: account
+        ? async (petId, xp, meal) => {
+            const outcome = await account.callFunctionRaw({
+              contractId: STAKE,
+              methodName: 'award_feed_xp',
+              args: { pet_id: petId, xp, meal },
+              gas: 100_000_000_000_000n,
+              deposit: 0n
+            });
+            return outcome.transaction?.hash;
+          }
+        : null
+    },
+    log
+  );
 
   // Sequential, not an interval: a slow round must not overlap the next one
   // and feed the same pet twice.
