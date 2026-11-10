@@ -102,6 +102,21 @@ export type CreditAction = keyof typeof ACTION_PRICE;
  * `AUTO_FEED_HOURS`. Two of them cover a day, which is what a budget has to
  * afford before "auto" means anything.
  */
+/**
+ * Evolving, as the game contract gates it.
+ *
+ * Phase 1 needs level 5, phase 2 needs 10, and four is the end of it. Mirrored
+ * here so a button can be dark before it is pressed rather than after: the
+ * contract refuses and refunds, but a refund the player has to notice is a
+ * worse answer than a button that explains itself.
+ */
+export const MAX_EVOLUTION_PHASE = 4;
+
+export function levelToEvolve(phase: number): number | null {
+  if (phase >= MAX_EVOLUTION_PHASE) return null;
+  return phase * 5;
+}
+
 export const AUTO_FEED_HOURS = 12;
 export const AUTO_FEED_A_DAY = 2;
 /**
@@ -169,6 +184,19 @@ export function toMicroCredits(credits: number): string {
 export const STAKE_METHODS = [
   'claim_credits',
   'spend_credits',
+  /*
+   * Buying from the shop is granted; buying from the market is not, and the
+   * difference is who sets the price.
+   *
+   * Everything a session key may spend is spent at a price the contract
+   * fixed, so the worst a stolen key can do is bounded by prices nobody
+   * holding it chose. `buy_listing` pays whatever a seller asked, and the
+   * seller can be the thief: list a Tonic at thirty credits, buy it with the
+   * stolen key, walk away with the balance. `list_item` is the same hole
+   * from the other side — list the kit for nothing and collect it.
+   *
+   * So the market goes through the wallet, like `buy_item` and `list_pet`.
+   */
   'buy_credit_item',
   'use_item',
   'claim_mining',
@@ -194,7 +222,16 @@ export const STAKE_METHODS = [
   // thing for NEAR through the payable shop, which no session key can reach,
   // so losing a pet used to mean a browser round trip and a token the player
   // never earned by playing. This one takes no deposit.
-  'revive_pet'
+  'revive_pet',
+  // The next phase, for the price the contract has carried since the sinks
+  // were seeded. Nothing spent it until now.
+  // The next phase, for the price the contract has carried since the sinks
+  // were seeded. Nothing spent it until now.
+  //
+  // Safe to grant for the same reason the rest of this list is: the contract
+  // sets the price. The item market is not here and must not be — see the
+  // note under `buy_credit_item`.
+  'evolve_pet'
 ] as const;
 
 /**

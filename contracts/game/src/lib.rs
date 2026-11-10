@@ -627,6 +627,56 @@ impl Game {
         self.sync_weight(&pet);
     }
 
+    /// Evolve a pet on behalf of its owner, paid for in credits.
+    ///
+    /// `evolve` itself takes no payment, and the staking contract has carried
+    /// a 500,000 micro-credit price for it since the sinks were seeded — with
+    /// nothing joining the two. So the most expensive action in the game
+    /// charged half a credit and did nothing, which is the fault that retired
+    /// the first revive sink and the one `feed` carried for months.
+    ///
+    /// Same shape as `feed_from_stake` and `revive_from_stake`: caller-gated,
+    /// and every refusal is `false` rather than a panic so the staking
+    /// contract refunds instead of losing the credits in a failed receipt.
+    pub fn evolve_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool {
+        require!(
+            env::predecessor_account_id() == self.stake_contract
+                || env::predecessor_account_id() == self.owner_id,
+            "Only the staking contract can evolve a pet for its owner"
+        );
+
+        let Some(mut pet) = self.pets.get(&pet_id) else {
+            env::log_str("No such pet");
+            return false;
+        };
+        if pet.owner_id != owner_id {
+            env::log_str("That pet belongs to someone else");
+            return false;
+        }
+        if pet.evolution_phase >= MAX_EVOLUTION_PHASE {
+            env::log_str("This pet is fully evolved");
+            return false;
+        }
+        if pet.level < pet.evolution_phase as u32 * 5 {
+            env::log_str("Not enough levels to evolve yet");
+            return false;
+        }
+
+        pet.evolution_phase += 1;
+        self.pets.insert(&pet_id, &pet);
+        self.tokens.token_metadata_by_id.as_mut().map(|by_id| {
+            by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet))
+        });
+
+        self.log_event(
+            "pet_evolved",
+            json!({ "pet_id": pet_id, "phase": pet.evolution_phase, "owner_id": owner_id }),
+        );
+        // A phase is worth staking weight, so a pet at work has to be re-read.
+        self.sync_weight(&pet);
+        true
+    }
+
     // ── Marketplace ──────────────────────────────────────────────────────────
 
     /// Offer a pet for sale, priced in NEAR.
@@ -1652,6 +1702,50 @@ mod tests {
         contract.buy_item(pet_id, 4); // Holy Water
 
         assert!(contract.is_pet_alive(pet_id));
+    }
+
+    #[test]
+    fn credits_evolve_a_pet_that_has_the_levels() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        // Phase 1 needs level 5.
+        testing_env!(ctx(stake(), 100, 0).build());
+        for _ in 0..6 {
+            let need = contract.get_pet(pet_id).unwrap().xp_for_next_level;
+            contract.award_xp(pet_id, need);
+        }
+
+        assert!(contract.evolve_from_stake(pet_id, alice()));
+        assert_eq!(contract.get_pet(pet_id).unwrap().evolution_phase, 2);
+    }
+
+    #[test]
+    fn evolving_without_the_levels_is_refused_rather_than_charged() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        testing_env!(ctx(stake(), 100, 0).build());
+        assert!(!contract.evolve_from_stake(pet_id, alice()));
+    }
+
+    #[test]
+    fn an_evolve_refuses_somebody_elses_pet() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        testing_env!(ctx(stake(), 100, 0).build());
+        assert!(!contract.evolve_from_stake(pet_id, bob()));
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the staking contract")]
+    fn nobody_else_may_evolve_for_an_owner() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 100);
+
+        testing_env!(ctx(alice(), 100, 0).build());
+        contract.evolve_from_stake(pet_id, alice());
     }
 
     #[test]

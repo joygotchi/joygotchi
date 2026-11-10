@@ -6,6 +6,7 @@
     formatCredits,
     ITEMS,
     itemName,
+    levelToEvolve,
     type ItemId,
     type PetStatus,
     type StakeAccount
@@ -32,7 +33,7 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
-  import { canAfford, canSpend, feedPet, gradeFeed, revivePet } from './actions';
+  import { canAfford, canSpend, evolvePet, feedPet, gradeFeed, revivePet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { clearThread, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
@@ -237,6 +238,20 @@
 
   const revive = () =>
     act('revive', () => revivePet(net(), pet.petId, account), `${pet.displayName} is back.`);
+
+  /**
+   * Evolving, which the contract gates on level and the app explains before
+   * the press rather than after. A refund is a correct answer that still
+   * costs the player a round trip and a moment of doubt.
+   */
+  const phase = $derived(Number(onChain?.evolution_phase ?? 1));
+  const needsLevel = $derived(levelToEvolve(phase));
+  const canEvolve = $derived(
+    needsLevel !== null && Number(onChain?.level ?? 0) >= needsLevel
+  );
+
+  const evolve = () =>
+    act('evolve', () => evolvePet(net(), pet.petId, account), `${pet.displayName} evolved.`);
 
   /**
    * Hand the pet's survival to the oracle, or take it back.
@@ -919,6 +934,35 @@
                 ? `${ACTION_PRICE.feed} credits for 12 hours, XP, and a roll for a drop`
                 : 'Not enough credits',
           busy === 'feed' || busy === 'revive' ? '…' : undefined
+        )}
+        <!--
+          Shop and Evolve, both of which I had left unreachable. Collapsing
+          Feed and Revive into one tile took the Shop tile out with it, so the
+          credit shop existed and nothing opened it; Evolve had never been
+          wired at all. Eleven tiles do not divide by three, so the last row
+          carries two — which reads as a list that ended, where one tile alone
+          under two gaps reads as something missing.
+        -->
+        {@render tile(
+          'Shop',
+          '/assets/items/water.png',
+          () => (showShop = true),
+          busy !== null,
+          'Tonics, wards and lenses, paid in credits'
+        )}
+        {@render tile(
+          'Evolve',
+          '/assets/item/star.png',
+          evolve,
+          busy !== null || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
+          needsLevel === null
+            ? `${pet.displayName} is fully evolved`
+            : !canEvolve
+              ? `Needs level ${needsLevel} — it is ${Number(onChain?.level ?? 0)}`
+              : canSpend(account, ACTION_PRICE.evolve)
+                ? `${ACTION_PRICE.evolve} credits for phase ${phase + 1}`
+                : `Evolving costs ${ACTION_PRICE.evolve} credits`,
+          busy === 'evolve' ? '…' : undefined
         )}
         {@render tile(
           'Claim',

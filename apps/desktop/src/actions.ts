@@ -169,6 +169,34 @@ export async function gradeFeed(
 }
 
 /**
+ * Move a pet to its next phase, paid in credits.
+ *
+ * The price has been in the contract since the sinks were seeded and nothing
+ * ever spent it on anything — `evolve` on the game contract takes no payment
+ * and no call joined the two, so half a credit went nowhere. `evolve_pet`
+ * charges and calls through, and refunds when the game says no.
+ */
+export async function evolvePet(
+  network: string,
+  petId: number,
+  account: StakeAccount | null
+): Promise<void> {
+  if (!canSpend(account, ACTION_PRICE.evolve)) {
+    throw new Error(
+      `Evolving costs ${ACTION_PRICE.evolve} credits, and there are not enough.`
+    );
+  }
+  await claimIfShort(network, account, ACTION_PRICE.evolve);
+
+  const { logs } = await signAndSend(network, 'evolve_pet', { pet_id: petId });
+
+  const refused = refusalIn(logs, 'evolve_refunded');
+  if (refused) throw new RefundedError(refused);
+
+  reactToGame('fed');
+}
+
+/**
  * Bring a starved pet back, paid in credits.
  *
  * Holy Water does the same for NEAR through the game contract's shop, which

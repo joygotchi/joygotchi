@@ -79,6 +79,10 @@ trait Game {
     /// `feed_from_stake`: caller-gated there, and every refusal is `false`
     /// rather than a panic so this side can refund.
     fn revive_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool;
+
+    /// Move a pet to its next evolution phase, paid for here. Same contract
+    /// as the two above: caller-gated there, `false` rather than a panic.
+    fn evolve_from_stake(&mut self, pet_id: u64, owner_id: AccountId) -> bool;
 }
 
 #[ext_contract(ext_self)]
@@ -88,11 +92,12 @@ trait SelfCallbacks {
     fn on_auto_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
     fn on_fed(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
     fn on_revived(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
+    fn on_evolved(&mut self, account_id: AccountId, pet_id: u64, price: U128) -> bool;
 }
 
 /// Priced actions that `spend_credits` must never charge for, because they
 /// have a call of their own that actually does the thing.
-const OWN_PATH_ACTIONS: [&str; 2] = ["feed", "revive"];
+const OWN_PATH_ACTIONS: [&str; 3] = ["feed", "revive", "evolve"];
 
 #[near(contract_state)]
 #[derive(PanicOnDefault)]
@@ -1761,6 +1766,74 @@ impl PetStake {
         false
     }
 
+    /// Move a pet to its next phase, paid for in credits.
+    ///
+    /// The price has been in the contract since the sinks were seeded and
+    /// nothing ever spent it on anything: `evolve` on the game contract takes
+    /// no payment, and no call joined the two. Half a credit — the dearest
+    /// thing in the game, thirty-three meals — went nowhere.
+    pub fn evolve_pet(&mut self, pet_id: u64) -> Promise {
+        self.assert_running();
+        self.update_pool();
+
+        let account_id = env::predecessor_account_id();
+        let price = self
+            .prices
+            .get(&"evolve".to_string())
+            .expect("Evolving has no price set");
+
+        let mut account = self.account_or_default(&account_id);
+        self.harvest(&mut account);
+        require!(
+            account.credit_balance >= price,
+            "Not enough credits — claim or earn some first"
+        );
+
+        account.credit_balance -= price;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent += price;
+
+        // The game checks whose pet it is, whether it has the levels, and
+        // whether it is already fully evolved. All three come back as
+        // `false`, and the credits go back.
+        ext_game::ext(self.game_contract.clone())
+            .with_static_gas(GAS_FOR_FEED)
+            .evolve_from_stake(pet_id, account_id.clone())
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_RESOLVE)
+                    .on_evolved(account_id, pet_id, U128(price)),
+            )
+    }
+
+    #[private]
+    pub fn on_evolved(
+        &mut self,
+        account_id: AccountId,
+        pet_id: u64,
+        price: U128,
+        #[callback_result] result: Result<bool, PromiseError>,
+    ) -> bool {
+        if matches!(result, Ok(true)) {
+            self.log_event(
+                "pet_evolved",
+                json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+            );
+            return true;
+        }
+
+        let mut account = self.account_or_default(&account_id);
+        account.credit_balance += price.0;
+        self.accounts.insert(&account_id, &account);
+        self.total_spent = self.total_spent.saturating_sub(price.0);
+
+        self.log_event(
+            "evolve_refunded",
+            json!({ "account_id": account_id, "pet_id": pet_id, "amount": price }),
+        );
+        false
+    }
+
     /// Mining: a small credit payout for anyone with a pet at work.
     ///
     /// Gated on staked weight rather than on an account existing, because a
@@ -2177,6 +2250,51 @@ mod tests {
             before,
             "a refused revival is a free one"
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "has its own call")]
+    fn evolving_cannot_be_charged_through_spend_credits() {
+        // Half a credit — the dearest sink in the game — went nowhere for as
+        // long as it has existed, because nothing joined the price here to
+        // `evolve` on the game contract.
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.admin_set_pet(1, alice(), attrs(0, 0, 1, Rarity::Common));
+
+        testing_env!(ctx(alice(), EPOCH_SECONDS).build());
+        contract.claim_credits();
+        contract.spend_credits("evolve".to_string(), Some(1), U128(ONE_CREDIT));
+    }
+
+    #[test]
+    fn a_refused_evolve_gives_the_credits_back() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        let before = contract.get_account(alice()).unwrap().credit_balance.0;
+        testing_env!(ctx(alice(), 100).build());
+        contract.evolve_pet(1);
+
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+        assert_eq!(before - charged, 500_000, "the price the sinks were seeded with");
+
+        // Not enough levels, fully evolved, or not theirs — all `false`.
+        contract.on_evolved(alice(), 1, U128(500_000), Ok(false));
+        assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, before);
+    }
+
+    #[test]
+    fn an_evolve_the_game_accepted_stays_paid_for() {
+        let mut contract = deploy();
+        fund_alice(&mut contract);
+
+        testing_env!(ctx(alice(), 100).build());
+        contract.evolve_pet(1);
+        let charged = contract.get_account(alice()).unwrap().credit_balance.0;
+
+        contract.on_evolved(alice(), 1, U128(500_000), Ok(true));
+        assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, charged);
     }
 
     #[test]

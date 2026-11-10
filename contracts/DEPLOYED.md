@@ -6,8 +6,8 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` |
-| `jg-stake-5656.testnet` | `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4` |
+| `jg-game-5656.testnet` | `9xBRKnnMavZCMgs8GxckwTxveh1AqBC1cyw9pNBG8hPz` |
+| `jg-stake-5656.testnet` | `RbQJzW6NDKkPbbbmpZrNYAm7XCejUx12WQisXStLXxX` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
 
@@ -37,6 +37,15 @@ Wards and wounds still protect; `locked` still blocks transfer, which is all
 DECISION 3 ever claimed it was for. Code only again, no stored struct
 touched. Previous pair: `3Vt83sgUhhi4dLBeaop1wo7fai7Nn8csUhcfhMntZo7s` and
 `6qpqe8fkZe6Jkg5dai2JHm1bQmWtVnQCDabfJdoxi32C`.
+
+Redeployed once more for `evolve_pet` → `evolve_from_stake`. The staking
+contract has priced `evolve` at 500,000 micro-credits since the sinks were
+seeded, and nothing joined that price to `evolve` on the game contract — so
+the dearest action in the game, thirty-three meals, charged and did nothing.
+The third instance of that fault after `revive` and `feed`; `spend_credits`
+now refuses all three by name. Code only, no stored struct touched. Previous
+pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
+`81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
 ## Why this file exists
 

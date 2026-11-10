@@ -77,9 +77,24 @@ describe('session methods', () => {
     }
   });
 
-  it('leaves the item market out, since a key that sells can empty a kit', () => {
+  it('leaves the item market out: a session key may only spend contract prices', () => {
+    /*
+     * The rule this pins, which is easy to break while adding something
+     * reasonable-looking: every method a session key may call spends at a
+     * price the *contract* fixed, so a stolen key's damage is bounded by
+     * numbers nobody holding it chose.
+     *
+     * Both halves of the market break that. `buy_listing` pays whatever a
+     * seller asked and the seller can be the thief; `list_item` sells the
+     * kit for nothing to an account they own. Neither has a ceiling.
+     */
     expect(STAKE_METHODS).not.toContain('list_item');
     expect(STAKE_METHODS).not.toContain('buy_listing');
+    expect(STAKE_METHODS).not.toContain('cancel_listing');
+
+    // The ones that are granted all pay a price the contract set.
+    expect(STAKE_METHODS).toContain('buy_credit_item');
+    expect(STAKE_METHODS).toContain('evolve_pet');
   });
 });
 
