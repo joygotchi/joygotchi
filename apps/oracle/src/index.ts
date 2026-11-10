@@ -16,6 +16,9 @@
  * of the already-permitted meals are worth buying now, and `decide.ts` holds
  * that reasoning away from the network.
  */
+import { homedir } from 'node:os';
+import { join } from 'node:path';
+import { readFileSync } from 'node:fs';
 import { Account, JsonRpcProvider, KeyPairSigner, type KeyPairString } from 'near-api-js';
 import { ACTION_PRICE } from '@joygotchi/pet';
 import { DEFAULT_RULES, decideMeals, type AutoFeedAccount, type OwnedPet } from './decide.ts';
@@ -43,6 +46,41 @@ const RPC_URLS =
   NETWORK === 'mainnet'
     ? ['https://free.rpc.fastnear.com', 'https://rpc.mainnet.near.org']
     : ['https://test.rpc.fastnear.com', 'https://rpc.testnet.near.org'];
+
+/**
+ * The secret, from the place it already lives.
+ *
+ * `ORACLE_KEY` works, but a key pasted into an environment variable has been
+ * through a shell, which means it is in a history file. `near-cli` already
+ * stores keys under `~/.near-credentials`, so the default is to read the one
+ * it wrote: the secret never appears in a command, a log or a transcript,
+ * and granting it is one `near account add-key` with no printing.
+ */
+function secretKey(accountId: string): KeyPairString {
+  const fromEnv = process.env.ORACLE_KEY;
+  if (fromEnv) return fromEnv as KeyPairString;
+
+  const path =
+    process.env.ORACLE_KEY_FILE ??
+    join(homedir(), '.near-credentials', NETWORK, `${accountId}.json`);
+
+  try {
+    const stored = JSON.parse(readFileSync(path, 'utf8')) as {
+      private_key?: string;
+      secret_key?: string;
+    };
+    const key = stored.private_key ?? stored.secret_key;
+    if (key) return key as KeyPairString;
+    throw new Error('no private_key in that file');
+  } catch (error) {
+    console.error(
+      `No key for ${accountId}. Set ORACLE_KEY, or grant one with ` +
+        `\`near account add-key\` and \`save-to-legacy-keychain\` so it lands at ${path}. ` +
+        `(${error instanceof Error ? error.message : String(error)})`
+    );
+    process.exit(1);
+  }
+}
 
 const log = (message: string, extra: Record<string, unknown> = {}) =>
   console.log(JSON.stringify({ at: new Date().toISOString(), message, ...extra }));
@@ -155,8 +193,7 @@ async function main() {
     : new Account(
         accountId,
         provider,
-        // `ed25519:…`, as the wallet writes it.
-        KeyPairSigner.fromSecretKey(required('ORACLE_KEY') as KeyPairString)
+        KeyPairSigner.fromSecretKey(secretKey(accountId))
       );
 
   log('started', { accountId, stake: STAKE, game: GAME, everySeconds: EVERY_MS / 1000, DRY_RUN });

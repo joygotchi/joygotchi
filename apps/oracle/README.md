@@ -26,10 +26,13 @@ pets on schedule. Give it a key that can do only `auto_feed`, and nothing else
 ## Running it
 
 ```bash
-export ORACLE_ACCOUNT=feeder.jg-stake-5656.testnet
-export ORACLE_KEY=ed25519:...          # the function-call key's secret
-pnpm --filter @joygotchi/oracle start
+ORACLE_ACCOUNT=feeder.jg-stake-5656.testnet pnpm --filter @joygotchi/oracle start
 ```
+
+The secret is read from `~/.near-credentials/<network>/<account>.json`, where
+`near account add-key … save-to-legacy-keychain` puts it. `ORACLE_KEY` still
+works if you would rather pass it, but a key that has been through a shell is
+in a history file, and there is no need to put it there.
 
 A dry run needs no key at all and prints what it would buy:
 
@@ -40,7 +43,8 @@ DRY_RUN=1 pnpm --filter @joygotchi/oracle start
 | Variable | Default | |
 | --- | --- | --- |
 | `ORACLE_ACCOUNT` | — | required unless `DRY_RUN=1` |
-| `ORACLE_KEY` | — | required unless `DRY_RUN=1` |
+| `ORACLE_KEY` | — | optional; the credentials file is read when it is unset |
+| `ORACLE_KEY_FILE` | `~/.near-credentials/<network>/<account>.json` | |
 | `NETWORK` | `testnet` | |
 | `STAKE_CONTRACT` | `jg-stake-5656.testnet` | |
 | `GAME_CONTRACT` | `jg-game-5656.testnet` | |
@@ -55,10 +59,13 @@ method:
 ```bash
 near account add-key feeder.jg-stake-5656.testnet \
   grant-function-call-access --allowance '1 NEAR' \
-  --receiver-account-id jg-stake-5656.testnet --method-names 'auto_feed' \
-  autogenerate-new-keypair print-to-terminal \
+  --contract-account-id jg-stake-5656.testnet --function-names 'auto_feed' \
+  autogenerate-new-keypair save-to-legacy-keychain \
   network-config testnet sign-with-keychain send
 ```
+
+`save-to-legacy-keychain` rather than `print-to-terminal`: the secret goes
+straight to the file this process reads and is never displayed.
 
 The staking contract must also name that account as its oracle
 (`set_oracle`), which is a separate decision made by the contract's owner.
