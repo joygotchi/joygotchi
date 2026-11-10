@@ -9,6 +9,7 @@
   import Settings from './Settings.svelte';
   import { HOLD_MS, MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
+  import { say, threadFor } from './chat.svelte';
   import { canAfford, feedPet } from './actions';
   import {
     accessoryContractFor,
@@ -38,6 +39,53 @@
   let reaction = $state<Reaction | null>(null);
   let now = $state(Date.now());
   let line = $state<string | null>(null);
+
+  /**
+   * Talking to the pet from the outside.
+   *
+   * The same transcript the panel shows, on purpose: a conversation started
+   * here and continued in there is one conversation. `say` appends both
+   * turns, so the reply arrives by the thread changing rather than by this
+   * waiting on a return value.
+   */
+  let draft = $state('');
+  let asking = $state(false);
+
+  /*
+   * The reply goes into the same bubble a reaction uses, and expires the same
+   * way. Deriving it from the thread instead would have left the last thing
+   * the pet said on screen for the rest of the session — so one chat would
+   * have silenced every reaction after it.
+   *
+   * Longer than a reaction, though: somebody who typed a question is still
+   * reading the answer.
+   */
+  const SAID_MS = 20_000;
+  const bubble = $derived(asking ? '…' : line);
+
+  async function ask(event: KeyboardEvent) {
+    if (event.key !== 'Enter' || !active) return;
+    const text = draft.trim();
+    if (!text) return;
+
+    const pet = active;
+    draft = '';
+    asking = true;
+    try {
+      await say(pet, text, walletSession.current?.accountId);
+
+      // `say` appends to the thread rather than returning; the reply is
+      // whatever it put at the end.
+      const thread = threadFor(pet.slug);
+      const reply = thread.at(-1);
+      if (reply?.role === 'assistant') {
+        line = reply.content;
+        setTimeout(() => (line = null), SAID_MS);
+      }
+    } finally {
+      asking = false;
+    }
+  }
   let showSettings = $state(false);
   let showPanel = $state(false);
 
@@ -355,8 +403,8 @@
       <button class="jg-btn" onclick={load}>Look again</button>
     </div>
   {:else}
-    {#if line}
-      <p class="bubble">{line}</p>
+    {#if bubble}
+      <p class="bubble">{bubble}</p>
     {/if}
 
     {#if backdropArt}
@@ -513,6 +561,20 @@
       {:else if feedError}
         <p class="plate-note bad">{feedError}</p>
       {/if}
+
+      <!--
+        Talking to the pet without opening anything. It was a tab inside the
+        panel, which meant the one thing the pet does that feels like company
+        was three clicks and a window resize away.
+      -->
+      <input
+        class="say"
+        bind:value={draft}
+        onkeydown={ask}
+        disabled={asking}
+        maxlength="280"
+        placeholder={asking ? 'thinking…' : `say something to ${active.displayName}`}
+      />
     </div>
   {/if}
 
@@ -572,7 +634,7 @@
      * so the bar looked like a layer covering the content rather than part of
      * the window, and it cut whatever was underneath.
      */
-    --jg-plate: 42px;
+    --jg-plate: 62px;
 
     position: relative;
     display: flex;
@@ -874,6 +936,28 @@
 
   .coins {
     color: var(--jg-ink);
+  }
+
+  /* The pet's own input: a line in the plate, not a box on top of it. */
+  .say {
+    width: 100%;
+    box-sizing: border-box;
+    margin-top: 1px;
+    padding: 2px 4px;
+    font: inherit;
+    font-size: 8px;
+    color: var(--jg-ink);
+    background: #fff;
+    border: 2px solid var(--jg-edge);
+    outline: none;
+  }
+
+  .say::placeholder {
+    color: var(--jg-muted);
+  }
+
+  .say:disabled {
+    background: var(--jg-bevel);
   }
 
   .plate-note {
