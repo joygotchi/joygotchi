@@ -197,7 +197,27 @@
   }
 
   /** Run one action with the panel's busy, error and note handling around it. */
+  /**
+   * Things the contract will only do for the pet's owner.
+   *
+   * Checked here rather than only on each tile, because a tile that forgets
+   * is a transaction that charges and refunds: `feed_pet`, `revive_pet` and
+   * `evolve_pet` all debit, call the game contract, hear "that pet belongs to
+   * someone else", and give the credits back. Correct, and a confusing way to
+   * learn you are signed in as the wrong account.
+   *
+   * One tile did forget. Collapsing Feed and Revive into a single tile
+   * dropped the `mine` check that `canFeed` had always carried, and Evolve
+   * was written afterwards without it.
+   */
+  const OWNER_ONLY = ['feed', 'revive', 'evolve', 'stake'];
+
   async function act(label: string, run: () => Promise<unknown>, after: string) {
+    if (OWNER_ONLY.includes(label) && !mine) {
+      refused = `${pet.displayName} belongs to ${owner}. Connect as them to act on it.`;
+      return;
+    }
+
     busy = label;
     refused = null;
     note = null;
@@ -1003,9 +1023,12 @@
           starved ? '/assets/items/holy_water.png' : '/assets/items/beef.png',
           starved ? revive : feed,
           busy !== null ||
+            !mine ||
             !feedSignsHere ||
             !canSpend(account, starved ? ACTION_PRICE.revive : ACTION_PRICE.feed),
-          !feedSignsHere
+          !mine
+            ? `${pet.displayName} belongs to ${owner} — connect as them to act on it`
+            : !feedSignsHere
             ? 'This session key was granted before this could be signed here — reconnect in Settings'
             : starved
               ? canSpend(account, ACTION_PRICE.revive)
@@ -1042,8 +1065,10 @@
           'Evolve',
           '/assets/item/star.png',
           evolve,
-          busy !== null || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
-          needsLevel === null
+          busy !== null || !mine || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
+          !mine
+            ? `${pet.displayName} belongs to ${owner}`
+            : needsLevel === null
             ? `${pet.displayName} is fully evolved`
             : !canEvolve
               ? `Needs level ${needsLevel} — it is ${Number(onChain?.level ?? 0)}`
