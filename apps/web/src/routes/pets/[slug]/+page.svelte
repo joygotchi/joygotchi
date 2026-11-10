@@ -8,7 +8,20 @@
   import { truncateAccount } from '#lib/near/amount';
   import { wallet } from '#lib/near/wallet.svelte';
   import { getPetBySlug, type GalleryPet } from '#lib/pets';
-  import { isStarving } from '@joygotchi/pet';
+  import {
+    ACTION_PRICE,
+    MAX_EVOLUTION_PHASE,
+    artPath,
+    isStarving,
+    levelToEvolve
+  } from '@joygotchi/pet';
+
+  /*
+   * Four phases, because that is what the game contract allows. There are
+   * three sprites per kind, so the last one wears the third — worth knowing
+   * when the art arrives rather than discovering it then.
+   */
+  const EVOLUTION = Array.from({ length: MAX_EVOLUTION_PHASE }, (_, i) => i + 1);
 
   let pet = $state<GalleryPet | null>(null);
   let loading = $state(true);
@@ -42,6 +55,11 @@
 
   const mine = $derived(Boolean(pet && wallet.accountId === pet.owner_id));
   const starving = $derived(pet ? isStarving(pet) : false);
+
+  /** The next phase, or null when there is none left. */
+  const nextPhase = $derived(
+    pet && pet.pkg.evolutionPhase < MAX_EVOLUTION_PHASE ? pet.pkg.evolutionPhase + 1 : null
+  );
 </script>
 
 <svelte:head>
@@ -67,6 +85,39 @@
           alt={pet.name}
           src="/assets/animation/{pet.pkg.states.idle}"
         />
+      </div>
+
+      <!--
+        What it becomes, and what it costs to get there.
+        The page said "Phase: 1" and nothing else, which is a number with no
+        meaning attached: it does not say there are four of them, that each
+        one is a different animal, or that the way between them is levels.
+      -->
+      <div class="border border-line bg-panel">
+        <div class="border-b border-line px-3 py-2 text-xs text-muted">Evolution</div>
+        <ol class="grid grid-cols-4 divide-x divide-line">
+          {#each EVOLUTION as phase (phase)}
+            {@const reached = pet.pkg.evolutionPhase >= phase}
+            <li class="flex flex-col items-center gap-1 px-1 py-2" class:opacity-35={!reached}>
+              <img
+                class="pixel h-12"
+                alt="Phase {phase}"
+                src="/assets/animation/{artPath(pet.kind, Math.min(3, phase) as 1 | 2 | 3)}"
+              />
+              <span class="text-[10px]" class:text-accent={pet.pkg.evolutionPhase === phase}>
+                {pet.pkg.evolutionPhase === phase ? 'now' : `lv ${levelToEvolve(phase - 1) ?? 0}`}
+              </span>
+            </li>
+          {/each}
+        </ol>
+        <p class="border-t border-line px-3 py-2 text-[11px] text-muted">
+          {#if nextPhase === null}
+            Fully evolved.
+          {:else}
+            Level {levelToEvolve(pet.pkg.evolutionPhase)} evolves it to phase {nextPhase}, for
+            {ACTION_PRICE.evolve} credits in the app.
+          {/if}
+        </p>
       </div>
 
       <div class="border border-line bg-panel">
