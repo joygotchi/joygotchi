@@ -10,9 +10,10 @@ be most of the remaining work.
 |---|---|
 | Gallery | <https://joygotchi.vercel.app> — reads `jg-game-5656.testnet` directly, 8 pets |
 | CLI | `@joygotchi/joygotchi@0.1.0` on GitHub Packages |
-| Contracts | game, pet-stake, mint-router on testnet; 139 Rust tests, hashes in [`DEPLOYED.md`](../contracts/DEPLOYED.md) |
-| Desktop | Tauri 2, pixel-art game UI, hook server on `127.0.0.1:7777`; 87 TypeScript tests |
-| Pet speech | NEAR AI answers, and reads the pet's real state to do it |
+| Contracts | game, pet-stake, mint-router on testnet; 212 Rust tests, hashes in [`DEPLOYED.md`](../contracts/DEPLOYED.md) |
+| Desktop | Tauri 2, pixel-art game UI, hook server on `127.0.0.1:7777`; 218 TypeScript tests across the workspace |
+| Pet speech | NEAR AI answers, reads the pet's real state, and may propose one action |
+| Species | A row on chain, not a constant. Anyone can register one at `/create` |
 
 Working end to end: connect a wallet → mint for 2 testnet NEAR → copy the
 install code → `npx @joygotchi/joygotchi install <code>` → the pet lands in
@@ -32,26 +33,17 @@ needed to know who attacked you and whether you won.
 
 ## Waiting on a decision, not on work
 
-Each is one command or one purchase, and each unblocks something real.
+One left, where there were three.
 
-1. **Make the repository public.**
-   ```sh
-   gh repo edit joygotchi/joygotchi --visibility public --accept-visibility-change-consequences
-   ```
-   Removes the GitHub token step from installing, and lets Vercel deploy on
-   push — its Hobby plan refuses to connect to a private repo owned by an
-   organisation. The git history has been scanned: no `.env`, `.npmrc`, key or
-   token was ever committed.
-
-2. **Buy NEAR AI credits** at cloud.near.ai. The key is configured and
-   accepted; the account has no spending limit, so every call returns
-   `402 No spending limit configured`. Until then the pet cannot talk and the
-   desktop pet animates without a line.
-
-3. **A 1Click *partner* key.** The one on hand is an `explorer` key, which the
+1. **A 1Click *partner* key.** The one on hand is an `explorer` key, which the
    API will not accept for quotes. Without it, minting is NEAR-only — the
    mint-router is deployed and its wNEAR path is tested, so this is the only
    thing between here and paying with ZEC or SOL.
+
+~~Make the repository public~~ — done; it is public, and Vercel now deploys on
+push to `main`. ~~Buy NEAR AI credits~~ — done; the chat endpoint returns real
+answers from `near-ai`, and a pet asked to feed itself replies and proposes
+`{kind: "feed"}`.
 
 ## The gap that shapes everything else
 
@@ -73,6 +65,10 @@ Everything below marked (art) is limited by this, and there are three ways out:
 
 ## Next, in the order I would do it
 
+Items 3, 4 and 5 are struck through: they were done on 2026-11-10 and -11.
+What is left is 1, 2, 6 and 7, and 2 matters more than it did — a creator and
+a player both now have something to sell and no way to sell it.
+
 ### 1. State viewer on the pet page (art)
 The panel from the screenshot: every state, what triggers it, and a live
 preview. Built against CSS motion it is useful immediately and becomes a true
@@ -81,9 +77,17 @@ vocabulary at the same time, so feeding a pet on the web makes the desktop pet
 react.
 
 ### 2. The rest of the contract surface
-`list_pet` / `buy_pet` (the NEAR pet market), `list_item` / `buy_listing` (the
-credit item market), `evolve`. All deployed, all tested, none reachable from
-the app.
+`list_pet` / `buy_pet` (the NEAR pet market) and `list_item` / `buy_listing`
+(the credit item market). Both deployed, both tested, neither reachable from
+the app. `evolve` came off this list on 2026-11-10.
+
+The item market has a rule that is easy to break while adding something
+reasonable-looking: a session key may only spend prices the *contract* fixed,
+and both halves of this market break that — `buy_listing` pays whatever a
+seller asked and the seller can be the thief, `list_item` sells the kit for
+nothing to an account they own. Neither has a ceiling. So this market needs
+the wallet, not the session key, and `economy.test.ts` fails if those methods
+are ever added to `STAKE_METHODS`.
 
 `attack` came off this list on 2026-11-10, and how it came off is the warning
 for the rest of it. It was reachable — there was a button, a roster and a
@@ -97,25 +101,71 @@ possible, and nothing in the app said which one was missing.
 oracle account. Both halves run: the web app grades a meal and the local oracle
 verifies the purchase and signs. Graded for real on 2026-11-10, pet 8.
 
-### 4. The pet as an assistant
+### 4. ~~The pet as an assistant~~ — done
 Unblocked: NEAR AI answers now. Two things had to be true first — the model
 must not be a reasoning one (it spent the whole token budget thinking and
 returned nothing, as a successful 200), and the persona must read the pet's
 real hunger rather than claiming it always wants food.
 
-Chat with tool calls: balance, transfers, payments, and the economy actions
-above. Decided: **the model proposes, the user signs.** It never holds a key.
-Its output is parsed into a typed intent, validated against our own rules, and
-rendered as a confirmation our code draws from the validated data — never from
-model text. This matters more than usual here because the pet reads on-chain
-data and agent output, so a pet *name* is attacker-controlled input.
+Built as decided: **the model proposes, the app decides.** It never holds a
+key. Its reply is parsed into one of nine typed intents, and an intent carries
+no pet, no amount and no account — `planIntent` asks the chain who owns what,
+whether the pet is alive, whether the balance covers it and whether the session
+key may sign it, then draws the card from its own numbers.
 
-### 5. Submit your own pet (art)
-The creator flow from the second screenshot. Designed now in
-[`CREATE.md`](CREATE.md), from reading how petdex does it: the thing a creator
-submits here is not a pet but a **species** others mint, and `CATEGORIES` is a
-two-element `const` in the game contract, so nothing uploaded can be minted
-until that becomes stored state. Still the largest item.
+Nothing with a seller is proposable. Market prices are set by whoever lists,
+and a session key may only spend prices the contract fixed, so the pet cannot
+reach `buy_listing` at all.
+
+A visitor is never offered the grammar — not filtered afterwards, never told it
+exists — so somebody else's pet answers in character instead of refusing.
+
+This mattered more than usual because a pet *name* is written by whoever minted
+it and reaches the model. There is a test for the exact string.
+
+### 5. ~~Submit your own pet~~ — done
+A species is a row in a registry, registered by anyone for a fee, and
+`CATEGORIES` is gone. Live since 2026-11-11.
+
+The part that had no answer in [`CREATE.md`](CREATE.md) was hosting: art has to
+be at an https url and this project has no storage. It did not need any. Every
+sprite is a GIF with a 16-entry global colour table and the frames reference it
+by index, so a colourway is 48 bytes — rewrite the table, leave the rest of the
+file alone, and the animation, frame delays and transparent index all survive.
+`/api/species/art/<base>/<phase>.gif?h=&s=` is the whole of it. What goes on
+chain is a recipe, not a file anyone has to keep alive.
+
+It also fixed something older. Token `media` was a *relative* path, which
+resolves only inside the desktop app, so every pet this game ever minted showed
+in a wallet as a broken image. All eight were rewritten.
+
+### 6. A creator earns nothing
+
+The newest gap, and it was created by closing the last one. Anyone can
+register a species and anyone can mint it, and `Species.minted` counts every
+one — but it pays its creator nothing. The fee goes out, nothing comes back,
+and the counter is a scoreboard with no prize.
+
+Everything needed is already on chain: the mint is a payable call, the species
+knows its `creator_id`, and `revenue_banked` already separates what was charged
+from what is storage staking. A cut of the mint price, paid on `internal_mint`,
+is a small change to a contract that just proved its migration path.
+
+Decide the number before building it. Too small and nobody makes a second
+species; too large and the treasury stops funding the credit stream that pays
+staked pets — the two come out of the same payment.
+
+### 7. The treasury's one off-chain step
+
+`fund_epoch_from_reserve` means the credit stream can only emit what the
+treasury actually bought. That is the point, and it is also the constraint: on
+2026-11-11 the pool had paid out 93.35 credits against 48.96 ever purchased,
+and the published rate was 500 a month against a reserve of 48.96.
+
+It now streams 40 a month with 8.96 left for the faucet. Raising it is not a
+number to edit — it is the treasury buying NEAR AI credits and calling
+`fund_reserve`. Mint revenue reaches the treasury on its own now, through
+`sweep_revenue`, which anyone may call.
 
 ## Loose ends
 
@@ -125,14 +175,21 @@ until that becomes stored state. Still the largest item.
   because the other repository had added auto-feed fields to the struct. All
   three contracts now build from here to the hash the chain serves, recorded
   in [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md) with how to check
-  before deploying and how to recover after. `joygotchi-near-client-bot` still
-  has PRs #14, #15 and #17 open against its copy; close them out there.
+  before deploying and how to recover after. The old repository's PRs are
+  closed.
 - **Shields do not count towards staking weight.** Tried, reverted: the bonus
   meant adding a field to `PetAttrs`, which is stored inside every
   `StakedPet`, so it broke every staked record on the live contract. The
-  design is sound and capped (+5% a shield, three maximum, one star's worth)
-  — it needs the shield passed alongside `PetAttrs` rather than inside it, or
-  a migration. See [`contracts/DEPLOYED.md`](../contracts/DEPLOYED.md).
+  design is sound and capped (+5% a shield, three maximum, one star's worth).
+
+  Less blocked than it was. The species deploy on 2026-11-11 ran a real
+  migration on the game contract and every pet came back, and
+  `contracts/game/tests/migration.rs` is the pattern that made it safe: it
+  deserialises the live `STATE` bytes with the layout `migrate` uses, and
+  asserts the slice is consumed whole. A unit test cannot do that — it builds
+  the old struct with the same compiler that reads it back, which is why both
+  previous losses passed their tests. The same fixture test against
+  `jg-stake-5656.testnet` is what this needs.
 - **~~Auto-feed could never have worked.~~** `auto_feed` on the staking
   contract calls `feed_from_stake` on the game contract, and the game
   contract did not have it — the feature spans both and only one half was
