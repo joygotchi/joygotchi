@@ -6,8 +6,8 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `Gcudy7AqgKHaFMKPwe3Vm69A4zbW8ZfeU6aHKLTVyXpF` |
-| `jg-stake-5656.testnet` | `RbQJzW6NDKkPbbbmpZrNYAm7XCejUx12WQisXStLXxX` |
+| `jg-game-5656.testnet` | `HxuA1Z5hFLujj1dr4xiQmiS3p86HPLL7hNUu5HRj5aZp` |
+| `jg-stake-5656.testnet` | `HLSqm66yR8hs12S9tBqCr6FFSeajeoY2RV3FkjNKDQjC` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
 
@@ -47,16 +47,31 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
-**Pending, not yet deployed.** The next deploy is the first one in this
-project that is a real Borsh layout change on the game contract rather than a
-code-only swap. It adds `species`, `species_price` and `revenue_banked` to the
-contract struct, so it must go out `with-init-call migrate` — see
-`migrate-game-testnet.sh`. The built hashes are
-`HxuA1Z5hFLujj1dr4xiQmiS3p86HPLL7hNUu5HRj5aZp` (game, migrate) and
-`HLSqm66yR8hs12S9tBqCr6FFSeajeoY2RV3FkjNKDQjC` (stake, code only). Update the
-table above once they are live.
+Deployed on 2026-11-11, and the first deploy in this project that is a real
+Borsh layout change on the game contract rather than a code-only swap. It adds
+`species`, `species_price` and `revenue_banked` to the contract struct, so it
+went out `with-init-call migrate` — `migrate-game-testnet.sh`, transaction
+`5k2qJkkaPNbkbbRMigGC3ZtDDiPtqvkHMb9oYRSZaoG3`. The staking contract went out
+`without-init-call` in `m49WpXcVvfkKxoFSw1M98KWCUapmg3aSdhkPPfpkWGq`, which is
+code only. Previous pair: `Gcudy7AqgKHaFMKPwe3Vm69A4zbW8ZfeU6aHKLTVyXpF` and
+`RbQJzW6NDKkPbbbmpZrNYAm7XCejUx12WQisXStLXxX`.
 
-Nothing inside `pets` changes: `Pet` is untouched, so every stored record is
+All eight pets read back with the same level, XP and evolution phase they had
+before, the registry seeded its two species, and the staking pool was
+untouched: two staked pets, weight 307, 48.96 credits in reserve.
+
+`refresh_metadata` then rewrote all eight in
+`EEsCiG7HEkR3sFyeqYPG9U7Lb4bBKQemBnggf6NnhAPo`. Every pet this game has ever
+minted carried `media` as `/assets/animation/<category>/<phase>.gif`, a
+relative path that resolves only inside the desktop app, so every wallet and
+explorer drew them broken. They now carry absolute urls that return 200.
+
+`revenue_banked` starts at zero rather than at the balance, on purpose: this
+account holds mint revenue *and* the NEP-171 storage staking for eight tokens,
+and nothing on chain can tell them apart after the fact. The ~22 NEAR sitting
+there is swept, if at all, with the old `sweep`.
+
+Nothing inside `pets` changed: `Pet` is untouched, so every stored record is
 still read by the code that wrote it, and `category` carries over as the key
 into the new registry.
 
