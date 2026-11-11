@@ -5,8 +5,18 @@ name: Release desktop
 # a GitHub release of that tag. The version in the installers' names comes from
 # `apps/desktop/src-tauri/tauri.conf.json`, so bump it there first.
 #
-# The builds are not code-signed. macOS and Windows warn on first launch; the
-# download page says how to get past that.
+# macOS builds are signed with the Developer ID certificate and notarized by
+# Apple when these repository secrets are set (they are skipped, and the build
+# is unsigned, when they are not):
+#
+#   APPLE_CERTIFICATE           the Developer ID Application .p12, base64
+#   APPLE_CERTIFICATE_PASSWORD  the password the .p12 was exported with
+#   APPLE_SIGNING_IDENTITY      "Developer ID Application: <name> (<team id>)"
+#   APPLE_ID                    the Apple Developer account's email
+#   APPLE_PASSWORD              an app-specific password for that Apple ID
+#   APPLE_TEAM_ID               the team id
+#
+# Windows builds are not signed; SmartScreen warns once.
 
 on:
   push:
@@ -44,6 +54,8 @@ jobs:
             os: ubuntu-22.04
             target: ''
     runs-on: ${{ matrix.os }}
+    env:
+      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -70,6 +82,27 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Only on macOS, and only when the certificate is there: an empty
+      # APPLE_CERTIFICATE makes the bundler try to import nothing and fail.
+      - name: Apple signing and notarization
+        if: runner.os == 'macOS' && env.HAS_APPLE_SIGNING == 'true'
+        env:
+          CERT: ${{ secrets.APPLE_CERTIFICATE }}
+          CERT_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          ID: ${{ secrets.APPLE_ID }}
+          PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          TEAM: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          {
+            echo "APPLE_CERTIFICATE=$CERT"
+            echo "APPLE_CERTIFICATE_PASSWORD=$CERT_PASSWORD"
+            echo "APPLE_SIGNING_IDENTITY=$IDENTITY"
+            echo "APPLE_ID=$ID"
+            echo "APPLE_PASSWORD=$PASSWORD"
+            echo "APPLE_TEAM_ID=$TEAM"
+          } >> "$GITHUB_ENV"
+
       - uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -88,9 +121,8 @@ jobs:
             - Windows: `JOYGOTCHI_<version>_x64-setup.exe`
             - Linux: `.AppImage`, `.deb` or `.rpm`
 
-            These builds are not code-signed yet.
-            - **macOS** says the app "is damaged" or "can't be opened". Drag it to Applications, then run `xattr -dr com.apple.quarantine /Applications/JOYGOTCHI.app` once.
-            - **Windows** SmartScreen: click *More info* → *Run anyway*.
+            The macOS builds are signed and notarized by Apple: open the .dmg and drag JOYGOTCHI to Applications.
+            The Windows build is not signed yet — SmartScreen asks once: click *More info* → *Run anyway*.
 
             Then install a pet from https://joygotchi.vercel.app and connect your agent from the app's Settings.
           releaseDraft: false

@@ -74,15 +74,15 @@
     <div class="border-b border-line px-4 py-3">
       <h2 class="text-sm tracking-widest text-muted uppercase">First launch</h2>
       <p class="mt-1 text-xs text-muted">
-        The builds aren't code-signed yet, so your system asks once whether to trust them.
+        The macOS builds are signed with an Apple Developer ID and notarized by Apple. The Windows
+        build is not signed yet.
       </p>
     </div>
     <div class="flex flex-col gap-3 p-4 text-xs text-muted">
       <p>
-        <span class="text-text">macOS</span> says the app is damaged or can't be opened. Drag it to
-        Applications, then run this once:
+        <span class="text-text">macOS</span>: open the <code class="text-text">.dmg</code> and drag
+        JOYGOTCHI to Applications. It opens like any other app.
       </p>
-      <CopyField label="Allow it on macOS" prefix="$ " value="xattr -dr com.apple.quarantine /Applications/JOYGOTCHI.app" />
       <p>
         <span class="text-text">Windows</span> SmartScreen: click <em>More info</em>, then
         <em>Run anyway</em>.
