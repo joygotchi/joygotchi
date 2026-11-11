@@ -6,7 +6,7 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `HxuA1Z5hFLujj1dr4xiQmiS3p86HPLL7hNUu5HRj5aZp` |
+| `jg-game-5656.testnet` | `72t8eWA12XeupTZUWpcTToE7kaEzqos4X9S7mvDnig81` |
 | `jg-stake-5656.testnet` | `HLSqm66yR8hs12S9tBqCr6FFSeajeoY2RV3FkjNKDQjC` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
@@ -47,9 +47,18 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
-**Built, not yet deployed:** `72t8eWA12XeupTZUWpcTToE7kaEzqos4X9S7mvDnig81`
-(game) adds the 1% creator royalty. Code only — no stored struct is touched,
-so it goes out `without-init-call` and keeps its state.
+Redeployed on 2026-11-11 for the 1% creator royalty, in
+`5ETVU2FreFeiPbKMXCs8bsGG8LHr4APb9ybL1cbg8an2`. Code only — no stored struct
+touched — so it went out `without-init-call` and kept its state: nine pets and
+three species read back unchanged. Previous:
+`HxuA1Z5hFLujj1dr4xiQmiS3p86HPLL7hNUu5HRj5aZp`.
+
+Checked by watching the money rather than by trusting the tests. Minting one
+`reference` pet for 2 NEAR
+(`48ZqBcemr5xU25b1hPCDQRHSHJskqjevsrstYffWFZQ1`) moved the species creator's
+balance from 3.8961 to 3.9161 NEAR — exactly 0.02 — and `revenue_banked` from
+7.00 to 8.98, exactly 1.98. The two add back up to the deposit, which is the
+property the unit test asserts and the only one worth confirming on chain.
 
 Deployed on 2026-11-11, and the first deploy in this project that is a real
 Borsh layout change on the game contract rather than a code-only swap. It adds
