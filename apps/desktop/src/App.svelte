@@ -8,7 +8,7 @@
   import { listPets, type ChainPetSummary } from './chain';
   import { detectBattle, startedHere, type SpectatedBattle } from './battle-watch';
   import Settings from './Settings.svelte';
-  import { HOLD_MS, MOTION_CSS, motionDuration } from '@joygotchi/pet';
+  import { ATLAS_CSS, HOLD_MS, MOTION_CSS, atlasStyleAttr, motionDuration, rowFor } from '@joygotchi/pet';
   import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
   import { say, threadFor } from './chat.svelte';
   import { canAfford, feedAndGrade } from './actions';
@@ -248,6 +248,26 @@
    * real phase wins. A package whose phase still matches keeps its own
    * files, which is what a hand-made pet needs.
    */
+  /**
+   * The pet drawn from its own sprite rows, when it has them.
+   *
+   * A v2 package carries a nine-row atlas, so `waving` is a drawing of the
+   * pet waving rather than the idle loop tilted in CSS. The container's
+   * motion is dropped for any state the sheet has a row for — playing both
+   * would be a pet that waves while also being waved.
+   *
+   * `feeding` and `battling` have no row, because they come from the game
+   * rather than from a coding agent. Those keep the CSS motion over the
+   * idle row, which is what the pet did before atlases existed.
+   */
+  const atlasAttr = $derived.by(() => {
+    if (!active?.atlas || !artSrc) return null;
+    // 98px is `.pet`'s width; the sheet scales to match it.
+    return atlasStyleAttr(pose, active.atlas, artSrc, 98 / active.atlas.frame.width);
+  });
+
+  const drawnByRow = $derived(Boolean(active?.atlas) && rowFor(pose) !== null);
+
   const artSrc = $derived.by(() => {
     if (!active) return null;
 
@@ -432,7 +452,7 @@
 </script>
 
 <svelte:head>
-  {@html `<style>${MOTION_CSS}</style>`}
+  {@html `<style>${MOTION_CSS}${ATLAS_CSS}</style>`}
 </svelte:head>
 
 <svelte:window
@@ -485,10 +505,18 @@
       role="button"
       tabindex="0"
       aria-label="What {active.displayName} is up to"
-      style:animation-name={motion}
+      style:animation-name={drawnByRow ? 'none' : motion}
       style:animation-duration="{motionDuration(pose)}s"
     >
-      {#if artSrc}
+      {#if atlasAttr}
+        <div
+          class="sprite atlas"
+          aria-label={active.displayName}
+          data-tauri-drag-region
+          role="img"
+          style={atlasAttr}
+        ></div>
+      {:else if artSrc}
         <img
           class="sprite"
           alt={active.displayName}

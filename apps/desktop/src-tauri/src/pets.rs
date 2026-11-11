@@ -24,6 +24,31 @@ pub struct PetPackage {
     pub star: u32,
     pub chain: ChainRef,
     pub states: std::collections::BTreeMap<String, String>,
+    /// A nine-row sprite atlas, on a v2 package. Absent on the GIF ones,
+    /// which is every pet installed before atlases existed — hence the
+    /// `Option` and the `skip_serializing_if`, so an old `pet.json` still
+    /// round-trips through here unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub atlas: Option<Atlas>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sprite_version: Option<u8>,
+}
+
+/// Where the frames are on the sheet. Mirrors `Atlas` in `@joygotchi/pet`;
+/// nothing here reads it, it only has to survive the trip to the window.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Atlas {
+    pub sheet: String,
+    pub columns: u32,
+    pub rows: u32,
+    pub frame: Frame,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Frame {
+    pub width: u32,
+    pub height: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

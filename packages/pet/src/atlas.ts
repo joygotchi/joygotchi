@@ -122,3 +122,86 @@ export function pngSize(bytes: Uint8Array): { width: number; height: number } | 
     ((bytes[at]! << 24) | (bytes[at + 1]! << 16) | (bytes[at + 2]! << 8) | bytes[at + 3]!) >>> 0;
   return { width: read(16), height: read(20) };
 }
+
+/**
+ * The keyframes that play a row, as a string both apps inject.
+ *
+ * One animation, not one per state: the row is chosen with
+ * `background-position-y` and the frames are walked by stepping
+ * `background-position-x` across the sheet. `--jg-atlas-span` carries how
+ * far that is, because it depends on the sheet's width and the size the pet
+ * is drawn at, neither of which CSS can know on its own.
+ *
+ * `steps()` is what makes it animation rather than a slide. Without it the
+ * sheet glides and you see two frames at once through the whole cycle.
+ */
+export const ATLAS_CSS = `
+@keyframes jg-atlas {
+  from { background-position-x: 0; }
+  to { background-position-x: calc(-1 * var(--jg-atlas-span)); }
+}
+`;
+
+/** Seconds one pass of a row takes. A walk cycle, not a slideshow. */
+export const ATLAS_SECONDS = 0.8;
+
+/**
+ * Everything needed to draw one state of an atlas, as inline style values.
+ *
+ * `scale` is the width the pet is drawn at divided by a frame's width, so
+ * the whole sheet is scaled by the same factor and every row still lands on
+ * a whole frame.
+ */
+/**
+ * A url safe to put inside `url(...)` inside a `style="..."` attribute.
+ *
+ * Single quotes, because the attribute around it is double-quoted: this
+ * helper emitted `url("…")` at first and every sprite rendered as nothing,
+ * since the first inner quote ended the attribute and the rest of the
+ * declarations were dropped. The unit tests all passed — they checked the
+ * values, and never put them in HTML.
+ *
+ * The escaping is not only for that. A src reaches this from a path or a
+ * url, and a quote in one would otherwise end the CSS string and let the
+ * rest be read as more declarations.
+ */
+function cssUrl(src: string): string {
+  const escaped = src.replace(/[\\'"\n\r]/g, (character) => `\\${character}`);
+  return `url('${escaped}')`;
+}
+
+export function atlasStyle(
+  state: PetState,
+  atlas: Atlas,
+  src: string,
+  scale: number
+): Record<string, string> {
+  const frameWidth = atlas.frame.width * scale;
+  const frameHeight = atlas.frame.height * scale;
+  const row = rowFor(state) ?? 0;
+
+  return {
+    width: `${frameWidth}px`,
+    height: `${frameHeight}px`,
+    'background-image': cssUrl(src),
+    'background-size': `${frameWidth * atlas.columns}px ${frameHeight * atlas.rows}px`,
+    'background-position': `0px -${row * frameHeight}px`,
+    'background-repeat': 'no-repeat',
+    // Pixel art, so no smoothing on the way up.
+    'image-rendering': 'pixelated',
+    '--jg-atlas-span': `${frameWidth * atlas.columns}px`,
+    animation: `jg-atlas ${ATLAS_SECONDS}s steps(${atlas.columns}) infinite`
+  };
+}
+
+/** The same, as a `style` attribute. */
+export function atlasStyleAttr(
+  state: PetState,
+  atlas: Atlas,
+  src: string,
+  scale: number
+): string {
+  return Object.entries(atlasStyle(state, atlas, src, scale))
+    .map(([property, value]) => `${property}:${value}`)
+    .join(';');
+}

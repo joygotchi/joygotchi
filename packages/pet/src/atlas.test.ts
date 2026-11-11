@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
   ATLAS_COLUMNS,
+  atlasStyle,
+  atlasStyleAttr,
   ATLAS_ROWS,
   ATLAS_STATES,
   RECOMMENDED_SHEET,
@@ -138,5 +140,94 @@ describe('pngSize', () => {
     const wrong = header(1536, 1872);
     wrong.set([0x66, 0x4f, 0x4f, 0x66], 12);
     expect(pngSize(wrong)).toBeNull();
+  });
+});
+
+describe('atlasStyle', () => {
+  const atlas = {
+    sheet: '1.png',
+    columns: 8,
+    rows: 9,
+    frame: { width: 192, height: 208 }
+  };
+
+  it('draws one frame and scales the whole sheet with it', () => {
+    // The pet is 98px wide in the window; a frame is 192. Everything —
+    // the sheet, the row offset, the step distance — has to move by the
+    // same factor or the rows stop landing on whole frames.
+    const style = atlasStyle('idle', atlas, '/sheet.png', 0.5);
+    expect(style.width).toBe('96px');
+    expect(style.height).toBe('104px');
+    expect(style['background-size']).toBe('768px 936px');
+  });
+
+  it('picks the row for the state', () => {
+    const waving = atlasStyle('waving', atlas, '/sheet.png', 1);
+    expect(waving['background-position']).toBe('0px -624px');
+    expect(atlasStyle('idle', atlas, '/sheet.png', 1)['background-position']).toBe('0px -0px');
+  });
+
+  it('falls back to the first row for a state the sheet has no row for', () => {
+    // `feeding` and `battling` come from the game, so a petdex sheet has
+    // nothing for them. The idle row plus the app's own CSS motion is the
+    // honest answer; a blank frame is not.
+    expect(atlasStyle('feeding', atlas, '/s.png', 1)['background-position']).toBe('0px -0px');
+  });
+
+  it('steps rather than slides', () => {
+    // Without steps() the sheet glides and two frames show at once for the
+    // whole cycle, which looks like a rendering bug rather than animation.
+    expect(atlasStyle('idle', atlas, '/s.png', 1).animation).toContain('steps(8)');
+  });
+
+  it('walks exactly one row and lands back where it started', () => {
+    const style = atlasStyle('idle', atlas, '/s.png', 0.5);
+    // Eight frames at 96px: the span equals the scaled sheet width, so the
+    // last step shows frame 8 and the loop returns to frame 1.
+    expect(style['--jg-atlas-span']).toBe('768px');
+    expect(style['--jg-atlas-span']).toBe(style['background-size']!.split(' ')[0]);
+  });
+
+  it('serialises to something a style attribute accepts', () => {
+    const attr = atlasStyleAttr('waving', atlas, '/s.png', 0.5);
+    expect(attr).toContain('--jg-atlas-span:768px');
+    expect(attr).toContain('image-rendering:pixelated');
+    expect(attr.split(';').every((pair) => pair.includes(':'))).toBe(true);
+  });
+});
+
+describe('atlasStyleAttr in an actual attribute', () => {
+  const atlas = {
+    sheet: '1.png',
+    columns: 8,
+    rows: 9,
+    frame: { width: 192, height: 208 }
+  };
+
+  it('survives being put in a double-quoted style attribute', () => {
+    /*
+     * This is what the first version got wrong, and no value-checking test
+     * caught it: `url("sheet.png")` ends a `style="..."` attribute at its
+     * first inner quote, so the browser kept the width and dropped every
+     * declaration after it. Every sprite rendered as an empty box.
+     */
+    const attr = atlasStyleAttr('idle', atlas, '/pets/wyvern/spritesheet.png', 0.5);
+    expect(attr).not.toContain('"');
+    expect(attr).toContain("url('/pets/wyvern/spritesheet.png')");
+  });
+
+  it('escapes a quote in the path rather than letting it end the string', () => {
+    // A src arrives as a file path or a url. A quote in one would close the
+    // CSS string and let whatever follows be read as more declarations.
+    const attr = atlasStyleAttr('idle', atlas, "/pets/it's/sheet.png", 1);
+    expect(attr).toContain("\\'");
+    const url = attr.split('background-image:')[1]!.split(';')[0]!;
+    // Exactly two unescaped quotes: the ones this helper wrote.
+    expect(url.replace(/\\'/g, '').split("'")).toHaveLength(3);
+  });
+
+  it('escapes a backslash, so a Windows path cannot escape the escaping', () => {
+    const attr = atlasStyleAttr('idle', atlas, 'C:\\pets\\sheet.png', 1);
+    expect(attr).toContain('C:\\\\pets\\\\sheet.png');
   });
 });

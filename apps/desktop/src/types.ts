@@ -1,4 +1,4 @@
-import type { PetState } from '@joygotchi/pet';
+import type { Atlas, PetState } from '@joygotchi/pet';
 
 /** What `list_pets` returns: the pet package plus where it lives on disk. */
 export type InstalledPet = {
@@ -14,4 +14,10 @@ export type InstalledPet = {
   chain: { network: string; contract: string; owner: string };
   states: Partial<Record<PetState, string>>;
   directory: string;
+  /**
+   * Present on a v2 package: a nine-row sprite atlas, so the pet really
+   * animates per state instead of being moved around in CSS.
+   */
+  atlas?: Atlas;
+  spriteVersion?: 1 | 2;
 };

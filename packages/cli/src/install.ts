@@ -2,7 +2,15 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isBundledKind, toPetPackage, type ChainPet, type PetPackage } from '@joygotchi/pet';
+import {
+  atlasFrom,
+  isBundledKind,
+  pngSize,
+  toPetPackage,
+  type Atlas,
+  type ChainPet,
+  type PetPackage
+} from '@joygotchi/pet';
 import { fetchPet, fetchSpecies, type ChainConfig } from './chain.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -18,8 +26,16 @@ const here = dirname(fileURLToPath(import.meta.url));
  */
 const ART_ROOT = resolve(here, '../assets/animation');
 
-/** Most we will pull down for one drawing. A GIF of a pet is a few KB. */
-const MAX_ART_BYTES = 2 * 1024 * 1024;
+/**
+ * What a downloaded sheet is called inside the package.
+ *
+ * Never taken from the url. A name from a stranger is a path from a
+ * stranger, and this one is joined onto a directory.
+ */
+const SHEET_NAME = 'spritesheet.png';
+
+/** Most we will pull down for one drawing. A sheet is a few hundred KB. */
+export const MAX_ART_BYTES = 4 * 1024 * 1024;
 
 /** What a drawing is allowed to be. */
 const ART_TYPES = ['image/gif', 'image/png', 'image/webp'];
@@ -104,14 +120,9 @@ export async function installPet(config: ChainConfig, petId: number): Promise<In
   const pet = await fetchPet(config, petId);
   if (!pet) throw new PetNotFoundError(petId, config.contract);
 
-  const pkg = toPetPackage(pet, { network: config.network, contract: config.contract });
-  const directory = join(petsRoot(), pkg.slug);
-
-  const replaced = await exists(join(directory, 'pet.json'));
-  await mkdir(directory, { recursive: true });
-
-  const files = ['pet.json'];
-  await writeFile(join(directory, 'pet.json'), `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
+  // Built twice: the kind has to be normalised before the species can be
+  // looked up, and the atlas has to be known before the package is final.
+  const draft = toPetPackage(pet, { network: config.network, contract: config.contract });
 
   /*
    * A species this project ships is copied off disk; anything else is
@@ -122,23 +133,61 @@ export async function installPet(config: ChainConfig, petId: number): Promise<In
    * the file ends up under `~/.joygotchi`, which is the one place the app's
    * asset protocol is allowed to read.
    */
-  const remote = isBundledKind(pkg.kind)
-    ? null
-    : await fetchSpecies(config, pkg.kind).catch(() => null);
-  if (!isBundledKind(pkg.kind) && !remote) {
-    throw new Error(`${config.contract} knows no species "${pkg.kind}"`);
+  const bundled = isBundledKind(draft.kind);
+  const remote = bundled ? null : await fetchSpecies(config, draft.kind).catch(() => null);
+  if (!bundled && !remote) {
+    throw new Error(`${config.contract} knows no species "${draft.kind}"`);
   }
 
-  // One copy per distinct file, not per state: all nine states point at the
-  // same idle loop today, and writing it nine times would be nine identical
-  // GIFs in a folder a person is going to open.
+  let atlas: Atlas | undefined;
+  let sheet: Uint8Array | undefined;
+
+  if (remote) {
+    const uri = remote.art[Math.min(draft.evolutionPhase, remote.art.length) - 1];
+    if (!uri) throw new Error(`Species "${draft.kind}" has no drawing for that phase`);
+    const downloaded = await fetchArt(uri);
+
+    /*
+     * Which kind of art this is, decided by looking at it rather than by
+     * trusting the file name. A species registered through `joygotchi
+     * submit` is a nine-row atlas; the two this project ships are GIFs; and
+     * a creator can register either. A PNG that is not a valid grid is left
+     * as a still image rather than refused — one drawing is what every pet
+     * in this game had until today.
+     */
+    const size = pngSize(new Uint8Array(downloaded));
+    if (size) {
+      const read = atlasFrom(SHEET_NAME, size.width, size.height);
+      if (read.ok) {
+        atlas = read.atlas;
+        sheet = new Uint8Array(downloaded);
+      }
+    }
+    if (!atlas) sheet = new Uint8Array(downloaded);
+  }
+
+  const pkg = toPetPackage(
+    pet,
+    { network: config.network, contract: config.contract },
+    atlas
+  );
+  const directory = join(petsRoot(), pkg.slug);
+
+  const replaced = await exists(join(directory, 'pet.json'));
+  await mkdir(directory, { recursive: true });
+
+  const files = ['pet.json'];
+  await writeFile(join(directory, 'pet.json'), `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
+
+  // One copy per distinct file, not per state: every state points at the
+  // same sheet on a v2 package and at the same idle loop on a v1 one, and
+  // writing it nine times would be nine identical files in a folder a
+  // person is going to open.
   for (const asset of new Set(Object.values(pkg.states))) {
     const target = join(directory, asset);
     await mkdir(dirname(target), { recursive: true });
-    if (remote) {
-      const uri = remote.art[Math.min(pkg.evolutionPhase, remote.art.length) - 1];
-      if (!uri) throw new Error(`Species "${pkg.kind}" has no drawing for that phase`);
-      await writeFile(target, await fetchArt(uri));
+    if (sheet) {
+      await writeFile(target, sheet);
     } else {
       await copyFile(join(ART_ROOT, asset), target);
     }

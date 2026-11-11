@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { encodeInstallCode } from '@joygotchi/pet';
 import { DEFAULTS, resolveChain } from './chain.js';
-import { PetNotFoundError, installPet, installedPets, petsRoot } from './install.js';
+import { MAX_ART_BYTES, PetNotFoundError, installPet, installedPets, petsRoot } from './install.js';
 import { parseArgs } from './cli.js';
 
 const chain = { network: 'testnet' as const, rpc: 'http://rpc.test', contract: 'game.test' };
@@ -162,6 +162,63 @@ describe('installPet', () => {
       expect(result.files).toContain('wyvern/3.gif');
     });
 
+    /** A PNG header of the given size — all `pngSize` reads. */
+    const png = (width: number, height: number) => {
+      const bytes = Buffer.alloc(24);
+      bytes.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], 0);
+      bytes.writeUInt32BE(13, 8);
+      bytes.write('IHDR', 12, 'ascii');
+      bytes.writeUInt32BE(width, 16);
+      bytes.writeUInt32BE(height, 20);
+      return new Uint8Array(bytes);
+    };
+
+    it('installs a sprite atlas as a v2 package', async () => {
+      /*
+       * The point of `joygotchi submit`: a species registered with a
+       * nine-row sheet installs as a pet that really animates per state,
+       * rather than one idle drawing moved around in CSS.
+       */
+      vi.stubGlobal(
+        'fetch',
+        stubChainAndArt(mine, species, { body: png(1536, 1872), type: 'image/png' })
+      );
+
+      const result = await installPet(chain, 3);
+      expect(result.pkg.spriteVersion).toBe(2);
+      expect(result.pkg.atlas?.frame).toEqual({ width: 192, height: 208 });
+      expect(result.pkg.states.idle).toBe('spritesheet.png');
+      expect(result.files).toContain('spritesheet.png');
+    });
+
+    it('names the sheet itself rather than taking a name from the url', async () => {
+      // The url is written by a stranger, and the name is joined onto a
+      // directory. `../../../evil.png` is a path, not a file name.
+      vi.stubGlobal(
+        'fetch',
+        stubChainAndArt(
+          mine,
+          { ...species, art: ['https://art.example/../../x.png', 'b', 'c'] },
+          { body: png(1536, 1872), type: 'image/png' }
+        )
+      );
+      const result = await installPet(chain, 3);
+      expect(result.files).toContain('spritesheet.png');
+      expect(result.files.join(' ')).not.toContain('..');
+    });
+
+    it('keeps a PNG that is not a grid as a still drawing', async () => {
+      // One drawing is what every pet in this game had until today, so a
+      // sheet that does not divide is a v1 pet rather than an error.
+      vi.stubGlobal(
+        'fetch',
+        stubChainAndArt(mine, species, { body: png(500, 500), type: 'image/png' })
+      );
+      const result = await installPet(chain, 3);
+      expect(result.pkg.spriteVersion).toBe(1);
+      expect(result.pkg.atlas).toBeUndefined();
+    });
+
     it('refuses art that is not served over https', async () => {
       /*
        * The url is written by whoever registered the species and points at a
@@ -190,9 +247,11 @@ describe('installPet', () => {
 
     it('refuses a drawing bigger than the cap', async () => {
       // Without this the installer holds whatever a stranger decides to send.
+      // Measured against the constant, so raising the cap for sprite sheets
+      // cannot quietly leave this test passing on a size under it.
       vi.stubGlobal(
         'fetch',
-        stubChainAndArt(mine, species, { body: new Uint8Array(3 * 1024 * 1024) })
+        stubChainAndArt(mine, species, { body: new Uint8Array(MAX_ART_BYTES + 1) })
       );
       await expect(installPet(chain, 3)).rejects.toThrow('limit');
     });
