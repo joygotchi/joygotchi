@@ -88,14 +88,26 @@ export async function fetchSupply(config: ChainConfig): Promise<number> {
   return Number(supply) || 0;
 }
 
-/** Every pet, newest first. Used by `joygotchi list`. */
+/**
+ * Every pet, newest first. Used by `joygotchi list`.
+ *
+ * Asks the contract which pets exist instead of counting down from the
+ * supply: ids have gaps once a pet is burned, and counting would skip the
+ * newest ones.
+ */
 export async function fetchPets(config: ChainConfig, limit: number): Promise<ChainPet[]> {
-  const total = await fetchSupply(config);
-  const ids: number[] = [];
-  for (let id = total; id >= 1 && ids.length < limit; id--) ids.push(id);
-
-  const pets = await Promise.all(ids.map((id) => fetchPet(config, id).catch(() => null)));
-  return pets.filter((pet): pet is ChainPet => pet !== null);
+  const PAGE = 100;
+  const pets: ChainPet[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = await viewFunction<ChainPet[]>(config, 'get_pets', {
+      from_index: from,
+      limit: PAGE
+    });
+    pets.push(...(page ?? []));
+    if (!page || page.length < PAGE) break;
+  }
+  pets.sort((a, b) => Number(b.pet_id) - Number(a.pet_id));
+  return pets.slice(0, limit);
 }
 
 /** The species a pet belongs to, which is where its art lives. */

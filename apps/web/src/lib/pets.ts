@@ -71,21 +71,28 @@ export function artFor(pet: GalleryPet, phase = Number(pet.evolution_phase ?? 1)
  * being fine, the contract gets a paged view rather than this getting clever.
  */
 export async function listPets(limit = 60): Promise<GalleryPet[]> {
-  const supply = await viewFunction<string>(GAME_CONTRACT, 'nft_total_supply');
-  const total = Number(supply);
-  if (!Number.isFinite(total) || total === 0) return [];
+  /*
+   * Ask the contract which pets exist rather than counting down from the
+   * supply. Ids stop being contiguous the moment a pet is burned — a retired
+   * species takes its pets with it — and counting `supply..1` then skips the
+   * newest pets and asks for ones that are gone.
+   */
+  const PAGE = 100;
+  const pets: ChainPet[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = await viewFunction<ChainPet[]>(GAME_CONTRACT, 'get_pets', {
+      from_index: from,
+      limit: PAGE
+    });
+    pets.push(...page);
+    if (page.length < PAGE) break;
+  }
 
-  const ids: number[] = [];
-  for (let id = total; id >= 1 && ids.length < limit; id--) ids.push(id);
-
-  const pets = await Promise.all(
-    ids.map((pet_id) =>
-      viewFunction<ChainPet | null>(GAME_CONTRACT, 'get_pet', { pet_id }).catch(() => null)
-    )
-  );
+  // The contract's own order is storage order, which a burn reshuffles.
+  pets.sort((a, b) => Number(b.pet_id) - Number(a.pet_id));
 
   const species = await listSpecies();
-  return pets.filter((pet): pet is ChainPet => pet !== null).map((one) => decorate(one, species));
+  return pets.slice(0, limit).map((one) => decorate(one, species));
 }
 
 export async function getPet(petId: number): Promise<GalleryPet | null> {
