@@ -489,11 +489,18 @@
   let listings = $state<Listing[]>([]);
 
   /** The drawn item for each id, so the bag reads as a bag. */
+  /*
+   * One drawing per credit item, and each one about what the item does.
+   * Three of the four were borrowed from the NEAR shop and said something
+   * else entirely: holy water for a tonic that clears a wound, a plate of
+   * food for a lens that doubles XP, and a star for the charm that saves a
+   * star — which left two different stars on screen meaning two things.
+   */
   const ITEM_ART: Record<number, string> = {
-    101: '/assets/items/holy_water.png',
+    101: '/assets/icon/tonic.png',
     102: '/assets/items/shield.png',
-    103: '/assets/items/food.png',
-    104: '/assets/item/star.png'
+    103: '/assets/icon/lens.png',
+    104: '/assets/icon/charm.png'
   };
 
   let showBag = $state(false);
