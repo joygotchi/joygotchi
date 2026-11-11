@@ -1,39 +1,57 @@
 <script lang="ts">
-  import {
-    MOTION,
-    MOTION_CSS,
-    PET_STATES,
-    STATE_INFO,
-    motionDuration,
-    type PetState
-  } from '@joygotchi/pet';
-  import type { GalleryPet } from '#lib/pets';
+  import { PET_STATES, STATE_INFO, rowFor, type Atlas, type PetState } from '@joygotchi/pet';
+  import PetSprite from '#lib/components/PetSprite.svelte';
+  import { artFor, type GalleryPet } from '#lib/pets';
+  import { probeAtlas } from '#lib/sprite';
 
   /**
    * Every state this pet can be in, and what it looks like.
    *
-   * It previews **motion**, not frames, and the panel says so rather than
-   * implying nine drawings exist. A JOYGOTCHI pet has one idle loop per
-   * evolution phase; the desktop app tells states apart by how it moves that
-   * loop, and this shows exactly that — the keyframes come from the same
-   * shared file the desktop imports, so the preview cannot drift from the real
-   * thing.
+   * Two kinds of pet end up here and the panel is honest about which one it
+   * is showing.
+   *
+   * A pet whose species ships one drawing per phase gets **motion**: the
+   * desktop app tells states apart by how it moves that single loop, and the
+   * keyframes come from the same shared file the desktop imports, so the
+   * preview cannot drift from the real thing.
+   *
+   * A pet whose species ships a nine-row sprite atlas gets **frames** — the
+   * actual row for the actual state. The footer used to promise that such a
+   * pet would "render here without the viewer changing", which was wishful:
+   * rows need a renderer, and this is it.
    */
   type Props = { pet: GalleryPet };
   let { pet }: Props = $props();
 
   let selected = $state<PetState>('idle');
 
-  const art = $derived(`/assets/animation/${pet.pkg.states[selected] ?? pet.pkg.states.idle}`);
+  const art = $derived(artFor(pet));
   const info = $derived(STATE_INFO[selected]);
+
+  /**
+   * Whether the art is an atlas, decided by measuring it.
+   *
+   * Nothing in the package says so: the species' art is a url its creator
+   * registered, and the only way to know what is behind it is to load it and
+   * look. A sheet whose grid does not divide is treated as one drawing,
+   * which is what it is.
+   */
+  let atlas = $state<Atlas | null>(null);
+  $effect(() => {
+    const src = art;
+    atlas = null;
+    let cancelled = false;
+    void probeAtlas(src).then((found) => {
+      if (!cancelled) atlas = found;
+    });
+    return () => {
+      cancelled = true;
+    };
+  });
 
   /** How many distinct drawings this pet actually has across its states. */
   const distinctArt = $derived(new Set(Object.values(pet.pkg.states)).size);
 </script>
-
-<svelte:head>
-  {@html `<style>${MOTION_CSS}</style>`}
-</svelte:head>
 
 <div class="border border-line bg-panel">
   <div class="border-b border-line px-4 py-3">
@@ -48,12 +66,7 @@
     <!-- The selected state, large -->
     <div class="flex flex-col gap-2">
       <div class="grid-bg flex h-56 items-center justify-center border border-line bg-ink">
-        <img
-          class="pixel h-32"
-          alt={info.label}
-          src={art}
-          style:animation="{MOTION[selected]} {motionDuration(selected)}s ease-in-out infinite"
-        />
+        <PetSprite src={art} height={128} pose={selected} alt={info.label} />
       </div>
 
       <div class="flex items-baseline justify-between gap-2">
@@ -63,6 +76,17 @@
         </span>
       </div>
       <p class="text-[0.65rem] leading-relaxed text-muted">{info.trigger}</p>
+      {#if atlas && rowFor(selected) === null}
+        <!--
+          `feeding` and `battling` come from the game rather than from a
+          coding agent, so a petdex sheet has no row for them. Saying so
+          beats showing the idle row and letting somebody conclude the
+          sheet is wrong.
+        -->
+        <p class="text-[0.6rem] text-warn">
+          This sheet has no row for {info.label.toLowerCase()} — it shows idle instead.
+        </p>
+      {/if}
     </div>
 
     <!-- Every state, small -->
@@ -74,12 +98,9 @@
           class:border-line={selected !== state}
           onclick={() => (selected = state)}
         >
-          <img
-            class="pixel h-10"
-            alt=""
-            src="/assets/animation/{pet.pkg.states[state] ?? pet.pkg.states.idle}"
-            style:animation="{MOTION[state]} {motionDuration(state)}s ease-in-out infinite"
-          />
+          <!-- The label below names it, so the sprite stays unlabelled and
+               a screen reader does not read every state twice. -->
+          <PetSprite src={art} height={40} pose={state} />
           <span
             class="text-center text-[0.55rem] leading-tight"
             class:text-accent={selected === state}
@@ -93,11 +114,15 @@
   </div>
 
   <p class="border-t border-line px-4 py-2 text-[0.6rem] leading-relaxed text-muted">
-    {#if distinctArt === 1}
+    {#if atlas}
+      Real frames: a <strong class="text-text">{atlas.columns}×{atlas.rows}</strong> sprite atlas,
+      {atlas.frame.width}×{atlas.frame.height} a cell, one row per state. The last two states have
+      no row of their own — they come from the game rather than from a coding agent — so they show
+      the idle row.
+    {:else if distinctArt === 1}
       These are {PET_STATES.length} motions over <strong class="text-text">one</strong> drawing, not
-      {PET_STATES.length} drawings — a JOYGOTCHI pet ships an idle loop per evolution phase. The
-      package format already carries a per-state path and a frame size, so a pet that arrives with
-      a row per state renders here without the viewer changing.
+      {PET_STATES.length} drawings — this species ships an idle loop per evolution phase. A species
+      registered with a nine-row sprite atlas renders its real frames here instead.
     {:else}
       This pet carries {distinctArt} drawings across {PET_STATES.length} states.
     {/if}

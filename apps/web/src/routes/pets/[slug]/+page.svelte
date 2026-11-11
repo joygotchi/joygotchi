@@ -3,15 +3,15 @@
   import CopyField from '#lib/components/CopyField.svelte';
   import { installCommand } from '#lib/cli';
   import PetChat from '#lib/components/PetChat.svelte';
+  import PetSprite from '#lib/components/PetSprite.svelte';
   import StateViewer from '#lib/components/StateViewer.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
   import { truncateAccount } from '#lib/near/amount';
   import { wallet } from '#lib/near/wallet.svelte';
-  import { getPetBySlug, type GalleryPet } from '#lib/pets';
+  import { artFor, getPetBySlug, type GalleryPet } from '#lib/pets';
   import {
     ACTION_PRICE,
     MAX_EVOLUTION_PHASE,
-    artPath,
     isStarving,
     levelToEvolve
   } from '@joygotchi/pet';
@@ -79,12 +79,7 @@
     <!-- Art and stats -->
     <div class="flex flex-col gap-4">
       <div class="grid-bg flex h-72 items-center justify-center border border-line bg-panel">
-        <img
-          class="pixel h-48"
-          class:opacity-40={starving}
-          alt={pet.name}
-          src="/assets/animation/{pet.pkg.states.idle}"
-        />
+        <PetSprite src={artFor(pet)} height={192} alt={pet.name} dim={starving} />
       </div>
 
       <!--
@@ -99,11 +94,7 @@
           {#each EVOLUTION as phase (phase)}
             {@const reached = pet.pkg.evolutionPhase >= phase}
             <li class="flex flex-col items-center gap-1 px-1 py-2" class:opacity-35={!reached}>
-              <img
-                class="pixel h-12"
-                alt="Phase {phase}"
-                src="/assets/animation/{artPath(pet.kind, Math.min(3, phase) as 1 | 2 | 3)}"
-              />
+              <PetSprite src={artFor(pet, phase)} height={48} alt="Phase {phase}" motion={false} />
               <span class="text-[10px]" class:text-accent={pet.pkg.evolutionPhase === phase}>
                 {pet.pkg.evolutionPhase === phase ? 'now' : `lv ${levelToEvolve(phase - 1) ?? 0}`}
               </span>

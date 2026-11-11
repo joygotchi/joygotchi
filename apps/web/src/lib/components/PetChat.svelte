@@ -1,5 +1,6 @@
 <script lang="ts">
-  import type { GalleryPet } from '#lib/pets';
+  import PetSprite from '#lib/components/PetSprite.svelte';
+  import { artFor, type GalleryPet } from '#lib/pets';
 
   /**
    * Talk to a pet through NEAR AI.
@@ -75,7 +76,7 @@
       {#each turns as turn, index (index)}
         <div class="flex gap-2" class:flex-row-reverse={turn.from === 'you'}>
           {#if turn.from === 'pet'}
-            <img class="pixel h-8 shrink-0" alt="" src="/assets/animation/{pet.pkg.states.idle}" />
+            <span class="shrink-0"><PetSprite src={artFor(pet)} height={32} /></span>
           {/if}
           <p
             class="max-w-[80%] px-2 py-1.5"

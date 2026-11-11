@@ -23,13 +23,44 @@ export type GalleryPet = ChainPet & {
   /** The species id. Any registered one, not only the two we ship. */
   kind: string;
   pkg: PetPackage;
+  /**
+   * The species' registered art, one url per phase.
+   *
+   * Every page that draws a pet reads this. They used to build
+   * `/assets/animation/<kind>/<phase>.gif` themselves — six copies of a rule
+   * that was true while there were two species compiled into the app, and a
+   * 404 for every species registered since. The two built-ins are in the
+   * registry too, with absolute urls, so there is no special case here.
+   */
+  art: string[];
 };
 
 const chain = () => ({ network: NETWORK, contract: GAME_CONTRACT });
 
-function decorate(pet: ChainPet): GalleryPet {
+function decorate(pet: ChainPet, species: ChainSpecies[]): GalleryPet {
   const pkg = toPetPackage(pet, chain());
-  return { ...pet, slug: pkg.slug, kind: pkg.kind, pkg };
+  const found = species.find((one) => one.id === pet.category);
+  return {
+    ...pet,
+    slug: pkg.slug,
+    kind: pkg.kind,
+    pkg,
+    // A species the registry does not know should not happen — a pet cannot
+    // be minted without one — but an empty list draws nothing rather than
+    // throwing on a page whose job is to show a pet.
+    art: found?.art ?? []
+  };
+}
+
+/**
+ * The drawing for a phase, with phase 4 falling back to the last one drawn.
+ *
+ * The same rule the contract applies in `Species::art_for`, because the two
+ * have to agree about which picture a wallet and this page are showing.
+ */
+export function artFor(pet: GalleryPet, phase = Number(pet.evolution_phase ?? 1) || 1): string {
+  if (pet.art.length === 0) return '';
+  return pet.art[Math.min(Math.max(phase, 1), pet.art.length) - 1] ?? pet.art[0]!;
 }
 
 /**
@@ -53,14 +84,17 @@ export async function listPets(limit = 60): Promise<GalleryPet[]> {
     )
   );
 
-  return pets.filter((pet): pet is ChainPet => pet !== null).map(decorate);
+  const species = await listSpecies();
+  return pets.filter((pet): pet is ChainPet => pet !== null).map((one) => decorate(one, species));
 }
 
 export async function getPet(petId: number): Promise<GalleryPet | null> {
   const pet = await viewFunction<ChainPet | null>(GAME_CONTRACT, 'get_pet', {
     pet_id: petId
   }).catch(() => null);
-  return pet ? decorate(pet) : null;
+  if (!pet) return null;
+  const species = await getSpecies(pet.category);
+  return decorate(pet, species ? [species] : []);
 }
 
 /** A pet by its slug, which carries the id: `ancalagon-3` → 3. */
@@ -78,7 +112,8 @@ export async function petsOf(accountId: string): Promise<GalleryPet[]> {
   const pets = await viewFunction<ChainPet[]>(GAME_CONTRACT, 'get_pets_for_owner', {
     account_id: accountId
   }).catch(() => [] as ChainPet[]);
-  return pets.map(decorate);
+  const species = await listSpecies();
+  return pets.map((one) => decorate(one, species));
 }
 
 /**

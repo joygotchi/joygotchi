@@ -1,6 +1,7 @@
 <script lang="ts">
   import { truncateAccount } from '#lib/near/amount';
-  import type { GalleryPet } from '#lib/pets';
+  import PetSprite from '#lib/components/PetSprite.svelte';
+  import { artFor, type GalleryPet } from '#lib/pets';
   import { isStarving } from '@joygotchi/pet';
 
   type Props = { pet: GalleryPet };
@@ -21,12 +22,9 @@
   href="/pets/{pet.slug}"
 >
   <div class="relative flex h-40 items-center justify-center bg-ink">
-    <img
-      class="pixel h-28 transition-transform group-hover:scale-110"
-      class:opacity-40={starving}
-      alt={pet.name}
-      src="/assets/animation/{pet.pkg.states.idle}"
-    />
+    <div class="transition-transform group-hover:scale-110">
+      <PetSprite src={artFor(pet)} height={112} alt={pet.name} dim={starving} />
+    </div>
 
     {#if pet.locked}
       <span class="absolute top-2 right-2 bg-panel-2 px-1.5 py-0.5 text-[0.6rem] text-warn">

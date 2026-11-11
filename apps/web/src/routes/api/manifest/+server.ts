@@ -1,6 +1,6 @@
 import { json } from '@sveltejs/kit';
 import { GAME_CONTRACT, NETWORK } from '#lib/config';
-import { listPets } from '#lib/pets';
+import { artFor, listPets } from '#lib/pets';
 import type { RequestHandler } from './$types';
 
 /**
@@ -30,6 +30,11 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
     network: NETWORK,
     contract: GAME_CONTRACT,
     total: pets.length,
+    /*
+     * Kept for the clients that already read it, and it no longer describes
+     * where art comes from: a species registers absolute urls, and `art`
+     * below is one of them rather than something to join onto this.
+     */
     assetBase: `${url.origin}/assets/animation`,
     pets: pets.map((pet) => ({
       slug: pet.slug,
@@ -42,7 +47,7 @@ export const GET: RequestHandler = async ({ url, setHeaders }) => {
       star: pet.star,
       evolutionPhase: pet.pkg.evolutionPhase,
       owner: pet.owner_id,
-      art: `${url.origin}/assets/animation/${pet.pkg.states.idle}`,
+      art: artFor(pet),
       page: `${url.origin}/pets/${pet.slug}`,
       spriteVersion: pet.pkg.spriteVersion,
       frame: pet.pkg.frame

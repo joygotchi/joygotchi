@@ -1,3 +1,4 @@
+import { atlasFrom, type Atlas } from '@joygotchi/pet';
 /**
  * Recolour a pixel sprite by rewriting its palette.
  *
@@ -141,4 +142,29 @@ export function recolour(gif: Uint8Array, palette: Palette): Uint8Array {
     out[i + 2] = Math.round(b * 255);
   }
   return out;
+}
+
+/**
+ * Is this url a sprite atlas? Decided by loading it and measuring.
+ *
+ * Nothing in a pet package says so: a species' art is whatever url its
+ * creator registered, and the only way to know what is behind it is to look.
+ * Both the renderer and the panel that describes it need the answer, and
+ * they must not reach it by different routes — a viewer captioned "real
+ * frames" over a still image is worse than either.
+ *
+ * Resolves to null off the browser, for a sheet whose grid does not divide,
+ * and for anything that fails to load.
+ */
+export async function probeAtlas(src: string): Promise<Atlas | null> {
+  if (src === '' || typeof Image === 'undefined') return null;
+  return new Promise((resolve) => {
+    const probe = new Image();
+    probe.onload = () => {
+      const read = atlasFrom(src, probe.naturalWidth, probe.naturalHeight);
+      resolve(read.ok ? read.atlas : null);
+    };
+    probe.onerror = () => resolve(null);
+    probe.src = src;
+  });
 }
