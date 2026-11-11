@@ -2,11 +2,20 @@ import { json } from '@sveltejs/kit';
 import { GAME_CONTRACT } from '#lib/config';
 import { viewFunction } from '#lib/near/rpc';
 import { AiUnavailableError, complete, petPersona } from '#lib/server/near-ai';
-import type { ChainPet } from '@joygotchi/pet';
+import { INTENT_GRAMMAR, readIntent, type ChainPet } from '@joygotchi/pet';
 import { corsHeaders, preflight } from '#lib/server/cors';
 import type { RequestHandler } from './$types';
 
-/** Talk to a pet. Reads the pet off the chain so it cannot be described to us. */
+/**
+ * Talk to a pet, which may also propose one thing to do.
+ *
+ * The proposal is parsed here and returned as a typed intent, never as text.
+ * Whatever the model writes, what leaves this endpoint is one of a closed
+ * set of actions carrying no pet, no amount and no account — see `intent.ts`
+ * for why each of those is absent.
+ *
+ * Reads the pet off the chain so it cannot be described to us.
+ */
 export const OPTIONS: RequestHandler = ({ request }) => preflight(request);
 
 export const POST: RequestHandler = async ({ request }) => {
@@ -55,12 +64,31 @@ export const POST: RequestHandler = async ({ request }) => {
   if (!pet) return json({ error: `No pet ${petId} on ${GAME_CONTRACT}` }, { status: 404, headers: cors });
 
   try {
+    const owner = body?.viewer === pet.owner_id;
     const reply = await complete([
-      { role: 'system', content: petPersona(pet, { viewerIsOwner: body?.viewer === pet.owner_id }) },
+      { role: 'system', content: petPersona(pet, { viewerIsOwner: owner }) },
+      /*
+       * Only an owner is offered the grammar. A visitor's pet has nothing to
+       * propose to them, and a proposal they cannot sign is a button that
+       * exists to be refused.
+       */
+      ...(owner
+        ? [
+            {
+              role: 'system' as const,
+              content:
+                'If your owner is asking you to do something you can do, end your reply with ' +
+                `exactly one of these and nothing else after it: ${INTENT_GRAMMAR}. ` +
+                'Use one only when they asked for it. Never invent one that is not listed.'
+            }
+          ]
+        : []),
       ...history,
       { role: 'user', content: message }
     ]);
-    return json({ reply, petId, model: 'near-ai' }, { headers: cors });
+
+    const { said, intent } = readIntent(reply);
+    return json({ reply: said, intent, petId, model: 'near-ai' }, { headers: cors });
   } catch (error) {
     if (error instanceof AiUnavailableError) {
       return json({ error: error.message }, { status: 503, headers: cors });

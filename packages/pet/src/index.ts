@@ -4,3 +4,4 @@ export * from './package.js';
 export * from './motion.js';
 export * from './states.js';
 export * from './meal.js';
+export * from './intent.js';

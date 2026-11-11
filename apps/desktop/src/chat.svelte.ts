@@ -1,3 +1,4 @@
+import type { Intent } from '@joygotchi/pet';
 import type { InstalledPet } from './types';
 
 /**
@@ -12,6 +13,18 @@ import type { InstalledPet } from './types';
  * anything that costs money is still a button somebody presses.
  */
 export type Turn = { role: 'user' | 'assistant'; content: string };
+
+/**
+ * The one thing a pet is currently proposing, per pet.
+ *
+ * Kept beside the thread rather than inside it: a proposal is a live offer
+ * with a button, and a transcript is a record of what was said. Asking
+ * again replaces it, so there is never more than one button waiting.
+ */
+const offers = $state<Record<string, Intent | null>>({});
+
+export const offerFor = (slug: string): Intent | null => offers[slug] ?? null;
+export const clearOffer = (slug: string) => (offers[slug] = null);
 
 const SITE = () =>
   localStorage.getItem('joygotchi:api') ?? 'https://joygotchi.vercel.app';
@@ -51,8 +64,12 @@ export async function say(pet: InstalledPet, text: string, viewer?: string): Pro
     });
 
     const body = (await response.json().catch(() => null)) as
-      | { reply?: string; error?: string }
+      | { reply?: string; error?: string; intent?: Intent | null }
       | null;
+
+    // Typed already, by the endpoint. Nothing here reads the pet's words for
+    // meaning — they are only ever shown.
+    offers[slug] = body?.intent ?? null;
 
     const reply =
       body?.reply?.trim() ||
