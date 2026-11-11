@@ -206,9 +206,11 @@ treasury actually bought. That is the point, and it is also the constraint: on
 2026-11-11 the pool had paid out 93.35 credits against 48.96 ever purchased,
 and the published rate was 500 a month against a reserve of 48.96.
 
-It now streams 40 a month with 8.96 left for the faucet. Raising it is not a
-number to edit — it is the treasury buying NEAR AI credits and calling
-`fund_reserve`. Mint revenue reaches the treasury on its own now, through
+Since 2026-11-12 an epoch ends, and the next one is funded from the reserve
+by itself, a full `epoch_target` or nothing. The target is 8 credits a
+30-day epoch (the reserve held 8.96); the current epoch ends 2026-12-11 with
+0.96 left, so the oracle will warn a week before that the treasury has to
+buy credits on NEAR AI and call `fund_reserve`. Mint revenue reaches the treasury on its own now, through
 `sweep_revenue`, which anyone may call.
 
 ## Loose ends
