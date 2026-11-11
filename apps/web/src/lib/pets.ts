@@ -33,11 +33,25 @@ export type GalleryPet = ChainPet & {
    * registry too, with absolute urls, so there is no special case here.
    */
   art: string[];
+  /** The pet's market listing, when it is for sale. */
+  listing: PetListing | null;
+};
+
+/** A pet for sale on the game contract's own market. Price in yoctoNEAR. */
+export type PetListing = {
+  pet_id: number;
+  seller_id: string;
+  price: string;
+  listed_at: string;
 };
 
 const chain = () => ({ network: NETWORK, contract: GAME_CONTRACT });
 
-function decorate(pet: ChainPet, species: ChainSpecies[]): GalleryPet {
+function decorate(
+  pet: ChainPet,
+  species: ChainSpecies[],
+  listings: PetListing[] = []
+): GalleryPet {
   const pkg = toPetPackage(pet, chain());
   const found = species.find((one) => one.id === pet.category);
   return {
@@ -48,7 +62,8 @@ function decorate(pet: ChainPet, species: ChainSpecies[]): GalleryPet {
     // A species the registry does not know should not happen — a pet cannot
     // be minted without one — but an empty list draws nothing rather than
     // throwing on a page whose job is to show a pet.
-    art: found?.art ?? []
+    art: found?.art ?? [],
+    listing: listings.find((one) => Number(one.pet_id) === Number(pet.pet_id)) ?? null
   };
 }
 
@@ -91,8 +106,8 @@ export async function listPets(limit = 60): Promise<GalleryPet[]> {
   // The contract's own order is storage order, which a burn reshuffles.
   pets.sort((a, b) => Number(b.pet_id) - Number(a.pet_id));
 
-  const species = await listSpecies();
-  return pets.slice(0, limit).map((one) => decorate(one, species));
+  const [species, listings] = await Promise.all([listSpecies(), listListings()]);
+  return pets.slice(0, limit).map((one) => decorate(one, species, listings));
 }
 
 export async function getPet(petId: number): Promise<GalleryPet | null> {
@@ -100,8 +115,8 @@ export async function getPet(petId: number): Promise<GalleryPet | null> {
     pet_id: petId
   }).catch(() => null);
   if (!pet) return null;
-  const species = await getSpecies(pet.category);
-  return decorate(pet, species ? [species] : []);
+  const [species, listing] = await Promise.all([getSpecies(pet.category), getListing(petId)]);
+  return decorate(pet, species ? [species] : [], listing ? [listing] : []);
 }
 
 /** A pet by its slug, which carries the id: `ancalagon-3` → 3. */
@@ -119,8 +134,8 @@ export async function petsOf(accountId: string): Promise<GalleryPet[]> {
   const pets = await viewFunction<ChainPet[]>(GAME_CONTRACT, 'get_pets_for_owner', {
     account_id: accountId
   }).catch(() => [] as ChainPet[]);
-  const species = await listSpecies();
-  return pets.map((one) => decorate(one, species));
+  const [species, listings] = await Promise.all([listSpecies(), listListings()]);
+  return pets.map((one) => decorate(one, species, listings));
 }
 
 /**
@@ -213,3 +228,64 @@ export async function stakePet(stakeContract: string, petId: number) {
 }
 
 export const mintPriceNear = MINT_PRICE_NEAR;
+
+// ── Pet market ───────────────────────────────────────────────────────────────
+//
+// The game contract keeps its own listings, so a sale is one call that moves
+// the token, pays the seller, sends the fee to the treasury and returns any
+// change. Every write here goes through the wallet: a sale moves NEAR at a
+// price somebody else set, which a session key must never sign.
+
+export async function getListing(petId: number): Promise<PetListing | null> {
+  return viewFunction<PetListing | null>(GAME_CONTRACT, 'get_pet_listing', {
+    pet_id: petId
+  }).catch(() => null);
+}
+
+/** Every listing, paged until the contract runs out. */
+export async function listListings(): Promise<PetListing[]> {
+  const PAGE = 100;
+  const all: PetListing[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const page = await viewFunction<PetListing[]>(GAME_CONTRACT, 'get_pet_listings', {
+      from_index: from,
+      limit: PAGE
+    }).catch(() => [] as PetListing[]);
+    all.push(...page);
+    if (page.length < PAGE) return all;
+  }
+}
+
+/** The market's cut in basis points, read from the contract. */
+export async function marketFeeBps(): Promise<number> {
+  const config = await viewFunction<{ market_fee_bps?: number }>(GAME_CONTRACT, 'get_config').catch(
+    () => ({}) as { market_fee_bps?: number }
+  );
+  return Number(config.market_fee_bps ?? 0);
+}
+
+/** Offer a pet for sale. `priceNear` is a decimal string, e.g. `"3.5"`. */
+export async function listPet(petId: number, priceNear: string) {
+  const price = parseNear(priceNear);
+  if (BigInt(price) <= 0n) throw new Error('Set a price above zero');
+  return callFunction(
+    GAME_CONTRACT,
+    'list_pet',
+    { pet_id: petId, price },
+    { gas: GAS.call, deposit: '1' }
+  );
+}
+
+export async function unlistPet(petId: number) {
+  return callFunction(GAME_CONTRACT, 'unlist_pet', { pet_id: petId }, { gas: GAS.call, deposit: '1' });
+}
+
+/** Buy a listed pet, attaching exactly the asking price in yoctoNEAR. */
+export async function buyPet(listing: PetListing) {
+  return callFunction(
+    GAME_CONTRACT,
+    'buy_pet',
+    { pet_id: Number(listing.pet_id) },
+    { gas: GAS.heavy, deposit: listing.price }
+  );
+}

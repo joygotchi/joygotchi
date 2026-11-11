@@ -4,6 +4,7 @@
   import { installCommand } from '#lib/cli';
   import MintOne from '#lib/components/MintOne.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
+  import PetMarket from '#lib/components/PetMarket.svelte';
   import PetSprite from '#lib/components/PetSprite.svelte';
   import StateViewer from '#lib/components/StateViewer.svelte';
   import { explorerAccount, explorerToken } from '#lib/config';
@@ -76,7 +77,7 @@
     {error ?? 'No pet at this address.'}
   </div>
 {:else}
-  <div class="mt-4 grid gap-4 lg:grid-cols-[320px_1fr]">
+  <div class="mt-4 grid gap-4 lg:grid-cols-[320px_1fr] [&>*]:min-w-0">
     <!-- Art and stats -->
     <div class="flex flex-col gap-4">
       <div class="grid-bg flex h-72 items-center justify-center border border-line bg-panel">
@@ -180,6 +181,8 @@
           <MintOne species={pet.category} />
         </div>
       </div>
+
+      <PetMarket {pet} {mine} onchange={() => reload(slug)} />
 
       <StateViewer {pet} />
 

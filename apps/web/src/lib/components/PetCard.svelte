@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { truncateAccount } from '#lib/near/amount';
+  import { formatNear, truncateAccount } from '#lib/near/amount';
   import PetSprite from '#lib/components/PetSprite.svelte';
   import { artFor, type GalleryPet } from '#lib/pets';
   import { isStarving } from '@joygotchi/pet';
@@ -33,6 +33,12 @@
     {:else if starving}
       <span class="absolute top-2 right-2 bg-panel-2 px-1.5 py-0.5 text-[0.6rem] text-bad">
         STARVED
+      </span>
+    {/if}
+
+    {#if pet.listing}
+      <span class="absolute top-2 left-2 bg-accent px-1.5 py-0.5 text-[0.6rem] font-bold text-ink">
+        {formatNear(pet.listing.price, 2)} NEAR
       </span>
     {/if}
 
