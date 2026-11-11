@@ -78,6 +78,15 @@ enum StorageKey {
     Shop,
     Listings,
     Species,
+    /// Past sales per pet. Not a field of `Game`: the map is opened on its
+    /// prefix where it is used, so adding it changed no stored layout and
+    /// needed no migration.
+    Sales,
+}
+
+/// Past sales, by pet id, newest last.
+fn sales() -> LookupMap<u64, Vec<PetSale>> {
+    LookupMap::new(StorageKey::Sales)
 }
 
 /// What this contract needs from the staking contract.
@@ -1139,6 +1148,19 @@ impl Game {
         self.pets.insert(&pet_id, &pet);
         self.listings.remove(&pet_id);
 
+        let mut history = sales();
+        let mut past = history.get(&pet_id).unwrap_or_default();
+        past.push(PetSale {
+            price: listing.price,
+            seller_id: listing.seller_id.clone(),
+            buyer_id: buyer_id.clone(),
+            sold_at: U64(env::block_timestamp()),
+        });
+        if past.len() > SALES_KEPT {
+            past.remove(0);
+        }
+        history.insert(&pet_id, &past);
+
         self.log_event(
             "pet_sold",
             json!({
@@ -1163,6 +1185,13 @@ impl Game {
                 payout.then(Promise::new(buyer_id).transfer(NearToken::from_yoctonear(change)));
         }
         payout
+    }
+
+    /// The pet's last few sales, newest first.
+    pub fn get_pet_sales(&self, pet_id: u64) -> Vec<PetSale> {
+        let mut past = sales().get(&pet_id).unwrap_or_default();
+        past.reverse();
+        past
     }
 
     pub fn get_pet_listing(&self, pet_id: u64) -> Option<PetListing> {
@@ -3615,5 +3644,33 @@ mod tests {
         let mut contract = deploy();
         testing_env!(ctx(alice(), 0, 0).build());
         contract.settle_levels(1, 50);
+    }
+
+    // ── Sale history ─────────────────────────────────────────────────────────
+
+    #[test]
+    fn a_sale_is_remembered_and_only_the_last_five_are_kept() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 0);
+        let mut owner = alice();
+        for round in 0..7u128 {
+            let buyer: AccountId = if round % 2 == 0 { bob() } else { alice() };
+            testing_env!(ctx(owner.clone(), 0, 1).build());
+            contract.list_pet(pet_id, U128((round + 1) * ONE_NEAR));
+            testing_env!(ctx(buyer.clone(), 0, (round + 1) * ONE_NEAR).build());
+            contract.buy_pet(pet_id).detach();
+            owner = buyer;
+        }
+        let past = contract.get_pet_sales(pet_id);
+        assert_eq!(past.len(), SALES_KEPT);
+        assert_eq!(past[0].price.0, 7 * ONE_NEAR, "newest first");
+        assert_eq!(past[4].price.0, 3 * ONE_NEAR);
+    }
+
+    #[test]
+    fn a_pet_never_sold_has_no_history() {
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 0);
+        assert!(contract.get_pet_sales(pet_id).is_empty());
     }
 }

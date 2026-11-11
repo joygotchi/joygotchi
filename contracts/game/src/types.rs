@@ -246,6 +246,19 @@ pub struct PetView {
 /// Pets are priced in NEAR, not credits. Credits are what you earn by playing
 /// and they are deliberately not transferable; a pet is an asset bought with
 /// money, and giving it a resale price is what turns minting from a one-way
+/// One sale on the pet market, kept so a buyer has a price to go by.
+#[near(serializers = [json, borsh])]
+#[derive(Clone, Debug)]
+pub struct PetSale {
+    pub price: U128,
+    pub seller_id: AccountId,
+    pub buyer_id: AccountId,
+    pub sold_at: U64,
+}
+
+/// How many past sales are kept per pet.
+pub const SALES_KEPT: usize = 5;
+
 /// purchase into something a player can get out of.
 #[near(serializers = [json, borsh])]
 #[derive(Clone, Debug)]

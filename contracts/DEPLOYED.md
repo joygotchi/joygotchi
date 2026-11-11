@@ -47,6 +47,22 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+Redeployed on 2026-11-12 to keep each pet's last five sales, in
+`HYsTo4MgdejYyFfZcndXNPStsqy4Zo2WwDQDLZ5sGLuF` (transaction
+`sUEsZNYxbznWa3aAh3PQj2qsZsL1VUzU5Xv3ZRB3L1P`). Code only: the history is a
+map opened on its own storage prefix, not a field of `Game`, so no layout
+moved. Walked: pet 13 sold for 0.3 NEAR and `get_pet_sales(13)` returned it.
+
+The G round walked on chain afterwards, end to end:
+
+- A sheet stored with `art.put` by `jg-acc-5656.testnet` (29,030 bytes, 0.29
+  NEAR of storage), served byte-for-byte at
+  `/api/art/48745ecdf5fef730a9799dc00b5cf918dedf6e7f59e1c2ded4c3777e13924714.png`.
+- `azurewyrm` registered from it by `jg-acc-5656.testnet`.
+- Pet 13 WYRMLING bought through the router with wNEAR
+  (`7uxipisxWBnzad481y3S8BAm5SBK4nZkajsXYnLgfAb5`): `royalty_paid` 0.02 NEAR to
+  the creator, whose balance rose by exactly that.
+
 Redeployed on 2026-11-12 for the gameplay round (G1–G5). Every hash below
 is what `./build.sh` produces from this commit:
 
