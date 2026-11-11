@@ -1,13 +1,12 @@
 import { GAME_CONTRACT, GAS, MINT_PRICE_NEAR, NETWORK } from '#lib/config';
-import { parseNear } from '#lib/near/amount';
+import { formatNear, parseNear } from '#lib/near/amount';
 import { viewFunction } from '#lib/near/rpc';
 import { callFunction, txEvents } from '#lib/near/tx';
 import {
-  PET_KINDS,
   petSlug,
   toPetPackage,
   type ChainPet,
-  type PetKind,
+  type ChainSpecies,
   type PetPackage
 } from '@joygotchi/pet';
 
@@ -21,7 +20,8 @@ import {
  */
 export type GalleryPet = ChainPet & {
   slug: string;
-  kind: PetKind;
+  /** The species id. Any registered one, not only the two we ship. */
+  kind: string;
   pkg: PetPackage;
 };
 
@@ -81,7 +81,54 @@ export async function petsOf(accountId: string): Promise<GalleryPet[]> {
   return pets.map(decorate);
 }
 
-export const KINDS = PET_KINDS;
+/**
+ * Every species that can be minted, read from the contract.
+ *
+ * This used to be the `PET_KINDS` constant, which meant a mint form went
+ * stale the moment somebody registered an animal — and, before the
+ * registry, that a new animal needed a deploy of this app.
+ */
+export async function listSpecies(): Promise<ChainSpecies[]> {
+  return viewFunction<ChainSpecies[]>(GAME_CONTRACT, 'list_species').catch(() => []);
+}
+
+export async function getSpecies(id: string): Promise<ChainSpecies | null> {
+  return viewFunction<ChainSpecies | null>(GAME_CONTRACT, 'get_species', { id }).catch(
+    () => null
+  );
+}
+
+/** What registering a species costs, in NEAR. Asked, never assumed. */
+export async function speciesPriceNear(): Promise<string> {
+  const price = await viewFunction<string>(GAME_CONTRACT, 'get_species_price').catch(
+    () => null
+  );
+  return price ? formatNear(price) : '5';
+}
+
+/**
+ * Register a species, paying in NEAR.
+ *
+ * The contract checks the id and every url again; this is not the place
+ * that enforces them. What the caller gains by checking first is that a
+ * refused species costs nothing — the deposit is only attached to a call
+ * that the same rules say will pass.
+ */
+export async function createSpecies(
+  id: string,
+  name: string,
+  art: string[],
+  priceNear: string
+): Promise<string> {
+  await callFunction(
+    GAME_CONTRACT,
+    'create_species',
+    { id, name, art },
+    { gas: GAS.heavy, deposit: parseNear(priceNear) }
+  );
+  return id;
+}
+
 
 /**
  * Mint a pet, paying in NEAR.
@@ -95,7 +142,7 @@ export const KINDS = PET_KINDS;
  * guessed from the supply: two people minting in the same block would both
  * guess the same wrong number.
  */
-export async function mintPet(name: string, kind: PetKind): Promise<number> {
+export async function mintPet(name: string, kind: string): Promise<number> {
   const outcome = await callFunction(
     GAME_CONTRACT,
     'create_pet',

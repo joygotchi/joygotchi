@@ -4,14 +4,29 @@
   import { installCommand } from '#lib/cli';
   import { NETWORK, explorerToken } from '#lib/config';
   import { wallet } from '#lib/near/wallet.svelte';
-  import { KINDS, getPet, mintPriceNear, mintPet } from '#lib/pets';
-  import type { PetKind } from '@joygotchi/pet';
+  import { getPet, listSpecies, mintPriceNear, mintPet } from '#lib/pets';
+  import type { ChainSpecies } from '@joygotchi/pet';
 
   type Props = { onminted?: () => void };
   let { onminted }: Props = $props();
 
   let name = $state('');
-  let kind = $state<PetKind>('blackdragon');
+  let kind = $state('blackdragon');
+
+  /*
+   * Every species the contract knows, not a constant.
+   *
+   * This list used to be `PET_KINDS`, two names compiled into the app, so a
+   * species somebody registered was unmintable here until the next deploy —
+   * which is most of what the registry was supposed to end.
+   */
+  let species = $state<ChainSpecies[]>([]);
+  $effect(() => {
+    listSpecies().then((found) => {
+      species = found;
+      if (found.length > 0 && !found.some((one) => one.id === kind)) kind = found[0]!.id;
+    });
+  });
   let minting = $state(false);
   let error = $state<string | null>(null);
   let minted = $state<{ petId: number; slug: string; installCode: string } | null>(null);
@@ -103,15 +118,19 @@
       <div class="flex flex-col gap-1">
         <span class="text-[0.65rem] tracking-widest text-muted uppercase">Kind</span>
         <div class="flex gap-2">
-          {#each KINDS as option (option)}
+          <!--
+            The drawing comes from the species' own registered url, which is
+            the only thing that works for one created after this app shipped.
+          -->
+          {#each species as option (option.id)}
             <button
               class="flex flex-1 flex-col items-center gap-1 border p-3"
-              class:border-accent={kind === option}
-              class:border-line={kind !== option}
-              onclick={() => (kind = option)}
+              class:border-accent={kind === option.id}
+              class:border-line={kind !== option.id}
+              onclick={() => (kind = option.id)}
             >
-              <img class="pixel h-16" alt={option} src="/assets/animation/{option}/1.gif" />
-              <span class="text-[0.65rem] text-muted">{option}</span>
+              <img class="pixel h-16" alt={option.name} src={option.art[0]} />
+              <span class="text-[0.65rem] text-muted">{option.name}</span>
             </button>
           {/each}
         </div>

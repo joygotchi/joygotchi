@@ -9,6 +9,7 @@
   const nav = [
     { href: '/', label: 'Gallery' },
     { href: '/me', label: 'My pets' },
+    { href: '/create', label: 'Create' },
     { href: '/download', label: 'Desktop' }
   ];
 
