@@ -741,7 +741,7 @@
               class="jg-btn primary buy"
               disabled={busy !== null || !canSpend(account, Number(formatCredits(price, 6)))}
               onclick={() =>
-                act('shop', () => signAndSend(net(), 'buy_credit_item', { item_id: id, quantity: 1 }), `${itemName(id)} is in your bag.`)}
+                act('shop', () => signAndSend(net(), 'buy_credit_item', { item_id: id, quantity: 1 }), `${itemName(id)} is in your bag — open Bag to use it.`)}
               title={`${formatCredits(price, 6)} credits`}
             >
               {formatCredits(price, 6)}
