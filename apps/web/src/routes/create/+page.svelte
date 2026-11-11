@@ -118,9 +118,30 @@
 
 <h1 class="text-sm tracking-widest text-muted uppercase">Create a species</h1>
 <p class="mt-2 max-w-2xl text-sm text-muted">
-  Pick a drawing, pick a colour, give it a name. Anyone can then mint one.
-  The art is served by this site, so there is nothing to upload and nothing
+  Recolour a drawing this game already ships. Anyone can then mint one, and
+  the art is served by this site, so there is nothing to upload and nothing
   for you to keep online.
+</p>
+<p class="mt-2 max-w-2xl text-sm text-muted">
+  This is the quick way, and it is a recolour: the pet moves the way every
+  pet here moves, which is CSS over one drawing. To draw your own —
+  <span class="text-text">nine states, eight frames each</span>, really
+  animated — make the sheet in whatever you like and submit the folder:
+</p>
+<pre class="mt-3 max-w-2xl overflow-x-auto border border-line bg-panel p-3 text-xs text-muted"><code>my-wyvern/
+  species.json   {"{"}"id":"wyvern","name":"Azure Wyvern"{"}"}
+  1.png          8×9 atlas, 1536×1872. Phases 2 and 3 optional.
+
+npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
+<p class="mt-2 max-w-2xl text-xs text-muted">
+  It checks the grid and prints the call that registers the species — which
+  you sign, because it costs NEAR. The sheet is the
+  <a
+    class="text-accent"
+    href="https://petdex.dev/docs"
+    rel="noreferrer noopener"
+    target="_blank">same format petdex uses</a
+  >, so one made for either works in the other.
 </p>
 
 <div class="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
