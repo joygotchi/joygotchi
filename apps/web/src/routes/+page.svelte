@@ -5,7 +5,8 @@
   let pets = $state<GalleryPet[]>([]);
   let loading = $state(true);
   let error = $state<string | null>(null);
-  let filter = $state<'all' | 'blackdragon' | 'greendragon'>('all');
+  /** `all`, `sale`, or a species id. */
+  let filter = $state('all');
 
   async function load() {
     loading = true;
@@ -23,7 +24,26 @@
     void load();
   });
 
-  const shown = $derived(filter === 'all' ? pets : pets.filter((pet) => pet.kind === filter));
+  const shown = $derived(
+    filter === 'all'
+      ? pets
+      : filter === 'sale'
+        ? pets.filter((pet) => pet.listing)
+        : pets.filter((pet) => pet.kind === filter)
+  );
+
+  /*
+   * Filters come from the pets on screen, not a list of the two species this
+   * game shipped: a registered species gets a button once a pet of it exists.
+   */
+  const filters = $derived([
+    ['all', 'All'],
+    ['sale', `For sale · ${pets.filter((pet) => pet.listing).length}`],
+    ...[...new Set(pets.map((pet) => pet.kind))].map((kind) => [
+      kind,
+      kind.replace(/dragon$/, '')
+    ])
+  ] as [string, string][]);
 </script>
 
 <section class="grid-bg -mx-4 mb-10 border-b border-line px-4 py-12">
@@ -47,14 +67,37 @@
   </div>
 </section>
 
+<!-- How it works: the loop a new visitor is about to join, in four steps. -->
+<section class="mb-12" aria-labelledby="how">
+  <h2 id="how" class="text-sm tracking-widest text-muted uppercase">How it works</h2>
+  <ol class="mt-4 grid gap-px overflow-hidden border border-line bg-line sm:grid-cols-2 lg:grid-cols-4">
+    {#each [
+      ['Pick a pet', 'Mint one like any pet in the gallery for 2 NEAR, or buy one that is for sale. The contract rolls its rarity.'],
+      ['Put it on your desktop', 'Get the app, paste the pet\'s install code. It floats in a small window above your editor.'],
+      ['Let your agent drive it', 'Every tool call your coding agent makes moves it — reading, running, failing, waiting for you.'],
+      ['Raise it', 'Feed it, talk to it with NEAR AI, stake it to earn AI credits, battle, and evolve it through four phases.']
+    ] as [title, body], index (title)}
+      <li class="flex flex-col gap-2 bg-panel p-5">
+        <span class="text-xs text-accent">0{index + 1}</span>
+        <span class="text-sm text-text">{title}</span>
+        <span class="text-xs leading-relaxed text-muted">{body}</span>
+      </li>
+    {/each}
+  </ol>
+  <p class="mt-3 text-xs text-muted">
+    Want your own creature? <a class="text-accent hover:underline" href="/create">Create a species</a>
+    — you earn 1% of every mint of it.
+  </p>
+</section>
+
 <div class="mb-4 flex scroll-mt-20 items-end justify-between gap-4" id="pets">
   <div class="flex items-baseline gap-3">
     <h2 class="text-sm tracking-widest text-muted uppercase">Pets</h2>
     <span class="text-xs text-muted">{pets.length} minted</span>
   </div>
 
-  <div class="flex gap-1 text-[0.65rem]">
-    {#each [['all', 'All'], ['blackdragon', 'Black'], ['greendragon', 'Green']] as const as [value, label] (value)}
+  <div class="flex flex-wrap justify-end gap-1 text-[0.65rem] capitalize">
+    {#each filters as [value, label] (value)}
       <button
         class="border px-2 py-1"
         class:border-accent={filter === value}
@@ -85,7 +128,7 @@
   </div>
 {:else if shown.length === 0}
   <div class="border border-line bg-panel p-8 text-center text-sm text-muted">
-    {pets.length === 0 ? 'No pets yet.' : 'No pets of that kind yet.'}
+    {pets.length === 0 ? 'No pets yet.' : filter === 'sale' ? 'Nothing for sale right now.' : 'No pets of that kind yet.'}
   </div>
 {:else}
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
