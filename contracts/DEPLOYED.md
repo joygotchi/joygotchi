@@ -6,7 +6,7 @@ tree and comparing with what the chain serves.
 
 | Account | Code hash (bs58 of the SHA-256) |
 | --- | --- |
-| `jg-game-5656.testnet` | `9xBRKnnMavZCMgs8GxckwTxveh1AqBC1cyw9pNBG8hPz` |
+| `jg-game-5656.testnet` | `Gcudy7AqgKHaFMKPwe3Vm69A4zbW8ZfeU6aHKLTVyXpF` |
 | `jg-stake-5656.testnet` | `RbQJzW6NDKkPbbbmpZrNYAm7XCejUx12WQisXStLXxX` |
 | `jg-mint-5656.testnet` | `8J2feEm9mKq5oMhm3Bhw25iWCwWHHbdn8DipbsR85vM9` |
 | `jg-acc-5656.testnet` | `2Vo9WPe79wKz2faxk4BFXyASHg93GMNeBE4jTuGBbK94` |
@@ -46,6 +46,13 @@ The third instance of that fault after `revive` and `feed`; `spend_credits`
 now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
+
+The game contract was redeployed again to flatten the level curve (60 x 1.12
+instead of 100 x 1.18) and to put an evolution two levels apart instead of
+five. Pure arithmetic on values the contract already stored — `level` and
+`xp` keep their meaning, and `grant_xp` levels in a loop, so a pet carrying
+more XP than the new threshold catches up on its next award. Previous:
+`9xBRKnnMavZCMgs8GxckwTxveh1AqBC1cyw9pNBG8hPz`.
 
 ## Why this file exists
 
