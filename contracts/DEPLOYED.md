@@ -47,6 +47,20 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+Redeployed on 2026-11-12 to close a market hole, in
+`ExrmsQcyeGvhuZRvoSHJkbDZhNNW4e9E3HtXQHPxgVYW` (transaction
+`9mESVVUwk1EqRiH5Mc2suKyH7j1jaPcd6pNyTzL4gGyN`). Code only, `without-init-call`.
+Previous: `Br4xYLaxJrerJqXCTBrDHuHccXcNjhvtMvhzz4ukUMhK`.
+
+`nft_transfer` ended a pet's listing and `nft_transfer_call` did not, and
+`buy_pet` never checked that the seller still owned the pet. So a pet listed,
+then moved with `nft_transfer_call`, could still be bought: the buyer took it
+from its new owner and the old owner was paid. `nft_transfer_call` now unlists,
+and `buy_pet` refuses a listing whose seller is not the owner. No listing was
+open when it shipped. Replayed on chain: pet 11 listed, moved with
+`nft_transfer_call`, and the listing went with it (`pet_unlisted`,
+"transferred").
+
 Redeployed on 2026-11-12 for `retire_species`, in
 `Br4xYLaxJrerJqXCTBrDHuHccXcNjhvtMvhzz4ukUMhK`. Code only, `without-init-call`.
 Previous: `5ETVU2FreFeiPbKMXCs8bsGG8LHr4APb9ybL1cbg8an2`.

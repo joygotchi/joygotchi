@@ -185,7 +185,7 @@ impl Pet {
         now < self.starves_at
     }
 
-    /// XP to go from `level` to `level + 1`: 100 × 1.18^level, in integers.
+    /// XP to go from `level` to `level + 1`: BASE_LEVEL_XP × 1.12^level (60 × 1.12^level), in integers.
     pub fn xp_for_next_level(&self) -> u32 {
         let mut need = BASE_LEVEL_XP as u64;
         for _ in 0..self.level {

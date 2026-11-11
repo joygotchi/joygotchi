@@ -1071,6 +1071,14 @@ impl Game {
         require!(paid >= listing.price.0, "Attach at least the asking price");
 
         let mut pet = self.expect_pet(pet_id);
+        // A listing is only an offer by whoever owns the pet now. Every way a
+        // pet moves should end its listing, but a sale pays the seller and is
+        // irreversible, so check rather than trust that it did.
+        let token_owner = self.tokens.owner_by_id.get(&pet_id.to_string());
+        require!(
+            pet.owner_id == listing.seller_id && token_owner.as_ref() == Some(&listing.seller_id),
+            "That listing is stale: the pet has changed hands"
+        );
         // Nothing should be able to lock a pet between listing and sale, but a
         // sale is irreversible, so check rather than assume.
         require!(!pet.locked, "This pet is at work in the AI Lab");
@@ -1787,6 +1795,11 @@ impl Game {
         msg: String,
     ) -> PromiseOrValue<bool> {
         self.assert_transferable(&token_id);
+        // Like `nft_transfer`, moving the pet ends any sale of it. Without
+        // this the old listing outlived the move, and `buy_pet` would take
+        // the pet from its new owner and pay the old one.
+        let pet_id: u64 = token_id.parse().expect("Bad token id");
+        self.internal_unlist(pet_id, "transferred");
         near_contract_standards::non_fungible_token::core::NonFungibleTokenCore::nft_transfer_call(
             &mut self.tokens,
             receiver_id,
@@ -3444,5 +3457,45 @@ mod tests {
         add_species(&mut contract, alice(), "example");
         testing_env!(ctx(alice(), 0, 0).build());
         contract.retire_species("example".to_string());
+    }
+
+    // ── Stale listings ───────────────────────────────────────────────────────
+
+    #[test]
+    fn nft_transfer_call_ends_a_sale() {
+        // The hole: a listing that outlived `nft_transfer_call` let a buyer
+        // take the pet from its new owner and pay the old one.
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 0);
+        testing_env!(ctx(alice(), 0, 1).build());
+        contract.list_pet(pet_id, U128(ONE_NEAR));
+
+        testing_env!(ctx(alice(), 0, 1).build());
+        let _ = contract.nft_transfer_call(bob(), pet_id.to_string(), None, None, String::new());
+
+        assert!(contract.get_pet_listing(pet_id).is_none());
+    }
+
+    #[test]
+    #[should_panic(expected = "That listing is stale")]
+    fn a_listing_by_someone_who_no_longer_owns_the_pet_cannot_be_bought() {
+        // Belt and braces: whatever path leaves a listing behind, the sale
+        // itself refuses to pay a seller who is not the owner.
+        let mut contract = deploy();
+        let pet_id = mint(&mut contract, alice(), 0);
+        mint(&mut contract, alice(), 0);
+        testing_env!(ctx(alice(), 0, 1).build());
+        contract.list_pet(pet_id, U128(ONE_NEAR));
+
+        // Move the pet without going through anything that unlists it.
+        let token_id = pet_id.to_string();
+        contract.tokens.internal_transfer_unguarded(&token_id, &alice(), &bob());
+        let mut pet = contract.pets.get(&pet_id).unwrap();
+        pet.owner_id = bob();
+        contract.pets.insert(&pet_id, &pet);
+
+        let carol: AccountId = "carol.near".parse().unwrap();
+        testing_env!(ctx(carol, 0, ONE_NEAR).build());
+        contract.buy_pet(pet_id).detach();
     }
 }
