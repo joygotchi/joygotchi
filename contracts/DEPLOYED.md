@@ -47,6 +47,38 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+Redeployed on 2026-11-12 for the gameplay round (G1–G5). Every hash below
+is what `./build.sh` produces from this commit:
+
+| Account | Code hash | How |
+|---|---|---|
+| `jg-game-5656.testnet` | `2qMDZtWmf3h1MaeBpAeTa5jPeLcK8HCBEX5GxfGjEaep` | code only |
+| `jg-mint-5656.testnet` | `3pcUJneX9huK6ikfp13b8RMxTR6cixCTrjF1c1LSuCRa` | code only (no mint was pending) |
+| `jg-stake-5656.testnet` | `5xWtpAPeJg23jjQuierPmLXPwFUsK9SYwC1h4kBnXc5A` | `with-init-call migrate_epochs`, `FgWn4i8urr7KqDZd15Nj2WPV66nXTEwtg3JcbkPkwu5h` |
+| `art.jg-game-5656.testnet` | `3sJMRNLu6qxYc9YC3jvUNG6av9nww7F1h8m6XC5GAsRY` | new, `with-init-call new` |
+
+- **Router royalty (G1).** The router unwraps the wNEAR a bridge delivers and
+  pays `create_pet_for` with it, so a species' creator gets 1% of a
+  multichain mint too, and it accepts any registered species rather than the
+  two shipped ones. Walked on chain: `wrap.testnet ft_transfer_call` to the
+  router minted pet 12 BRIDGED (`BKPHQnajj4iRb7sHCq24xKbMnuLccwMf1okKkiki4ToL`)
+  and `revenue_banked` rose by exactly the 2 NEAR. The swap leg (ZEC/SOL into
+  wNEAR) is 1Click on mainnet and was not run.
+- **Epochs end (G2).** The stream ran on at `epoch_budget` forever and had
+  paid 95.4 credits against 49 ever bought. `migrate_epochs` closed it at the
+  migration block, settling everything earned to then; epochs now roll
+  themselves back to back from the reserve, a full `epoch_target` or nothing.
+  The reserve held 8.96 against a target of 40, so the stream is stopped
+  (`epoch_unfunded`, short by 31.04) until the treasury buys credits or the
+  target is lowered. `tests/migration.rs` read the live `STATE` first.
+- **Shields weigh (G3).** +5% staking weight per shield, three at most,
+  through a new `get_pet_stake_attrs` view — `PetAttrs` and every stored
+  record are unchanged. `sync_pet(6)` resynced through it.
+- **Stuck levels (G4).** `settle_levels(1, 50)` levelled pet 8 RINGER, which
+  held 81 XP at level 0 from before the curve changed.
+- **Sheets on chain (G5).** `contracts/art` stores sprite sheets by SHA-256;
+  `/api/art/<hash>.png` serves them; `/create` uploads and registers.
+
 Redeployed on 2026-11-12 to close a market hole, in
 `ExrmsQcyeGvhuZRvoSHJkbDZhNNW4e9E3HtXQHPxgVYW` (transaction
 `9mESVVUwk1EqRiH5Mc2suKyH7j1jaPcd6pNyTzL4gGyN`). Code only, `without-init-call`.

@@ -26,7 +26,7 @@ if [ "$(printf '%s\n%s\n' "$need" "$have" | sort -V | head -1)" != "$need" ]; th
   exit 1
 fi
 
-for crate in game pet-stake mint-router; do
+for crate in game pet-stake mint-router art; do
   out="${crate//-/_}"
   ( cd "$crate" && cargo near build non-reproducible-wasm --no-abi >/dev/null 2>&1 )
   cp "target/near/${out}/${out}.wasm" "res/${out}.wasm"

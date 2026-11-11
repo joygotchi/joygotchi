@@ -1,5 +1,6 @@
 <script lang="ts">
   import CopyField from '#lib/components/CopyField.svelte';
+  import SheetSpecies from '#lib/components/SheetSpecies.svelte';
   import { installCommand } from '#lib/cli';
   import { explorerToken } from '#lib/config';
   import { wallet } from '#lib/near/wallet.svelte';
@@ -270,20 +271,20 @@
 
 <details class="group mt-6 border border-line bg-panel">
   <summary class="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-xs text-muted hover:text-text">
-    <span>Drew your own? Submit a sprite sheet with nine animated states</span>
+    <span>Drew your own? Upload a sprite sheet with nine animated states</span>
     <span class="transition-transform group-open:rotate-90">›</span>
   </summary>
   <div class="border-t border-line px-5 py-4">
-    <pre class="overflow-x-auto bg-ink p-3 text-xs text-muted"><code>my-wyvern/
-  species.json   {"{"}"id":"wyvern","name":"Azure Wyvern"{"}"}
-  1.png          8×9 atlas, 1536×1872. Phases 2 and 3 optional.
-
-npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
-    <p class="mt-2 text-xs text-muted">
-      Same sheet format as
+    <p class="mb-4 text-xs text-muted">
+      An 8×9 atlas, one row per state — the
       <a class="text-accent" href="https://petdex.dev/docs" rel="noreferrer noopener" target="_blank"
         >petdex</a
-      >. The CLI checks the grid and prints the call for you to sign.
+      > format, usually 1536×1872. The sheets are stored on NEAR, so nobody has to host them.
+    </p>
+    <SheetSpecies {price} />
+    <p class="mt-4 text-[0.65rem] text-muted">
+      Prefer the command line? <code class="text-text">npx @joygotchi/joygotchi submit ./my-wyvern</code>
+      checks the same grid.
     </p>
   </div>
 </details>
