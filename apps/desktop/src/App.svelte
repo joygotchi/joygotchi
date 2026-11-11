@@ -1,5 +1,6 @@
 <script lang="ts">
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+  import { artPathFor } from './art';
   import { listen } from '@tauri-apps/api/event';
   import type { AgentEvent } from '@joygotchi/pet';
   import BattleScene from './BattleScene.svelte';
@@ -225,9 +226,36 @@
   let worn = $state<OwnedAccessory | null>(null);
   const hatArt = $derived(worn?.art ?? null);
 
+  /**
+   * The sprite, preferring the chain over the copy on disk.
+   *
+   * An installed package is written once, at install time, with the art for
+   * whatever phase the pet was then. Evolving happens on chain, so the pet
+   * changed and the folder did not — and the window went on drawing the old
+   * animal with no way to tell. Pressing Evolve looked like it did nothing.
+   *
+   * The app ships every phase of both kinds, so when the chain says a
+   * different phase than the package was built for, the bundled art for the
+   * real phase wins. A package whose phase still matches keeps its own
+   * files, which is what a hand-made pet needs.
+   */
   const artSrc = $derived.by(() => {
     if (!active) return null;
+
     const file = active.states[pose] ?? active.states.idle;
+
+    /*
+     * Compared by filename, because the installed package records no phase
+     * of its own — `states.idle` is `greendragon/1.gif`, and the chain
+     * saying phase 2 means `greendragon/2.gif`. Different name, stale copy.
+     */
+    const wanted = artPathFor({
+      kind: active.kind,
+      category: chainSelf?.category,
+      evolution_phase: Number(chainSelf?.evolution_phase ?? 0) || 1
+    });
+    if (chainSelf && file && !wanted.endsWith(file)) return wanted;
+
     return file ? convertFileSrc(`${active.directory}/${file}`) : null;
   });
 

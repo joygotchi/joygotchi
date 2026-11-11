@@ -136,7 +136,21 @@
     minesIn >= 3600 ? `${Math.floor(minesIn / 3600)}h` : `${Math.max(1, Math.ceil(minesIn / 60))}m`
   );
 
-  const heroArt = $derived(convertFileSrc(`${pet.directory}/${pet.states.idle ?? ''}`));
+  /**
+   * The same rule as the window's sprite: the chain's phase wins over the
+   * copy on disk, which was written at install time and never changes again.
+   * Evolving used to leave both of them drawing the previous animal.
+   */
+  const heroArt = $derived.by(() => {
+    const file = pet.states.idle ?? '';
+    const wanted = artPathFor({
+      kind: pet.kind,
+      category: onChain?.category,
+      evolution_phase: Number(onChain?.evolution_phase ?? 0) || 1
+    });
+    if (onChain && file && !wanted.endsWith(file)) return wanted;
+    return convertFileSrc(`${pet.directory}/${file}`);
+  });
   /** Whether this session's key covers staking, or predates it being granted. */
   /** Whether this session's key covers the credit-priced meal. */
   const feedSignsHere = $derived((session?.methodNames ?? []).includes('feed_pet'));
@@ -308,7 +322,11 @@
   );
 
   const evolve = () =>
-    act('evolve', () => evolvePet(net(), pet.petId, account), `${pet.displayName} evolved.`);
+    act(
+      'evolve',
+      () => evolvePet(net(), pet.petId, account),
+      `${pet.displayName} is a phase ${phase + 1} ${pet.kind} now.`
+    );
 
   /**
    * Hand the pet's survival to the oracle, or take it back.
