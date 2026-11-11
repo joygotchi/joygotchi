@@ -35,9 +35,10 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
+  import { planIntent } from './plan';
   import { canAfford, canSpend, evolvePet, feedAndGrade, revivePet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
-  import { clearThread, say, threadFor } from './chat.svelte';
+  import { clearOffer, clearThread, offerFor, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
   import {
     findEvent,
@@ -506,6 +507,69 @@
   let showBag = $state(false);
   let showStyle = $state(false);
   let showChat = $state(false);
+
+  /**
+   * The pet's standing proposal, and what the app makes of it.
+   *
+   * `planIntent` is where the model stops mattering: it handed over one
+   * action name, and everything shown — the price, whether it is allowed,
+   * why not — is read from the chain and the contract's own prices.
+   */
+  const offer = $derived(offerFor(pet.slug));
+  const plan = $derived(
+    offer
+      ? planIntent(offer, {
+          pet: onChain,
+          account,
+          mine,
+          petName: pet.displayName,
+          ownedPets: 1,
+          minesAt: miningAt,
+          signable: (method) => session?.methodNames.includes(method) ?? false
+        })
+      : null
+  );
+
+  /** Run what the card says, which is never what the pet said. */
+  function runOffer() {
+    const current = plan;
+    if (!current?.ok || !offer) return;
+    const intent = offer;
+
+    void act(
+      'offer',
+      async () => {
+        switch (intent.kind) {
+          case 'feed': {
+            const graded = await feedAndGrade(net(), pet.petId, account, session?.accountId ?? '');
+            note = graded.xp !== null ? `+${graded.xp} XP` : 'Fed.';
+            break;
+          }
+          case 'revive':
+            await revivePet(net(), pet.petId, account);
+            break;
+          case 'evolve':
+            await evolvePet(net(), pet.petId, account);
+            break;
+          case 'auto_feed':
+            await signAndSend(net(), 'set_auto_feed_budget', {
+              budget: intent.on ? await autoFeedBudget() : '0'
+            });
+            break;
+          case 'buy_item':
+            await signAndSend(net(), 'buy_credit_item', { item_id: intent.itemId, quantity: 1 });
+            break;
+          case 'use_item':
+            await signAndSend(net(), 'use_item', { item_id: intent.itemId, pet_id: pet.petId });
+            break;
+          default:
+            await signAndSend(net(), current.method, {});
+        }
+        clearOffer(pet.slug);
+      },
+      ''
+    );
+  }
   let draft = $state('');
   let thinking = $state(false);
   const thread = $derived(threadFor(pet.slug));
@@ -796,6 +860,29 @@
         {/each}
         {#if thinking}<li class="muted">…</li>{/if}
       </ul>
+
+      <!--
+        What the pet proposed, priced and checked by us. Every word and
+        number on this card is the app's: the pet supplied one action name.
+        A refusal shows its reason rather than hiding the card, because a
+        button that vanishes teaches nothing.
+      -->
+      {#if offer && plan}
+        <div class="offer jg-screen" class:bad={!plan.ok}>
+          <span class="offer-text">
+            {plan.label}{#if plan.ok && plan.cost > 0} · {plan.cost} credits{/if}
+            {#if !plan.ok}<small>{plan.why}</small>{/if}
+          </span>
+          {#if plan.ok}
+            <button class="jg-btn primary" disabled={busy !== null} onclick={runOffer}>
+              {busy === 'offer' ? '…' : 'Do it'}
+            </button>
+          {/if}
+          <button class="jg-btn" onclick={() => clearOffer(pet.slug)}>
+            {plan.ok ? 'No' : 'OK'}
+          </button>
+        </div>
+      {/if}
 
       <div class="say">
         <input
