@@ -1,6 +1,7 @@
 import { decodeInstallCode, InvalidInstallCodeError, petSlug } from '@joygotchi/pet';
 import { fetchPets, resolveChain } from './chain.js';
 import { installedPets, installPet, PetNotFoundError, petsRoot } from './install.js';
+import { prepareSubmission, SubmitError } from './submit.js';
 
 /**
  * `joygotchi` — the catalog client.
@@ -18,17 +19,25 @@ Usage
   joygotchi list               Pets on the contract
   joygotchi installed          Pets already on this machine
   joygotchi where              Where pets are installed
+  joygotchi submit <folder>    Check a species you drew, and say how to register it
 
 Options
   --network <testnet|mainnet>  Default: testnet (or JOYGOTCHI_NETWORK)
   --rpc <url>                  NEAR RPC (or JOYGOTCHI_RPC)
   --contract <account>         Game contract (or JOYGOTCHI_CONTRACT)
+  --into <checkout>            submit: copy the sheets into a joygotchi checkout
   --json                       Machine-readable output
   -h, --help                   This
+
+A species folder
+  species.json                 {"id":"wyvern","name":"Azure Wyvern"}
+  1.png                        8x9 sprite atlas, 1536x1872. Phase 1.
+  2.png, 3.png                 Optional. Each phase falls back to the last.
 
 Examples
   joygotchi install jg1_06vwqsthtnk0
   joygotchi list --json
+  joygotchi submit ./my-wyvern
 `;
 
 type Flags = {
@@ -38,6 +47,7 @@ type Flags = {
   json: boolean;
   help: boolean;
   limit?: number;
+  into?: string;
 };
 
 export function parseArgs(argv: string[]): { command: string; args: string[]; flags: Flags } {
@@ -56,12 +66,13 @@ export function parseArgs(argv: string[]): { command: string; args: string[]; fl
         break;
       case '--network':
       case '--rpc':
+      case '--into':
       case '--contract':
       case '--limit': {
         const value = argv[++index];
         if (value === undefined) throw new Error(`${token} needs a value`);
         if (token === '--limit') flags.limit = Number(value);
-        else flags[token.slice(2) as 'network' | 'rpc' | 'contract'] = value;
+        else flags[token.slice(2) as 'network' | 'rpc' | 'contract' | 'into'] = value;
         break;
       }
       default:
@@ -160,6 +171,58 @@ export async function run(argv: string[]): Promise<number> {
     case 'where':
       console.log(petsRoot());
       return 0;
+
+    case 'submit': {
+      const folder = args[0];
+      if (!folder) {
+        console.error('Which folder? joygotchi submit ./my-wyvern');
+        return 1;
+      }
+
+      try {
+        const found = await prepareSubmission(folder, { into: flags.into });
+
+        if (flags.json) {
+          console.log(JSON.stringify(found, null, 2));
+          return 0;
+        }
+
+        const frame = found.sheets[0]!.atlas.frame;
+        console.log(`${green('Ready')} ${bold(found.name)} ${dim(`(${found.id})`)}`);
+        console.log(`  ${dim('frames')}  ${frame.width}x${frame.height}, 8 across, 9 states down`);
+        for (const sheet of found.sheets) {
+          console.log(`  ${dim(`phase ${sheet.phase}`)} ${sheet.atlas.sheet}`);
+        }
+        console.log();
+
+        if (found.copiedTo) {
+          console.log(`Copied into ${found.copiedTo}`);
+          console.log(dim('Commit and push, then the art is live at the urls below.'));
+        } else {
+          console.log('Put the sheets in a joygotchi checkout, or rerun with --into <checkout>:');
+          for (const one of found.served) console.log(`  ${one.path}`);
+        }
+
+        console.log();
+        console.log('Then register it — this is the call that costs NEAR, and you sign it:');
+        console.log();
+        console.log(
+          dim('  near contract call-function as-transaction <game-contract> create_species \\')
+        );
+        console.log(
+          dim(`    json-args '${JSON.stringify({ id: found.id, name: found.name, art: found.art })}' \\`)
+        );
+        console.log(dim("    prepaid-gas '100.0 Tgas' attached-deposit '5 NEAR' \\"));
+        console.log(dim('    sign-as <you> network-config testnet sign-with-keychain send'));
+        return 0;
+      } catch (cause) {
+        if (cause instanceof SubmitError) {
+          console.error(cause.message);
+          return 1;
+        }
+        throw cause;
+      }
+    }
 
     default:
       console.error(`Unknown command "${command}". Try joygotchi --help.`);

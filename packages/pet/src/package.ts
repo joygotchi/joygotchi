@@ -1,3 +1,4 @@
+import type { Atlas } from './atlas.js';
 import { encodeInstallCode } from './install-code.js';
 import { PET_STATES, type PetState } from './states.js';
 
@@ -34,9 +35,15 @@ export type PetPackage = {
     /** Owner at install time. Verify against the chain before trusting it. */
     owner: string;
   };
-  /** Frame size, for a sprite atlas. Unused by the GIF renderer. */
+  /** Frame size. For a v2 package this is one cell of the atlas. */
   frame: { width: number; height: number };
+  /**
+   * 1 is a GIF per evolution phase with CSS motion over it; 2 is a petdex
+   * sprite atlas, nine state rows, really animated.
+   */
   spriteVersion: 1 | 2;
+  /** Present on a v2 package. The sheet lives beside `pet.json`. */
+  atlas?: Atlas;
   /**
    * Art per state, as paths relative to the package folder.
    *
@@ -152,16 +159,25 @@ export type ChainSpecies = {
   minted?: number;
 };
 
-/** Build the on-disk package for a pet read off the chain. */
+/**
+ * Build the on-disk package for a pet read off the chain.
+ *
+ * `atlas` turns it into a v2 package: every state points at the one sheet
+ * and the renderer picks the row. Without it the package is what it has
+ * always been — a GIF per phase, with all nine states resolving to the same
+ * idle loop and the app moving it around in CSS.
+ */
 export function toPetPackage(
   pet: ChainPet,
-  chain: { network: 'testnet' | 'mainnet'; contract: string }
+  chain: { network: 'testnet' | 'mainnet'; contract: string },
+  atlas?: Atlas
 ): PetPackage {
   const kind = asKind(pet.category);
   const phase = asPhase(pet.evolution_phase);
-  const art = artPath(kind, phase);
+  const art = atlas ? atlas.sheet : artPath(kind, phase);
 
-  // Every state resolves, and today they all resolve to the same idle loop.
+  // Every state resolves. On a v1 package they all resolve to the same idle
+  // loop; on a v2 one they all resolve to the sheet, and differ by row.
   const states = Object.fromEntries(PET_STATES.map((state) => [state, art])) as Record<
     PetState,
     string
@@ -179,8 +195,9 @@ export function toPetPackage(
     star: pet.star,
     evolutionPhase: phase,
     chain: { ...chain, owner: pet.owner_id },
-    frame: FRAME,
-    spriteVersion: 1,
+    frame: atlas ? atlas.frame : FRAME,
+    spriteVersion: atlas ? 2 : 1,
+    ...(atlas ? { atlas } : {}),
     states
   };
 }
