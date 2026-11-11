@@ -180,6 +180,83 @@ mod tests {
     }
 
     #[test]
+    fn a_v2_package_keeps_its_atlas_on_the_way_to_the_window() {
+        /*
+         * The seam nothing else covers. The window decides whether to draw
+         * sprite rows or a still image by whether `atlas` arrived, and this
+         * struct is the only thing between `pet.json` and that decision — a
+         * field missing here is a pet that silently stops animating, with
+         * every TypeScript test still passing.
+         */
+        let root = std::env::temp_dir().join("jg-atlas-test");
+        let _ = fs::remove_dir_all(&root);
+        write_pet(
+            &root,
+            "wyvern-9",
+            r#"{
+              "format":"joygotchi/1","slug":"wyvern-9","displayName":"WYVERN",
+              "petId":9,"installCode":"jg1_x","kind":"wyvern","rarity":"common",
+              "level":1,"star":0,
+              "chain":{"network":"testnet","contract":"c.testnet","owner":"a.testnet"},
+              "states":{"idle":"spritesheet.png"},
+              "spriteVersion":2,
+              "atlas":{"sheet":"spritesheet.png","columns":8,"rows":9,
+                       "frame":{"width":192,"height":208}}
+            }"#,
+        );
+
+        std::env::set_var("JOYGOTCHI_HOME", &root);
+        let pets = installed_pets();
+        std::env::remove_var("JOYGOTCHI_HOME");
+
+        assert_eq!(pets.len(), 1);
+        let atlas = pets[0].package.atlas.as_ref().expect("the atlas was dropped");
+        assert_eq!(atlas.columns, 8);
+        assert_eq!(atlas.rows, 9);
+        assert_eq!(atlas.frame.width, 192);
+        assert_eq!(atlas.frame.height, 208);
+        assert_eq!(pets[0].package.sprite_version, Some(2));
+
+        // And it survives being serialised back out, which is the actual
+        // trip: `list_pets` returns JSON to the window, not this struct.
+        let sent = serde_json::to_string(&pets[0]).unwrap();
+        assert!(sent.contains("\"atlas\""), "atlas missing from {sent}");
+        assert!(sent.contains("\"spriteVersion\":2"), "version missing from {sent}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_v1_package_says_nothing_about_an_atlas() {
+        // Every pet installed before today is v1, and `skip_serializing_if`
+        // is what keeps those `pet.json` files round-tripping unchanged.
+        let root = std::env::temp_dir().join("jg-v1-test");
+        let _ = fs::remove_dir_all(&root);
+        write_pet(
+            &root,
+            "kuro-6",
+            r#"{
+              "format":"joygotchi/1","slug":"kuro-6","displayName":"KURO",
+              "petId":6,"installCode":"jg1_y","kind":"greendragon","rarity":"common",
+              "level":2,"star":0,
+              "chain":{"network":"testnet","contract":"c.testnet","owner":"a.testnet"},
+              "states":{"idle":"greendragon/2.gif"}
+            }"#,
+        );
+
+        std::env::set_var("JOYGOTCHI_HOME", &root);
+        let pets = installed_pets();
+        std::env::remove_var("JOYGOTCHI_HOME");
+
+        assert_eq!(pets.len(), 1);
+        assert!(pets[0].package.atlas.is_none());
+        let sent = serde_json::to_string(&pets[0]).unwrap();
+        assert!(!sent.contains("atlas"), "a v1 pet grew an atlas: {sent}");
+
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
     fn an_empty_machine_is_an_empty_list_not_an_error() {
         std::env::set_var("JOYGOTCHI_HOME", std::env::temp_dir().join("jg-does-not-exist"));
         let pets = installed_pets();
