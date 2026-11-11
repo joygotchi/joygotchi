@@ -18,7 +18,7 @@ mod types;
 use near_contract_standards::non_fungible_token::metadata::{
     NFTContractMetadata, NonFungibleTokenMetadataProvider, TokenMetadata, NFT_METADATA_SPEC,
 };
-use near_contract_standards::non_fungible_token::events::{NftMint, NftTransfer};
+use near_contract_standards::non_fungible_token::events::{NftBurn, NftMint, NftTransfer};
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
 use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
@@ -231,6 +231,42 @@ impl Game {
             env::predecessor_account_id() == self.owner_id,
             "Only the owner can call this"
         );
+    }
+
+    /// Remove a pet and its NEP-171 token everywhere either is recorded.
+    fn burn_pet(&mut self, pet: &Pet) {
+        let token_id: TokenId = pet.pet_id.to_string();
+        self.pets.remove(&pet.pet_id);
+        self.listings.remove(&pet.pet_id);
+
+        self.tokens.owner_by_id.remove(&token_id);
+        if let Some(by_id) = self.tokens.token_metadata_by_id.as_mut() {
+            by_id.remove(&token_id);
+        }
+        if let Some(per_owner) = self.tokens.tokens_per_owner.as_mut() {
+            if let Some(mut owned) = per_owner.get(&pet.owner_id) {
+                owned.remove(&token_id);
+                if owned.is_empty() {
+                    per_owner.remove(&pet.owner_id);
+                } else {
+                    per_owner.insert(&pet.owner_id, &owned);
+                }
+            }
+        }
+        if let Some(approvals) = self.tokens.approvals_by_id.as_mut() {
+            approvals.remove(&token_id);
+        }
+        if let Some(next) = self.tokens.next_approval_id_by_id.as_mut() {
+            next.remove(&token_id);
+        }
+
+        NftBurn {
+            owner_id: &pet.owner_id,
+            token_ids: &[&token_id],
+            authorized_id: None,
+            memo: Some("species retired"),
+        }
+        .emit();
     }
 
     fn assert_running(&self) {
@@ -614,6 +650,56 @@ impl Game {
         self.assert_owner();
         self.species_price = price.0;
         self.log_event("species_price_set", json!({ "price": price }));
+    }
+
+    /// Withdraw a species, and burn every pet of it. Owner only.
+    ///
+    /// Registration says a species is never deleted, and for anybody else's
+    /// species that stays true: this refuses unless every pet of the species
+    /// is held by one of this game's own accounts (the owner, the contract,
+    /// the mint router or the treasury). It exists for species the project
+    /// registered itself, such as a worked example that outlived its use, and
+    /// it cannot reach a pet a player owns.
+    ///
+    /// The built-in species are refused outright: the desktop app and every
+    /// early pet assume they are there.
+    ///
+    /// Returns the ids of the pets it burned.
+    pub fn retire_species(&mut self, id: String) -> Vec<u64> {
+        self.assert_owner();
+        require!(
+            !BUILT_IN_SPECIES.iter().any(|(built_in, _)| *built_in == id),
+            "A built-in species cannot be retired"
+        );
+        require!(self.species.get(&id).is_some(), "No species with that id");
+
+        let house = [
+            self.owner_id.clone(),
+            env::current_account_id(),
+            self.mint_router.clone(),
+            self.treasury.clone(),
+        ];
+        let doomed: Vec<Pet> = self
+            .pets
+            .values()
+            .filter(|pet| pet.category == id)
+            .collect();
+        for pet in &doomed {
+            require!(
+                house.contains(&pet.owner_id),
+                "A pet of this species belongs to a player, so it cannot be retired"
+            );
+            require!(!pet.locked, "A pet of this species is at work; unstake it first");
+        }
+
+        for pet in &doomed {
+            self.burn_pet(pet);
+        }
+        self.species.remove(&id);
+
+        let burned: Vec<u64> = doomed.iter().map(|pet| pet.pet_id).collect();
+        self.log_event("species_retired", json!({ "id": id, "burned": burned }));
+        burned
     }
 
     // ── Care ─────────────────────────────────────────────────────────────────
@@ -3304,5 +3390,59 @@ mod tests {
         let mut contract = deploy();
         testing_env!(ctx(alice(), 0, 0).build());
         contract.import_pets(vec![]);
+    }
+
+    // ── Retiring a species ───────────────────────────────────────────────────
+
+    fn mint_kind(contract: &mut Game, who: AccountId, kind: &str) -> u64 {
+        testing_env!(ctx(router(), 0, 0).build());
+        contract.create_pet_for(who, "N".to_string(), kind.to_string())
+    }
+
+    #[test]
+    fn retiring_a_house_species_burns_its_pets_and_nothing_else() {
+        let mut contract = deploy();
+        add_species(&mut contract, router(), "example");
+        let a = mint_kind(&mut contract, router(), "example");
+        let b = mint_kind(&mut contract, owner(), "example");
+        let kept = mint_kind(&mut contract, alice(), "blackdragon");
+
+        testing_env!(ctx(owner(), 0, 0).build());
+        assert_eq!(contract.retire_species("example".to_string()), vec![a, b]);
+
+        assert!(contract.get_species("example".to_string()).is_none());
+        assert!(contract.get_pet(a).is_none());
+        assert!(contract.get_pet(b).is_none());
+        assert!(contract.nft_token(a.to_string()).is_none());
+        assert!(contract.nft_tokens_for_owner(router(), None, None).is_empty());
+        assert_eq!(contract.nft_total_supply().0, 1);
+        assert!(contract.get_pet(kept).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "belongs to a player")]
+    fn a_species_with_a_players_pet_cannot_be_retired() {
+        let mut contract = deploy();
+        add_species(&mut contract, router(), "example");
+        mint_kind(&mut contract, bob(), "example");
+        testing_env!(ctx(owner(), 0, 0).build());
+        contract.retire_species("example".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "A built-in species cannot be retired")]
+    fn a_built_in_species_cannot_be_retired() {
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0, 0).build());
+        contract.retire_species("blackdragon".to_string());
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the owner can call this")]
+    fn only_the_owner_retires_a_species() {
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "example");
+        testing_env!(ctx(alice(), 0, 0).build());
+        contract.retire_species("example".to_string());
     }
 }

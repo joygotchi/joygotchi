@@ -47,6 +47,17 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+Redeployed on 2026-11-12 for `retire_species`, in
+`Br4xYLaxJrerJqXCTBrDHuHccXcNjhvtMvhzz4ukUMhK`. Code only, `without-init-call`.
+Previous: `5ETVU2FreFeiPbKMXCs8bsGG8LHr4APb9ybL1cbg8an2`.
+
+Then `retire_species("reference")` in
+`67ngX5N4BcJiRystFtfzS1XKSdxWA1hdvBojQsqSg3cM` withdrew the Reference Atlas,
+the worked example, and burned its two pets: #9 ATLAS (held by the mint
+router) and #10 ROYAL (held by the game account, left from the royalty
+check). Both were the project's own; the method refuses a species any player
+holds a pet of. Its sheets and `tools/make-sheet.py` went with it.
+
 Redeployed on 2026-11-11 for the 1% creator royalty, in
 `5ETVU2FreFeiPbKMXCs8bsGG8LHr4APb9ybL1cbg8an2`. Code only — no stored struct
 touched — so it went out `without-init-call` and kept its state: nine pets and

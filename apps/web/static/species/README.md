@@ -21,15 +21,3 @@ own NEAR, and this repository only serves the pixels.
 
 `joygotchi submit <folder> --into <checkout>` puts the files in the right
 place and prints the `create_species` call that registers them.
-
-## reference
-
-The first species submitted this way, and it doubles as the worked example:
-open `1.png` and you can see what each of the nine rows is meant to contain.
-It is built from this game's own green dragon by `make-sheet.py`, one real
-motion per row — the jump has an arc, the two run rows go opposite ways and
-one is mirrored, the failed row shakes — rather than the same drawing nudged
-eight times.
-
-Three phases, so it also shows what evolving looks like: the sheets come from
-the dragon's three drawings.
