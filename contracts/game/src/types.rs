@@ -290,3 +290,89 @@ pub struct LegacyPet {
     /// The v1 field: absolute nanoseconds despite the name.
     pub time_until_starving: U64,
 }
+
+/// Longest a species id may be. Ids are stored on every pet of that species
+/// as `category`, so they are paid for once per pet and kept short.
+pub const MAX_SPECIES_ID: usize = 24;
+pub const MIN_SPECIES_ID: usize = 3;
+pub const MAX_SPECIES_NAME: usize = 32;
+/// Art is one url per drawable phase. `MAX_EVOLUTION_PHASE` is 4 and the
+/// fourth reuses the third, which is why this is one short of it.
+pub const ART_PHASES: usize = 3;
+pub const MAX_ART_URI: usize = 200;
+
+/// A species somebody created, and the art every pet of it wears.
+///
+/// The id is the `category` already stored on every `Pet`, so registering a
+/// species adds no byte to a pet and no field to a stored struct. What it
+/// replaces is a hard-coded list in the source: before this, a new animal
+/// meant a contract deploy and a new desktop release, because the only place
+/// that knew a species existed was a Rust constant and the only place its
+/// drawings existed was the app bundle.
+///
+/// `art` holds absolute urls rather than the relative paths the contract used
+/// to write into token metadata. A relative path resolves only inside the
+/// app, so every wallet and every explorer showed a pet as a broken image.
+#[near(serializers = [json, borsh])]
+#[derive(Clone)]
+pub struct Species {
+    pub id: String,
+    pub name: String,
+    pub creator_id: AccountId,
+    /// One url per evolution phase, `ART_PHASES` of them.
+    pub art: Vec<String>,
+    pub created_at: U64,
+    /// Pets minted of this species. Its creator's only scoreboard.
+    pub minted: u64,
+}
+
+impl Species {
+    /// The drawing for a phase, with phase 4 falling back to phase 3 the same
+    /// way the app's `artPath` does.
+    pub fn art_for(&self, phase: u8) -> &str {
+        let index = (phase.max(1) as usize - 1).min(self.art.len().saturating_sub(1));
+        self.art.get(index).map(String::as_str).unwrap_or("")
+    }
+}
+
+/// Why a species id was refused, or `None` if it is fine.
+///
+/// Ids end up in urls, in file paths under `~/.joygotchi`, and in the
+/// `category` field the desktop app switches on, so the character set is kept
+/// to what is safe in all three rather than what Rust will store.
+pub fn species_id_error(id: &str) -> Option<&'static str> {
+    if id.len() < MIN_SPECIES_ID || id.len() > MAX_SPECIES_ID {
+        return Some("A species id is 3 to 24 characters");
+    }
+    if !id
+        .chars()
+        .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+    {
+        return Some("A species id is lowercase letters and digits only");
+    }
+    None
+}
+
+/// Why a piece of art was refused, or `None` if it is fine.
+///
+/// https only, and no credentials in the url. These urls are handed to every
+/// client that draws the pet — wallets, explorers, the desktop app — so a
+/// plain-http one would be a mixed-content failure on most of them, and one
+/// carrying `user:pass@` would be a credential published on a public chain.
+pub fn art_uri_error(uri: &str) -> Option<&'static str> {
+    if uri.is_empty() || uri.len() > MAX_ART_URI {
+        return Some("An art url is 1 to 200 characters");
+    }
+    if !uri.starts_with("https://") {
+        return Some("An art url must start with https://");
+    }
+    let rest = &uri["https://".len()..];
+    let host = rest.split('/').next().unwrap_or("");
+    if host.is_empty() || host.contains('@') {
+        return Some("An art url must not carry credentials");
+    }
+    if uri.contains(char::is_whitespace) {
+        return Some("An art url must not contain whitespace");
+    }
+    None
+}

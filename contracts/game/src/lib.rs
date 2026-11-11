@@ -20,7 +20,7 @@ use near_contract_standards::non_fungible_token::metadata::{
 };
 use near_contract_standards::non_fungible_token::events::{NftMint, NftTransfer};
 use near_contract_standards::non_fungible_token::{NonFungibleToken, Token, TokenId};
-use near_sdk::borsh::BorshSerialize;
+use near_sdk::borsh::{BorshDeserialize, BorshSerialize};
 use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::json;
@@ -35,9 +35,28 @@ const GAS_FOR_BATTLE: Gas = Gas::from_tgas(40);
 const GAS_FOR_BATTLE_RESOLVE: Gas = Gas::from_tgas(20);
 const GAS_FOR_SYNC: Gas = Gas::from_tgas(30);
 
-/// Species a pet can be minted as. The art lives at
-/// `/assets/animation/<category>/<evolution_phase>.gif`.
-const CATEGORIES: [&str; 2] = ["blackdragon", "greendragon"];
+/// The two species this game shipped with, seeded into the registry at
+/// deploy so that every pet minted before it existed still resolves.
+///
+/// This is a seed, not the law: `internal_mint` asks the registry, so a
+/// species created after deploy mints exactly like these two. It used to be
+/// the law, and that is what made a new animal cost a contract deploy.
+const BUILT_IN_SPECIES: [(&str, &str); 2] =
+    [("blackdragon", "Black Dragon"), ("greendragon", "Green Dragon")];
+
+/// Where the built-in drawings are served from.
+///
+/// Absolute on purpose. Token metadata used to carry
+/// `/assets/animation/<category>/<phase>.gif`, which resolves only inside
+/// the desktop app — every wallet and every explorer drew a broken image.
+const BUILT_IN_ART_BASE: &str = "https://joygotchi.vercel.app/assets/animation";
+
+/// What creating a species costs, in yoctoNEAR, unless the owner changes it.
+///
+/// A species is permanent, public, and carries its creator's name, so the
+/// fee is the thing standing between the registry and a thousand squatted
+/// ids. It goes where mint revenue goes.
+const DEFAULT_SPECIES_PRICE: u128 = 5_000_000_000_000_000_000_000_000;
 
 #[derive(BorshSerialize, BorshStorageKey)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -49,6 +68,7 @@ enum StorageKey {
     Pets,
     Shop,
     Listings,
+    Species,
 }
 
 /// What this contract needs from the staking contract.
@@ -102,6 +122,12 @@ pub struct Game {
     /// Where mint revenue and marketplace fees go.
     treasury: AccountId,
 
+    /// Every species that can be minted, by id. A pet's `category` is a key
+    /// here, which is why adding a species costs no byte on any stored pet.
+    species: UnorderedMap<String, Species>,
+    /// What `create_species` costs, in yoctoNEAR.
+    species_price: u128,
+
     paused: bool,
 }
 
@@ -146,8 +172,12 @@ impl Game {
             listings: UnorderedMap::new(StorageKey::Listings),
             market_fee_bps: DEFAULT_MARKET_FEE_BPS,
             treasury,
+            species: UnorderedMap::new(StorageKey::Species),
+            species_price: DEFAULT_SPECIES_PRICE,
             paused: false,
         };
+
+        contract.seed_built_in_species();
 
         // DECISION 4: the shop is repriced in NEAR rather than retired. The v1
         // ids and names are kept so existing clients and explorers still make
@@ -227,17 +257,20 @@ impl Game {
         (((a << 16) | (b << 8) | c) ^ salt as u32) % range.max(1)
     }
 
-    fn token_metadata(pet: &Pet) -> TokenMetadata {
+    /// NFT metadata for a pet, with the drawing passed in.
+    ///
+    /// `media` used to be built here as `/assets/animation/<category>/…`,
+    /// a relative path that resolves only inside the desktop app: every
+    /// wallet and every explorer showed a broken image. The species registry
+    /// holds a real url, so the caller looks it up and hands it over.
+    fn token_metadata(pet: &Pet, media: String) -> TokenMetadata {
         TokenMetadata {
             title: Some(pet.name.clone()),
             description: Some(format!(
                 "A {:?} {} · level {} · {} stars",
                 pet.rarity, pet.category, pet.level, pet.star
             )),
-            media: Some(format!(
-                "/assets/animation/{}/{}.gif",
-                pet.category, pet.evolution_phase
-            )),
+            media: Some(media),
             media_hash: None,
             copies: Some(1),
             issued_at: Some(pet.born_at.to_string()),
@@ -268,12 +301,52 @@ impl Game {
 
     // ── Minting ──────────────────────────────────────────────────────────────
 
-    fn internal_mint(&mut self, owner_id: AccountId, name: String, category: String, salt: u8) -> u64 {
-        require!(
-            CATEGORIES.contains(&category.as_str()),
-            "Unknown pet category"
-        );
+    /// Put the two shipped species in the registry, owned by this contract.
+    ///
+    /// Idempotent: a species already there keeps its art and its mint count,
+    /// so running this from `migrate` cannot overwrite a registry that is
+    /// already correct.
+    fn seed_built_in_species(&mut self) {
+        let now = env::block_timestamp();
+        for (id, name) in BUILT_IN_SPECIES {
+            if self.species.get(&id.to_string()).is_some() {
+                continue;
+            }
+            self.species.insert(
+                &id.to_string(),
+                &Species {
+                    id: id.to_string(),
+                    name: name.to_string(),
+                    creator_id: env::current_account_id(),
+                    art: (1..=ART_PHASES)
+                        .map(|phase| format!("{BUILT_IN_ART_BASE}/{id}/{phase}.gif"))
+                        .collect(),
+                    created_at: U64(now),
+                    minted: 0,
+                },
+            );
+        }
+    }
 
+    /// The drawing a pet of this species wears at this phase.
+    ///
+    /// An empty string for a species that is somehow missing, rather than a
+    /// panic: metadata is rewritten on evolve and on import, and a pet that
+    /// cannot be drawn is far better than a pet that cannot evolve.
+    fn art_for(&self, category: &str, phase: u8) -> String {
+        self.species
+            .get(&category.to_string())
+            .map(|species| species.art_for(phase).to_string())
+            .unwrap_or_default()
+    }
+
+    fn internal_mint(&mut self, owner_id: AccountId, name: String, category: String, salt: u8) -> u64 {
+        let mut species = self
+            .species
+            .get(&category)
+            .unwrap_or_else(|| env::panic_str("Unknown pet category"));
+
+        let category_id = category.clone();
         let pet_id = self.next_pet_id;
         self.next_pet_id += 1;
 
@@ -305,11 +378,17 @@ impl Game {
             locked: false,
         };
 
+        // The creator's only scoreboard, and the one number that says whether
+        // a species anybody can add is a species anybody wanted.
+        species.minted += 1;
+        let media = species.art_for(pet.evolution_phase).to_string();
+        self.species.insert(&category_id, &species);
+
         let token_id = pet_id.to_string();
         self.tokens.internal_mint_with_refund(
             token_id.clone(),
             owner_id.clone(),
-            Some(Self::token_metadata(&pet)),
+            Some(Self::token_metadata(&pet, media)),
             // No refund: the deposit is the mint price and it stays here until
             // `sweep` moves it to the treasury. The standard's `internal_mint`
             // would hand the excess over storage back to the caller, which for
@@ -381,6 +460,100 @@ impl Game {
             "Only the mint router can mint for another account"
         );
         self.internal_mint(owner_id, name, category, 2)
+    }
+
+    // ── Species ──────────────────────────────────────────────────────────────
+
+    /// Register a species anybody can then mint.
+    ///
+    /// Open to any account, for a fee. That is the point: a new animal used
+    /// to need a contract deploy, because the list of species was a Rust
+    /// constant, and a new desktop release, because the drawings were files
+    /// in the app bundle. Both of those are a maintainer's privilege. This is
+    /// a transaction.
+    ///
+    /// What the fee buys is a permanent, unique id. It is not refundable and
+    /// the species cannot be deleted — pets of it would lose their drawings —
+    /// so the price is the only thing standing between the registry and a
+    /// thousand squatted names.
+    ///
+    /// The art is checked for shape, not for content. Nothing on chain can
+    /// know whether a url serves a dragon, and a contract that pretended to
+    /// would be lying; what it can do is refuse a url no client could draw.
+    #[payable]
+    pub fn create_species(&mut self, id: String, name: String, art: Vec<String>) -> String {
+        self.assert_running();
+        require!(
+            env::attached_deposit().as_yoctonear() >= self.species_price,
+            "Attach at least the species price"
+        );
+
+        if let Some(why) = species_id_error(&id) {
+            env::panic_str(why);
+        }
+        require!(
+            self.species.get(&id).is_none(),
+            "That species id is taken"
+        );
+        let name: String = name.chars().take(MAX_SPECIES_NAME).collect();
+        require!(!name.trim().is_empty(), "A species needs a name");
+        require!(
+            art.len() == ART_PHASES,
+            "A species needs one drawing per evolution phase"
+        );
+        for uri in &art {
+            if let Some(why) = art_uri_error(uri) {
+                env::panic_str(why);
+            }
+        }
+
+        let creator_id = env::predecessor_account_id();
+        let created_at = env::block_timestamp();
+        self.species.insert(
+            &id,
+            &Species {
+                id: id.clone(),
+                name: name.clone(),
+                creator_id: creator_id.clone(),
+                art,
+                created_at: U64(created_at),
+                minted: 0,
+            },
+        );
+
+        self.log_event(
+            "species_created",
+            json!({
+                "id": id,
+                "name": name,
+                "creator_id": creator_id,
+                "paid": U128(env::attached_deposit().as_yoctonear()),
+            }),
+        );
+
+        id
+    }
+
+    /// One species, or nothing.
+    pub fn get_species(&self, id: String) -> Option<Species> {
+        self.species.get(&id)
+    }
+
+    /// Every species, oldest first. The registry is small by design — a fee
+    /// per entry and no deletions — so this needs no paging yet.
+    pub fn list_species(&self) -> Vec<Species> {
+        self.species.values().collect()
+    }
+
+    pub fn get_species_price(&self) -> U128 {
+        U128(self.species_price)
+    }
+
+    /// Reprice the registry. Owner only.
+    pub fn set_species_price(&mut self, price: U128) {
+        self.assert_owner();
+        self.species_price = price.0;
+        self.log_event("species_price_set", json!({ "price": price }));
     }
 
     // ── Care ─────────────────────────────────────────────────────────────────
@@ -616,8 +789,9 @@ impl Game {
 
         pet.evolution_phase += 1;
         self.pets.insert(&pet_id, &pet);
+        let media = self.art_for(&pet.category, pet.evolution_phase);
         self.tokens.token_metadata_by_id.as_mut().map(|by_id| {
-            by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet))
+            by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet, media))
         });
 
         self.log_event(
@@ -664,8 +838,9 @@ impl Game {
 
         pet.evolution_phase += 1;
         self.pets.insert(&pet_id, &pet);
+        let media = self.art_for(&pet.category, pet.evolution_phase);
         self.tokens.token_metadata_by_id.as_mut().map(|by_id| {
-            by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet))
+            by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet, media))
         });
 
         self.log_event(
@@ -1168,10 +1343,109 @@ impl Game {
             "mint_price": U128(self.mint_price),
             "market_fee_bps": self.market_fee_bps,
             "treasury": self.treasury,
-            "categories": CATEGORIES,
+            // Every species in the registry, not a constant: a client that
+            // built its mint form from this used to go stale the moment
+            // somebody added an animal.
+            "categories": self.species.keys().collect::<Vec<String>>(),
+            "species_price": U128(self.species_price),
+            "total_species": self.species.len(),
             "total_pets": self.pets.len(),
             "paused": self.paused,
         })
+    }
+
+    // ── Upgrade ──────────────────────────────────────────────────────────────
+
+    /// Read the state the previous code wrote, and add the species registry.
+    ///
+    /// This deploy adds two fields to the contract struct, which is a Borsh
+    /// layout change: the new code cannot read what the old code wrote, and a
+    /// `without-init-call` deploy would take the contract down with
+    /// `Cannot deserialize the contract state`. This project has lost two
+    /// deployments to exactly that, which is why the old layout is spelled
+    /// out below rather than assumed.
+    ///
+    /// Nothing inside `pets` is touched. `Pet` is unchanged, so every stored
+    /// record is read by the same code that wrote it, and `category` carries
+    /// over as the key into the registry the seeding below fills.
+    #[private]
+    #[init(ignore_state)]
+    pub fn migrate() -> Self {
+        /// The contract struct as the deployed code wrote it: this struct,
+        /// without `species` and `species_price`. Field order is the layout,
+        /// so it must match the old source exactly, top to bottom.
+        #[derive(BorshDeserialize)]
+        #[borsh(crate = "near_sdk::borsh")]
+        struct OldGame {
+            tokens: NonFungibleToken,
+            metadata: NFTContractMetadata,
+            owner_id: AccountId,
+            stake_contract: AccountId,
+            mint_router: AccountId,
+            pets: UnorderedMap<u64, Pet>,
+            next_pet_id: u64,
+            shop: LookupMap<u16, ShopItem>,
+            shop_ids: Vec<u16>,
+            mint_price: u128,
+            listings: UnorderedMap<u64, PetListing>,
+            market_fee_bps: u16,
+            treasury: AccountId,
+            paused: bool,
+        }
+
+        let old: OldGame = env::state_read().unwrap_or_else(|| {
+            env::panic_str("No state to migrate — this is not an upgrade")
+        });
+
+        let mut contract = Self {
+            tokens: old.tokens,
+            metadata: old.metadata,
+            owner_id: old.owner_id,
+            stake_contract: old.stake_contract,
+            mint_router: old.mint_router,
+            pets: old.pets,
+            next_pet_id: old.next_pet_id,
+            shop: old.shop,
+            shop_ids: old.shop_ids,
+            mint_price: old.mint_price,
+            listings: old.listings,
+            market_fee_bps: old.market_fee_bps,
+            treasury: old.treasury,
+            species: UnorderedMap::new(StorageKey::Species),
+            species_price: DEFAULT_SPECIES_PRICE,
+            paused: old.paused,
+        };
+        contract.seed_built_in_species();
+        contract
+    }
+
+    /// Rewrite the stored NFT metadata for a run of pets.
+    ///
+    /// Pets minted before the registry carry `media` as a relative path, so
+    /// every wallet and explorer draws them broken. Rewriting them is not
+    /// part of `migrate` on purpose: a migration that loops over every pet
+    /// has a pet count at which it runs out of gas, and finding that out
+    /// during an upgrade is the worst time to find it out.
+    ///
+    /// Owner only, resumable, and safe to run twice.
+    pub fn refresh_metadata(&mut self, from_pet_id: u64, limit: u32) -> u64 {
+        self.assert_owner();
+        let mut touched = 0u64;
+        let mut pet_id = from_pet_id.max(1);
+        while touched < limit as u64 && pet_id < self.next_pet_id {
+            if let Some(pet) = self.pets.get(&pet_id) {
+                let media = self.art_for(&pet.category, pet.evolution_phase);
+                if !media.is_empty() {
+                    self.tokens.token_metadata_by_id.as_mut().map(|by_id| {
+                        by_id.insert(&pet_id.to_string(), &Self::token_metadata(&pet, media))
+                    });
+                }
+                touched += 1;
+            }
+            pet_id += 1;
+        }
+        // Where to start the next call.
+        pet_id
     }
 
     // ── Owner ────────────────────────────────────────────────────────────────
@@ -1251,10 +1525,11 @@ impl Game {
                 locked: false,
             };
 
+            let media = self.art_for(&pet.category, pet.evolution_phase);
             self.tokens.internal_mint_with_refund(
                 pet.pet_id.to_string(),
                 pet.owner_id.clone(),
-                Some(Self::token_metadata(&pet)),
+                Some(Self::token_metadata(&pet, media)),
                 None,
             );
             // Silent imports would be the worst version of this bug: the twenty
@@ -1550,6 +1825,248 @@ mod tests {
     fn mint(contract: &mut Game, who: AccountId, at: u64) -> u64 {
         testing_env!(ctx(router(), at, 0).build());
         contract.create_pet_for(who, "SMAUG".to_string(), "blackdragon".to_string())
+    }
+
+    // ── Species ──────────────────────────────────────────────────────────────
+
+    fn art(id: &str) -> Vec<String> {
+        (1..=ART_PHASES)
+            .map(|phase| format!("https://art.example/{id}/{phase}.gif"))
+            .collect()
+    }
+
+    /// Register a species as `who`, paying the asking price.
+    fn add_species(contract: &mut Game, who: AccountId, id: &str) {
+        let price = contract.get_species_price().0;
+        testing_env!(ctx(who, 0, price).build());
+        contract.create_species(id.to_string(), "Test Beast".to_string(), art(id));
+    }
+
+    #[test]
+    fn a_species_anybody_registered_can_be_minted() {
+        /*
+         * The whole point of the registry. Before it, the species list was a
+         * Rust constant, so this pet needed a contract deploy to exist and a
+         * desktop release to be drawn. Both are a maintainer's privilege.
+         */
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+
+        testing_env!(ctx(router(), 0, 0).build());
+        let pet_id = contract.create_pet_for(
+            bob(),
+            "NEWT".to_string(),
+            "coolbeast".to_string(),
+        );
+
+        let pet = contract.get_pet(pet_id).unwrap();
+        assert_eq!(pet.category, "coolbeast");
+    }
+
+    #[test]
+    fn the_built_in_species_are_there_from_the_first_block() {
+        // Pets minted before the registry existed carry these ids. If seeding
+        // ever stopped happening, every one of them would become unmintable
+        // and unevolvable at once.
+        let contract = deploy();
+        for (id, _) in BUILT_IN_SPECIES {
+            let species = contract.get_species(id.to_string()).expect("seeded");
+            assert_eq!(species.art.len(), ART_PHASES);
+            for uri in &species.art {
+                assert!(uri.starts_with("https://"), "{uri} is not fetchable");
+            }
+        }
+        assert_eq!(contract.list_species().len(), BUILT_IN_SPECIES.len());
+    }
+
+    #[test]
+    fn seeding_twice_keeps_the_art_and_the_count() {
+        // `migrate` calls this on a contract that may already hold the two,
+        // and an overwrite there would reset every creator's mint count.
+        let mut contract = deploy();
+        mint(&mut contract, alice(), 0);
+        let before = contract.get_species("blackdragon".to_string()).unwrap();
+        assert_eq!(before.minted, 1);
+
+        contract.seed_built_in_species();
+
+        let after = contract.get_species("blackdragon".to_string()).unwrap();
+        assert_eq!(after.minted, 1, "seeding reset a creator's count");
+        assert_eq!(after.art, before.art);
+    }
+
+    #[test]
+    fn metadata_carries_a_url_a_wallet_can_fetch() {
+        /*
+         * `media` used to be `/assets/animation/<category>/<phase>.gif`. A
+         * relative path resolves against whatever origin is asking, so it
+         * worked in the desktop app and nowhere else: every wallet and every
+         * explorer drew these pets as a broken image.
+         */
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+
+        testing_env!(ctx(router(), 0, 0).build());
+        let pet_id =
+            contract.create_pet_for(alice(), "NEWT".to_string(), "coolbeast".to_string());
+
+        let token = contract.nft_token(pet_id.to_string()).unwrap();
+        let media = token.metadata.unwrap().media.unwrap();
+        assert_eq!(media, "https://art.example/coolbeast/1.gif");
+    }
+
+    #[test]
+    fn evolving_moves_the_drawing_on() {
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        testing_env!(ctx(router(), 0, 0).build());
+        let pet_id =
+            contract.create_pet_for(alice(), "NEWT".to_string(), "coolbeast".to_string());
+
+        testing_env!(ctx(stake(), 0, 0).build());
+        contract.award_xp(pet_id, 500);
+        contract.award_xp(pet_id, 500);
+
+        testing_env!(ctx(alice(), 0, 0).build());
+        contract.evolve(pet_id);
+
+        let token = contract.nft_token(pet_id.to_string()).unwrap();
+        let media = token.metadata.unwrap().media.unwrap();
+        assert_eq!(media, "https://art.example/coolbeast/2.gif");
+    }
+
+    #[test]
+    fn the_last_drawing_covers_the_phase_that_has_none() {
+        // The contract evolves to phase 4; art is drawn for three. Falling
+        // back beats a broken image, and the app's `artPath` does the same.
+        let species = Species {
+            id: "x".to_string(),
+            name: "X".to_string(),
+            creator_id: alice(),
+            art: art("x"),
+            created_at: U64(0),
+            minted: 0,
+        };
+        assert_eq!(species.art_for(4), species.art_for(3));
+        assert_eq!(species.art_for(0), species.art_for(1));
+    }
+
+    #[test]
+    fn minting_counts_against_the_species() {
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        testing_env!(ctx(router(), 0, 0).build());
+        for _ in 0..3 {
+            contract.create_pet_for(bob(), "N".to_string(), "coolbeast".to_string());
+        }
+        assert_eq!(
+            contract.get_species("coolbeast".to_string()).unwrap().minted,
+            3
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "That species id is taken")]
+    fn an_id_cannot_be_registered_twice() {
+        // Ids are permanent and pets key off them, so a second registration
+        // would silently repaint somebody else's animals.
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        add_species(&mut contract, bob(), "coolbeast");
+    }
+
+    #[test]
+    #[should_panic(expected = "That species id is taken")]
+    fn a_built_in_cannot_be_hijacked() {
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "blackdragon");
+    }
+
+    #[test]
+    #[should_panic(expected = "Attach at least the species price")]
+    fn registering_for_free_is_refused() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 0, 0).build());
+        contract.create_species("coolbeast".to_string(), "Beast".to_string(), art("c"));
+    }
+
+    #[test]
+    fn an_id_has_to_survive_a_url_and_a_file_path() {
+        /*
+         * A species id becomes a folder name under `~/.joygotchi`, a segment
+         * in a url, and a string the desktop app switches on. Anything that
+         * is awkward in all three is refused here rather than three layers
+         * later.
+         */
+        assert!(species_id_error("coolbeast").is_none());
+        assert!(species_id_error("beast2").is_none());
+
+        assert!(species_id_error("ab").is_some(), "too short");
+        assert!(species_id_error(&"a".repeat(25)).is_some(), "too long");
+        assert!(species_id_error("CoolBeast").is_some(), "uppercase");
+        assert!(species_id_error("cool-beast").is_some(), "punctuation");
+        assert!(species_id_error("../../etc").is_some(), "path traversal");
+        assert!(species_id_error("cool beast").is_some(), "space");
+    }
+
+    #[test]
+    fn art_has_to_be_something_a_client_can_load() {
+        assert!(art_uri_error("https://art.example/x/1.gif").is_none());
+
+        // Most wallets are https pages: a plain-http image is blocked as
+        // mixed content and the pet shows as broken.
+        assert!(art_uri_error("http://art.example/x/1.gif").is_some());
+        assert!(art_uri_error("/assets/animation/x/1.gif").is_some());
+        assert!(art_uri_error("ipfs://whatever").is_some());
+        // A credential written into a url on a public chain is a published
+        // credential.
+        assert!(art_uri_error("https://user:pass@art.example/x.gif").is_some());
+        assert!(art_uri_error("https://art.example/a b.gif").is_some());
+        assert!(art_uri_error("").is_some());
+        assert!(art_uri_error(&format!("https://a.example/{}", "x".repeat(300))).is_some());
+    }
+
+    #[test]
+    #[should_panic(expected = "one drawing per evolution phase")]
+    fn a_species_without_every_phase_is_refused() {
+        let mut contract = deploy();
+        let price = contract.get_species_price().0;
+        testing_env!(ctx(alice(), 0, price).build());
+        contract.create_species(
+            "coolbeast".to_string(),
+            "Beast".to_string(),
+            vec!["https://art.example/1.gif".to_string()],
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "An art url must start with https://")]
+    fn a_species_with_unloadable_art_is_refused() {
+        let mut contract = deploy();
+        let price = contract.get_species_price().0;
+        testing_env!(ctx(alice(), 0, price).build());
+        contract.create_species(
+            "coolbeast".to_string(),
+            "Beast".to_string(),
+            vec![
+                "https://art.example/1.gif".to_string(),
+                "http://art.example/2.gif".to_string(),
+                "https://art.example/3.gif".to_string(),
+            ],
+        );
+    }
+
+    #[test]
+    fn the_registry_is_what_get_config_reports() {
+        // A client that built its mint form from this used to go stale the
+        // moment somebody added an animal.
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+
+        let config = contract.get_config();
+        let listed = config["categories"].as_array().unwrap();
+        assert_eq!(listed.len(), 3);
+        assert!(listed.iter().any(|c| c == "coolbeast"));
     }
 
     // ── Rarity ───────────────────────────────────────────────────────────────
