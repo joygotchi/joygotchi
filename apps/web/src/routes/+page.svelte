@@ -1,5 +1,6 @@
 <script lang="ts">
   import PetCard from '#lib/components/PetCard.svelte';
+  import { PAGE_SIZE, SORTS, arrange, type Sort } from '#lib/gallery';
   import { listPets, type GalleryPet } from '#lib/pets';
 
   let pets = $state<GalleryPet[]>([]);
@@ -7,12 +8,17 @@
   let error = $state<string | null>(null);
   /** `all`, `sale`, or a species id. */
   let filter = $state('all');
+  let query = $state('');
+  let sort = $state<Sort>('newest');
+  let showing = $state(PAGE_SIZE);
 
   async function load() {
     loading = true;
     error = null;
     try {
-      pets = await listPets();
+      // Every pet: the gallery searches and sorts them here, and draws a page
+      // at a time, so a long list costs scrolling rather than requests.
+      pets = await listPets(Number.MAX_SAFE_INTEGER);
     } catch (cause) {
       error = cause instanceof Error ? cause.message : String(cause);
     } finally {
@@ -24,13 +30,15 @@
     void load();
   });
 
-  const shown = $derived(
-    filter === 'all'
-      ? pets
-      : filter === 'sale'
-        ? pets.filter((pet) => pet.listing)
-        : pets.filter((pet) => pet.kind === filter)
-  );
+  const shown = $derived(arrange(pets, { filter, query, sort }));
+
+  // A new search or filter starts from the top again.
+  $effect(() => {
+    void filter;
+    void query;
+    void sort;
+    showing = PAGE_SIZE;
+  });
 
   /*
    * Filters come from the pets on screen, not a list of the two species this
@@ -96,7 +104,7 @@
     <span class="text-xs text-muted">{pets.length} minted</span>
   </div>
 
-  <div class="flex flex-wrap justify-end gap-1 text-[0.65rem] capitalize">
+  <div class="flex flex-wrap items-center justify-end gap-1 text-[0.65rem] capitalize">
     {#each filters as [value, label] (value)}
       <button
         class="border px-2 py-1"
@@ -110,6 +118,25 @@
       </button>
     {/each}
   </div>
+</div>
+
+<div class="mb-4 flex flex-wrap gap-2 text-xs">
+  <input
+    class="min-w-0 flex-1 border border-line bg-panel px-3 py-2 outline-none focus:border-line-bright"
+    type="search"
+    placeholder="Search by name or #number"
+    aria-label="Search pets"
+    bind:value={query}
+  />
+  <select
+    class="border border-line bg-panel px-2 py-2 text-muted outline-none focus:border-line-bright"
+    aria-label="Sort pets"
+    bind:value={sort}
+  >
+    {#each SORTS as [value, label] (value)}
+      <option {value}>{label}</option>
+    {/each}
+  </select>
 </div>
 
 {#if loading}
@@ -128,12 +155,29 @@
   </div>
 {:else if shown.length === 0}
   <div class="border border-line bg-panel p-8 text-center text-sm text-muted">
-    {pets.length === 0 ? 'No pets yet.' : filter === 'sale' ? 'Nothing for sale right now.' : 'No pets of that kind yet.'}
+    {pets.length === 0
+      ? 'No pets yet.'
+      : query
+        ? `No pet matches “${query}”.`
+        : filter === 'sale'
+          ? 'Nothing for sale right now.'
+          : 'No pets of that kind yet.'}
   </div>
 {:else}
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-    {#each shown as pet (pet.pet_id)}
+    {#each shown.slice(0, showing) as pet (pet.pet_id)}
       <PetCard {pet} />
     {/each}
   </div>
+  {#if shown.length > showing}
+    <div class="mt-4 flex justify-center">
+      <button
+        class="border border-line px-4 py-2 text-xs hover:border-line-bright"
+        onclick={() => (showing += PAGE_SIZE)}
+        type="button"
+      >
+        Show more · {shown.length - showing} left
+      </button>
+    </div>
+  {/if}
 {/if}

@@ -256,6 +256,16 @@ export async function listListings(): Promise<PetListing[]> {
   }
 }
 
+/** A past sale of a pet. Price in yoctoNEAR, time in nanoseconds. */
+export type PetSale = { price: string; seller_id: string; buyer_id: string; sold_at: string };
+
+/** The pet's last few sales, newest first. Empty for a contract without them. */
+export async function getPetSales(petId: number): Promise<PetSale[]> {
+  return viewFunction<PetSale[]>(GAME_CONTRACT, 'get_pet_sales', { pet_id: petId }).catch(
+    () => [] as PetSale[]
+  );
+}
+
 /** The market's cut in basis points, read from the contract. */
 export async function marketFeeBps(): Promise<number> {
   const config = await viewFunction<{ market_fee_bps?: number }>(GAME_CONTRACT, 'get_config').catch(

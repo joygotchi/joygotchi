@@ -2,7 +2,15 @@
   import { explorerAccount } from '#lib/config';
   import { formatNear, parseNear, truncateAccount } from '#lib/near/amount';
   import { wallet } from '#lib/near/wallet.svelte';
-  import { buyPet, listPet, marketFeeBps, unlistPet, type GalleryPet } from '#lib/pets';
+  import {
+    buyPet,
+    getPetSales,
+    listPet,
+    marketFeeBps,
+    unlistPet,
+    type GalleryPet,
+    type PetSale
+  } from '#lib/pets';
 
   /**
    * The pet market, on the pet it sells.
@@ -23,6 +31,21 @@
   $effect(() => {
     void marketFeeBps().then((bps) => (feeBps = bps));
   });
+
+  /** What it sold for before: the only price guide a buyer or seller has. */
+  let sales = $state<PetSale[]>([]);
+  $effect(() => {
+    const id = pet.pet_id;
+    void listing; // re-read after a sale on this page
+    void getPetSales(id).then((found) => (sales = found));
+  });
+
+  const when = (ns: string) =>
+    new Date(Number(BigInt(ns) / 1_000_000n)).toLocaleDateString(undefined, {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric'
+    });
 
   const listing = $derived(pet.listing);
 
@@ -140,6 +163,23 @@
 
     {#if error}
       <p class="border border-bad/40 px-3 py-2 text-xs text-bad">{error}</p>
+    {/if}
+
+    {#if sales.length > 0}
+      <div class="border-t border-line pt-3">
+        <p class="mb-2 text-[0.65rem] tracking-widest text-muted uppercase">Recent sales</p>
+        <ul class="flex flex-col gap-1 text-xs">
+          {#each sales as sale (sale.sold_at)}
+            <li class="flex items-baseline justify-between gap-3">
+              <span class="text-text">{formatNear(sale.price, 2)} NEAR</span>
+              <span class="truncate text-muted">
+                {truncateAccount(sale.seller_id)} → {truncateAccount(sale.buyer_id)}
+              </span>
+              <span class="shrink-0 text-muted">{when(sale.sold_at)}</span>
+            </li>
+          {/each}
+        </ul>
+      </div>
     {/if}
   </div>
 </div>

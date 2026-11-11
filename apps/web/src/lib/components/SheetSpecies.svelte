@@ -98,6 +98,9 @@
         step = `Storing sheet ${index + 1} of ${filled.length}…`;
         urls.push(sheetUrl(location.origin, await storeSheet(sheet.bytes)));
       }
+      // The contract wants one drawing per phase, three of them. A creator
+      // who drew fewer gets the last one carried on, as `joygotchi submit` does.
+      while (urls.length < 3) urls.push(urls[urls.length - 1]!);
       step = 'Registering the species…';
       await createSpecies(cleanId, cleanName, urls, price);
       registered = cleanId;

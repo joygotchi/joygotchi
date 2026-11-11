@@ -1,0 +1,10 @@
+# The gallery, every pet's page and the desktop download are for anyone.
+# /act and /connect are hand-offs from the desktop app, and /api is data.
+User-agent: *
+Disallow: /act
+Disallow: /connect
+Disallow: /api/
+Allow: /api/og/
+Allow: /api/art/
+
+Sitemap: https://joygotchi.vercel.app/sitemap.xml
