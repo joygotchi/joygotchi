@@ -1,0 +1,97 @@
+name: Release desktop
+
+# Push a tag like `desktop-v0.1.0` and this builds the desktop app for macOS
+# (Apple Silicon and Intel), Windows and Linux, and attaches the installers to
+# a GitHub release of that tag. The version in the installers' names comes from
+# `apps/desktop/src-tauri/tauri.conf.json`, so bump it there first.
+#
+# The builds are not code-signed. macOS and Windows warn on first launch; the
+# download page says how to get past that.
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Release tag to build, e.g. desktop-v0.1.0'
+        required: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macOS (Apple Silicon)
+            os: macos-latest
+            target: aarch64-apple-darwin
+          - name: macOS (Intel)
+            os: macos-latest
+            target: x86_64-apple-darwin
+          - name: Windows
+            os: windows-latest
+            target: ''
+          - name: Linux
+            os: ubuntu-22.04
+            target: ''
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Linux system dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: apps/desktop/src-tauri
+          key: ${{ matrix.target }}
+
+      - run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: apps/desktop
+          tauriScript: pnpm tauri
+          args: ${{ matrix.target && format('--target {0}', matrix.target) || '' }}
+          tagName: ${{ github.event.inputs.tag || github.ref_name }}
+          releaseName: 'JOYGOTCHI Desktop v__VERSION__'
+          releaseBody: |
+            A small transparent window that sits above your editor. Your pet idles there and animates on every tool call your coding agent makes.
+
+            **Pick your download**
+            - macOS, Apple Silicon (M1 and later): `JOYGOTCHI_<version>_aarch64.dmg`
+            - macOS, Intel: `JOYGOTCHI_<version>_x64.dmg`
+            - Windows: `JOYGOTCHI_<version>_x64-setup.exe`
+            - Linux: `.AppImage`, `.deb` or `.rpm`
+
+            These builds are not code-signed yet.
+            - **macOS** says the app "is damaged" or "can't be opened". Drag it to Applications, then run `xattr -dr com.apple.quarantine /Applications/JOYGOTCHI.app` once.
+            - **Windows** SmartScreen: click *More info* → *Run anyway*.
+
+            Then install a pet from https://joygotchi.vercel.app and connect your agent from the app's Settings.
+          releaseDraft: false
+          prerelease: false

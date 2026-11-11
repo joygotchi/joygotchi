@@ -89,7 +89,7 @@ needs no CDN, no registry of ours, and no second request that can fail halfway.
 The desktop app listens on `127.0.0.1:7777`. Any agent, any hook:
 
 ```sh
-curl -s localhost:7777/event -d '{"kind":"tool-start","tool":"Bash"}'
+curl -s localhost:7777/event -H 'content-type: application/json' -d '{"kind":"tool-start","tool":"Bash"}'
 ```
 
 Events are `tool-start`, `tool-end` (with `ok`), `prompt` and `idle`. The port is bound to loopback

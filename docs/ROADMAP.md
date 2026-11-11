@@ -104,9 +104,10 @@ vocabulary at the same time, so feeding a pet on the web makes the desktop pet
 react.
 
 ### 2. The rest of the contract surface
-`list_pet` / `buy_pet` (the NEAR pet market) and `list_item` / `buy_listing`
-(the credit item market). Both deployed, both tested, neither reachable from
-the app. `evolve` came off this list on 2026-11-10.
+~~`list_pet` / `buy_pet` (the NEAR pet market)~~ — on every pet's page since
+2026-11-12, wallet-signed, walked on testnet (list, unlist, relist, buy pet 11
+for 0.5 NEAR; the seller got 0.4875 and the treasury the 2.5%). The credit item
+market (`list_item` / `buy_listing`) is in the desktop app. `evolve` came off this list on 2026-11-10.
 
 The item market has a rule that is easy to break while adding something
 reasonable-looking: a session key may only spend prices the *contract* fixed,
@@ -251,4 +252,7 @@ number to edit — it is the treasury buying NEAR AI credits and calling
   into the agent's own settings and repairs a stale install in place. The
   server logs what it receives, which is how you tell a hook that never fired
   from one that fired into a window that ignored it.
-- **No signed desktop release.** It builds from source only.
+- **~~No desktop release.~~** `desktop-v*` tags build macOS (Apple Silicon and
+  Intel), Windows and Linux installers in `release-desktop.yml` and attach them
+  to the GitHub release; `/download` links them. Still **unsigned** — macOS
+  needs one `xattr` line and Windows SmartScreen one click, both on the page.
