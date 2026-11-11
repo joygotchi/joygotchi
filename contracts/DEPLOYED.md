@@ -47,6 +47,30 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+**Pending, not yet deployed.** The next deploy is the first one in this
+project that is a real Borsh layout change on the game contract rather than a
+code-only swap. It adds `species`, `species_price` and `revenue_banked` to the
+contract struct, so it must go out `with-init-call migrate` — see
+`migrate-game-testnet.sh`. The built hashes are
+`HxuA1Z5hFLujj1dr4xiQmiS3p86HPLL7hNUu5HRj5aZp` (game, migrate) and
+`HLSqm66yR8hs12S9tBqCr6FFSeajeoY2RV3FkjNKDQjC` (stake, code only). Update the
+table above once they are live.
+
+Nothing inside `pets` changes: `Pet` is untouched, so every stored record is
+still read by the code that wrote it, and `category` carries over as the key
+into the new registry.
+
+`migrate` was checked against the deployed bytes before being run.
+`contracts/game/tests/migration.rs` holds the live `STATE` key of
+`jg-game-5656.testnet` as a fixture and deserialises it with the same
+`OldGame` layout `migrate` uses — and asserts the slice is consumed whole,
+because a layout that is a prefix of the real one parses happily and leaves
+bytes over, which is exactly what a field added at the end looks like. A unit
+test cannot do this: it builds the old struct with the same compiler that
+reads it back, so it agrees with itself and says nothing about bytes a
+different binary wrote months ago. That is how both previous losses passed
+their tests.
+
 The game contract was redeployed again to flatten the level curve (60 x 1.12
 instead of 100 x 1.18) and to put an evolution two levels apart instead of
 five. Pure arithmetic on values the contract already stored — `level` and
