@@ -490,16 +490,23 @@ impl Game {
         self.assert_running();
         let paid = env::attached_deposit().as_yoctonear();
         require!(paid >= self.mint_price, "Attach at least the mint price");
+        self.paid_mint(env::predecessor_account_id(), name, category, paid, 1)
+    }
 
-        /*
-         * The creator's cut, taken before the rest is banked.
-         *
-         * Read here rather than inside `internal_mint` because the royalty
-         * is a property of *this* entry point: the mint-router path takes no
-         * deposit on this contract, so there is nothing here to take a cut
-         * of. That is a real gap for multichain mints and it is the router's
-         * to close, not this function's.
-         */
+    /// A mint someone paid for in NEAR: the creator's cut, then the rest banked.
+    ///
+    /// Both paying entry points come through here — a player's own
+    /// `create_pet`, and the mint router's `create_pet_for` once it has turned
+    /// a multichain payment back into NEAR — so a species' creator is paid the
+    /// same 1% whichever way the pet was bought.
+    fn paid_mint(
+        &mut self,
+        owner_id: AccountId,
+        name: String,
+        category: String,
+        paid: u128,
+        source: u8,
+    ) -> u64 {
         let creator = self
             .species
             .get(&category)
@@ -517,7 +524,7 @@ impl Game {
         // The rest of the deposit, not the price: nothing is refunded, so an
         // overpayment is revenue too and the treasury should see it.
         self.revenue_banked += paid - royalty;
-        let pet_id = self.internal_mint(env::predecessor_account_id(), name, category, 1);
+        let pet_id = self.internal_mint(owner_id, name, category, source);
 
         if royalty > 0 {
             self.log_event(
@@ -542,6 +549,11 @@ impl Game {
     /// Only the mint router may call this. A multichain payment arrives from a
     /// bridge rather than from the player's wallet, so the caller is never the
     /// owner and ownership has to be passed in.
+    ///
+    /// The router pays: it turns the wNEAR a bridge delivered back into NEAR
+    /// and attaches the mint price, so the species' creator gets the same 1%
+    /// as on a direct mint. Only the owner may mint without paying, for gifts.
+    #[payable]
     pub fn create_pet_for(
         &mut self,
         owner_id: AccountId,
@@ -554,7 +566,15 @@ impl Game {
             caller == self.mint_router || caller == self.owner_id,
             "Only the mint router can mint for another account"
         );
-        self.internal_mint(owner_id, name, category, 2)
+        let paid = env::attached_deposit().as_yoctonear();
+        if caller == self.mint_router {
+            require!(paid >= self.mint_price, "The router must attach the mint price");
+        }
+        if paid > 0 {
+            self.paid_mint(owner_id, name, category, paid, 2)
+        } else {
+            self.internal_mint(owner_id, name, category, 2)
+        }
     }
 
     // ── Species ──────────────────────────────────────────────────────────────
@@ -753,7 +773,8 @@ impl Game {
             }),
         );
 
-        if levelled {
+        // Shields count towards staking weight, so a new one is a re-weigh too.
+        if levelled || item.shield > 0 {
             self.sync_weight(&pet);
         }
     }
@@ -879,7 +900,16 @@ impl Game {
             return false;
         }
         pet.xp = pet.xp.saturating_add(xp);
+        self.settle_level(pet)
+    }
 
+    /// Level up as far as the XP a pet already holds reaches.
+    ///
+    /// Normally only reached through `grant_xp`. It is separate because the
+    /// level curve changed (100 × 1.18 to 60 × 1.12) under pets that had
+    /// banked XP against the old one: RINGER held 81 XP at level 0 with 60
+    /// needed, and only levelled once it next earned XP.
+    fn settle_level(&self, pet: &mut Pet) -> bool {
         let before = pet.level;
         while pet.level < MAX_LEVEL {
             let need = pet.xp_for_next_level();
@@ -1394,6 +1424,19 @@ impl Game {
         (pet.owner_id, attrs)
     }
 
+    /// `get_pet_attrs` plus the pet's shields, which count towards staking
+    /// weight.
+    ///
+    /// A separate view rather than a field on `PetAttrs`: the staking
+    /// contract stores `PetAttrs` inside every staked record, and growing it
+    /// is what broke every one of them the first time this was tried. The
+    /// shield count travels alongside instead, and only the weight it
+    /// produces is stored.
+    pub fn get_pet_stake_attrs(&self, pet_id: u64) -> (AccountId, PetAttrs, u32) {
+        let pet = self.expect_pet(pet_id);
+        (pet.owner_id.clone(), pet.attrs(), pet.shield)
+    }
+
     pub fn get_pet(&self, pet_id: u64) -> Option<PetView> {
         self.pets.get(&pet_id).map(|pet| self.to_view(&pet))
     }
@@ -1587,6 +1630,29 @@ impl Game {
     /// during an upgrade is the worst time to find it out.
     ///
     /// Owner only, resumable, and safe to run twice.
+    /// Level up every pet holding enough XP for it. Owner only, resumable.
+    ///
+    /// Walks pet ids from `from_pet_id`, at most `limit` of them, and returns
+    /// the ids that moved. Safe to repeat: a pet already at the right level is
+    /// left alone.
+    pub fn settle_levels(&mut self, from_pet_id: u64, limit: u32) -> Vec<u64> {
+        self.assert_owner();
+        let mut moved = Vec::new();
+        let mut pet_id = from_pet_id.max(1);
+        let end = pet_id.saturating_add(limit as u64).min(self.next_pet_id);
+        while pet_id < end {
+            if let Some(mut pet) = self.pets.get(&pet_id) {
+                if self.settle_level(&mut pet) {
+                    self.pets.insert(&pet_id, &pet);
+                    self.sync_weight(&pet);
+                    moved.push(pet_id);
+                }
+            }
+            pet_id += 1;
+        }
+        moved
+    }
+
     pub fn refresh_metadata(&mut self, from_pet_id: u64, limit: u32) -> u64 {
         self.assert_owner();
         let mut touched = 0u64;
@@ -2023,7 +2089,7 @@ mod tests {
 
     /// Mint a pet for `who` without going through the payable entry point.
     fn mint(contract: &mut Game, who: AccountId, at: u64) -> u64 {
-        testing_env!(ctx(router(), at, 0).build());
+        testing_env!(ctx(owner(), at, 0).build());
         contract.create_pet_for(who, "SMAUG".to_string(), "blackdragon".to_string())
     }
 
@@ -2052,7 +2118,7 @@ mod tests {
         let mut contract = deploy();
         add_species(&mut contract, alice(), "coolbeast");
 
-        testing_env!(ctx(router(), 0, 0).build());
+        testing_env!(ctx(owner(), 0, 0).build());
         let pet_id = contract.create_pet_for(
             bob(),
             "NEWT".to_string(),
@@ -2106,7 +2172,7 @@ mod tests {
         let mut contract = deploy();
         add_species(&mut contract, alice(), "coolbeast");
 
-        testing_env!(ctx(router(), 0, 0).build());
+        testing_env!(ctx(owner(), 0, 0).build());
         let pet_id =
             contract.create_pet_for(alice(), "NEWT".to_string(), "coolbeast".to_string());
 
@@ -2119,7 +2185,7 @@ mod tests {
     fn evolving_moves_the_drawing_on() {
         let mut contract = deploy();
         add_species(&mut contract, alice(), "coolbeast");
-        testing_env!(ctx(router(), 0, 0).build());
+        testing_env!(ctx(owner(), 0, 0).build());
         let pet_id =
             contract.create_pet_for(alice(), "NEWT".to_string(), "coolbeast".to_string());
 
@@ -2155,7 +2221,7 @@ mod tests {
     fn minting_counts_against_the_species() {
         let mut contract = deploy();
         add_species(&mut contract, alice(), "coolbeast");
-        testing_env!(ctx(router(), 0, 0).build());
+        testing_env!(ctx(owner(), 0, 0).build());
         for _ in 0..3 {
             contract.create_pet_for(bob(), "N".to_string(), "coolbeast".to_string());
         }
@@ -2324,20 +2390,41 @@ mod tests {
     }
 
     #[test]
-    fn a_router_mint_pays_no_royalty_here() {
+    fn a_router_mint_pays_the_creator_too() {
         /*
-         * The router holds the payment on its own account, so this contract
-         * has nothing to take a cut of. A real gap for multichain mints, and
-         * the router's to close — recorded here so that it is a known gap
-         * rather than a surprise.
+         * This used to be a recorded gap: the router held the payment, so a
+         * pet bought with ZEC or SOL paid its species' creator nothing. The
+         * router now turns the wNEAR back into NEAR and attaches it, and the
+         * split is the same as a direct mint.
          */
         let mut contract = deploy();
         add_species(&mut contract, alice(), "coolbeast");
         let before = contract.get_revenue_banked().0;
 
-        testing_env!(ctx(router(), 0, 0).build());
-        contract.create_pet_for(bob(), "NEWT".to_string(), "coolbeast".to_string());
+        testing_env!(ctx(router(), 0, 2 * ONE_NEAR).build());
+        let pet_id = contract.create_pet_for(bob(), "NEWT".to_string(), "coolbeast".to_string());
 
+        let royalty = 2 * ONE_NEAR / 100;
+        assert_eq!(contract.get_revenue_banked().0 - before, 2 * ONE_NEAR - royalty);
+        assert_eq!(contract.get_pet(pet_id).unwrap().owner_id, bob());
+    }
+
+    #[test]
+    #[should_panic(expected = "The router must attach the mint price")]
+    fn the_router_cannot_mint_for_free() {
+        // Free router mints are how the gap stayed open; refusing them keeps it shut.
+        let mut contract = deploy();
+        testing_env!(ctx(router(), 0, 0).build());
+        contract.create_pet_for(bob(), "NEWT".to_string(), "blackdragon".to_string());
+    }
+
+    #[test]
+    fn the_owner_can_still_gift_a_pet() {
+        let mut contract = deploy();
+        let before = contract.get_revenue_banked().0;
+        testing_env!(ctx(owner(), 0, 0).build());
+        let pet_id = contract.create_pet_for(bob(), "GIFT".to_string(), "blackdragon".to_string());
+        assert_eq!(contract.get_pet(pet_id).unwrap().owner_id, bob());
         assert_eq!(contract.get_revenue_banked().0, before);
     }
 
@@ -2495,7 +2582,7 @@ mod tests {
     #[should_panic(expected = "Unknown pet category")]
     fn rejects_unknown_categories() {
         let mut contract = deploy();
-        testing_env!(ctx(router(), 10, 0).build());
+        testing_env!(ctx(owner(), 10, 0).build());
         contract.create_pet_for(alice(), "NOPE".to_string(), "unicorn".to_string());
     }
 
@@ -3408,7 +3495,7 @@ mod tests {
     // ── Retiring a species ───────────────────────────────────────────────────
 
     fn mint_kind(contract: &mut Game, who: AccountId, kind: &str) -> u64 {
-        testing_env!(ctx(router(), 0, 0).build());
+        testing_env!(ctx(owner(), 0, 0).build());
         contract.create_pet_for(who, "N".to_string(), kind.to_string())
     }
 
@@ -3497,5 +3584,36 @@ mod tests {
         let carol: AccountId = "carol.near".parse().unwrap();
         testing_env!(ctx(carol, 0, ONE_NEAR).build());
         contract.buy_pet(pet_id).detach();
+    }
+
+    // ── Settling levels ──────────────────────────────────────────────────────
+
+    #[test]
+    fn settling_levels_up_a_pet_that_banked_xp_under_the_old_curve() {
+        let mut contract = deploy();
+        let stuck = mint(&mut contract, alice(), 0);
+        let fine = mint(&mut contract, bob(), 0);
+
+        // 81 XP at level 0, with 60 needed — RINGER on testnet.
+        let mut pet = contract.pets.get(&stuck).unwrap();
+        pet.xp = 81;
+        contract.pets.insert(&stuck, &pet);
+
+        testing_env!(ctx(owner(), 0, 0).build());
+        assert_eq!(contract.settle_levels(1, 50), vec![stuck]);
+        let pet = contract.get_pet(stuck).unwrap();
+        assert_eq!((pet.level, pet.xp), (1, 21));
+        assert_eq!(contract.get_pet(fine).unwrap().level, 0);
+
+        // Repeating it changes nothing.
+        assert!(contract.settle_levels(1, 50).is_empty());
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the owner can call this")]
+    fn only_the_owner_settles_levels() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 0, 0).build());
+        contract.settle_levels(1, 50);
     }
 }

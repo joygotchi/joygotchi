@@ -30,9 +30,20 @@ const GAS_FOR_RESOLVE: Gas = Gas::from_tgas(10);
 const GAS_FOR_CREDIT_GRANT: Gas = Gas::from_tgas(20);
 const GAS_FOR_CREDIT_RESOLVE: Gas = Gas::from_tgas(5);
 const GAS_FOR_FT_TRANSFER: Gas = Gas::from_tgas(15);
+const GAS_FOR_UNWRAP: Gas = Gas::from_tgas(10);
+/// The callback that pays the game: it schedules the mint and its own resolve.
+const GAS_FOR_ON_UNWRAPPED: Gas = Gas::from_tgas(50);
 
-const ALLOWED_CATEGORIES: [&str; 2] = ["blackdragon", "greendragon"];
 const MAX_QUANTITY: u32 = 10;
+
+/// A species id the game could hold: the shape the game contract enforces,
+/// checked here only so a typo is refunded at once instead of becoming a
+/// paid claim that can never mint. Whether the species exists is the game's
+/// call — any registered species can be bought from any chain.
+fn plausible_species(id: &str) -> bool {
+    // The same rule as the game's `species_id_error`.
+    (3..=24).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit())
+}
 
 #[derive(BorshSerialize, BorshStorageKey)]
 #[borsh(crate = "near_sdk::borsh")]
@@ -67,6 +78,10 @@ pub struct PendingMint {
     pub name: String,
     pub paid: U128,
     pub created_at: U64,
+    /// Whether `paid` has already been turned from wNEAR into NEAR. A retry
+    /// after the game refused the mint must not unwrap it a second time.
+    #[serde(default)]
+    pub unwrapped: bool,
 }
 
 /// What this contract needs from the game contract: mint a pet and assign it to
@@ -81,6 +96,8 @@ trait Game {
 #[allow(dead_code)]
 trait Ft {
     fn ft_transfer(&mut self, receiver_id: AccountId, amount: U128, memo: Option<String>);
+    /// wNEAR → NEAR, sent to the caller.
+    fn near_withdraw(&mut self, amount: U128);
 }
 
 /// The staking contract holds the credit ledger and never takes payment — this
@@ -95,6 +112,7 @@ trait Stake {
 #[ext_contract(ext_self)]
 #[allow(dead_code)]
 trait SelfCallbacks {
+    fn on_unwrapped(&mut self, account_id: AccountId, index: u64) -> Promise;
     fn on_minted(&mut self, account_id: AccountId, index: u64) -> bool;
     fn on_credits_granted(&mut self, account_id: AccountId, paid: U128) -> U128;
 }
@@ -178,21 +196,77 @@ impl MintRouter {
         index
     }
 
+    /// Pay the game for one pending mint, unwrapping its wNEAR first.
+    ///
+    /// The game contract takes NEAR, not wNEAR, and it is the game that pays a
+    /// species' creator their cut — so the payment is turned back into NEAR
+    /// and attached to `create_pet_for`, exactly as a player's own mint is.
+    /// That is two steps because a deposit has to be on hand when the promise
+    /// carrying it is made: unwrap, then pay from the callback.
     fn start_mint(&mut self, account_id: AccountId, index: u64) -> Promise {
-        let queue = self.pending.get(&account_id).unwrap_or_default();
-        let mint = queue
+        let mint = self.pending_at(&account_id, index);
+        if mint.unwrapped {
+            return self.pay_game(account_id, index, mint);
+        }
+        ext_ft::ext(self.wnear.clone())
+            .with_static_gas(GAS_FOR_UNWRAP)
+            .with_attached_deposit(NearToken::from_yoctonear(1))
+            .near_withdraw(mint.paid)
+            .then(
+                ext_self::ext(env::current_account_id())
+                    .with_static_gas(GAS_FOR_ON_UNWRAPPED)
+                    .on_unwrapped(account_id, index),
+            )
+    }
+
+    fn pending_at(&self, account_id: &AccountId, index: u64) -> PendingMint {
+        self.pending
+            .get(account_id)
+            .unwrap_or_default()
             .get(index as usize)
             .expect("No pending mint at that index")
-            .clone();
+            .clone()
+    }
 
+    fn pay_game(&mut self, account_id: AccountId, index: u64, mint: PendingMint) -> Promise {
         ext_game::ext(self.game_contract.clone())
             .with_static_gas(GAS_FOR_MINT)
+            .with_attached_deposit(NearToken::from_yoctonear(mint.paid.0))
             .create_pet_for(account_id.clone(), mint.name, mint.category)
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_RESOLVE)
                     .on_minted(account_id, index),
             )
+    }
+
+    /// The wNEAR is NEAR now: record that, then pay the game with it.
+    ///
+    /// If the unwrap failed the claim simply stays pending as it was. If the
+    /// game later refuses the mint, its deposit comes back here and the claim
+    /// keeps `unwrapped`, so `redeem_pending` pays from the NEAR on hand.
+    #[private]
+    pub fn on_unwrapped(
+        &mut self,
+        account_id: AccountId,
+        index: u64,
+        #[callback_result] result: Result<(), PromiseError>,
+    ) -> PromiseOrValue<bool> {
+        if result.is_err() {
+            self.log_event(
+                "mint_deferred",
+                json!({ "account_id": account_id, "index": U64(index), "reason": "unwrap failed" }),
+            );
+            return PromiseOrValue::Value(false);
+        }
+        let mut queue = self.pending.get(&account_id).unwrap_or_default();
+        let Some(mint) = queue.get_mut(index as usize) else {
+            return PromiseOrValue::Value(false);
+        };
+        mint.unwrapped = true;
+        let mint = mint.clone();
+        self.pending.insert(&account_id, &queue);
+        PromiseOrValue::Promise(self.pay_game(account_id, index, mint))
     }
 
     #[private]
@@ -318,8 +392,8 @@ impl FungibleTokenReceiver for MintRouter {
             } => {
                 let quantity = quantity.clamp(1, MAX_QUANTITY);
 
-                if !ALLOWED_CATEGORIES.contains(&category.as_str()) {
-                    env::log_str("Unknown pet category — refunding");
+                if !plausible_species(&category) {
+                    env::log_str("Not a species id — refunding");
                     return PromiseOrValue::Value(amount);
                 }
 
@@ -341,6 +415,7 @@ impl FungibleTokenReceiver for MintRouter {
                             name: name.clone(),
                             paid: U128(self.mint_price),
                             created_at: U64(env::block_timestamp()),
+                            unwrapped: false,
                         },
                     );
                     if first_index.is_none() {
@@ -561,14 +636,14 @@ mod tests {
     }
 
     #[test]
-    fn unknown_category_is_refunded() {
+    fn a_malformed_species_id_is_refunded() {
         let mut contract = deploy();
         testing_env!(ctx(wnear()).build());
 
         let msg = json!({
             "action": "mint_pet",
             "account_id": "alice.near",
-            "category": "unicorn",
+            "category": "Uni Corn!",
             "name": "NOPE",
         })
         .to_string();
@@ -665,5 +740,61 @@ mod tests {
         testing_env!(ctx("mint.near".parse().unwrap()).build());
         assert!(!contract.on_minted(alice(), 0, Err(PromiseError::Failed)));
         assert_eq!(contract.get_pending(alice()).len(), 1, "the paid mint must survive");
+    }
+
+    #[test]
+    fn any_registered_species_can_be_bought_from_another_chain() {
+        // The router used to accept the two shipped dragons and nothing else,
+        // so a creator's species could only be bought with NEAR.
+        let mut contract = deploy();
+        testing_env!(ctx(wnear()).build());
+        let msg = json!({
+            "action": "mint_pet",
+            "account_id": "alice.near",
+            "category": "wyvern",
+            "name": "AZURE",
+        })
+        .to_string();
+
+        let change = value_of(contract.ft_on_transfer(bridge(), U128(2 * ONE_NEAR), msg));
+        assert_eq!(change, 0);
+        assert_eq!(contract.get_pending(alice())[0].category, "wyvern");
+        assert!(!contract.get_pending(alice())[0].unwrapped);
+    }
+
+    #[test]
+    fn an_unwrapped_claim_remembers_it_so_a_retry_does_not_unwrap_twice() {
+        let mut contract = deploy();
+        testing_env!(ctx(wnear()).build());
+        let _ = contract.ft_on_transfer(bridge(), U128(2 * ONE_NEAR), mint_msg(1));
+
+        testing_env!(ctx("mint.near".parse().unwrap()).build());
+        let _ = contract.on_unwrapped(alice(), 0, Ok(()));
+        assert!(contract.get_pending(alice())[0].unwrapped);
+
+        // The game refused it: the claim survives, still unwrapped.
+        assert!(!contract.on_minted(alice(), 0, Err(PromiseError::Failed)));
+        assert!(contract.get_pending(alice())[0].unwrapped);
+    }
+
+    #[test]
+    fn a_failed_unwrap_leaves_the_claim_as_it_was() {
+        let mut contract = deploy();
+        testing_env!(ctx(wnear()).build());
+        let _ = contract.ft_on_transfer(bridge(), U128(2 * ONE_NEAR), mint_msg(1));
+
+        testing_env!(ctx("mint.near".parse().unwrap()).build());
+        let _ = contract.on_unwrapped(alice(), 0, Err(PromiseError::Failed));
+        assert!(!contract.get_pending(alice())[0].unwrapped);
+    }
+
+    #[test]
+    fn species_ids_are_checked_for_shape_only() {
+        assert!(plausible_species("blackdragon"));
+        assert!(plausible_species("wyvern2"));
+        assert!(!plausible_species("ab"));
+        assert!(plausible_species("2fast"), "the game allows a leading digit");
+        assert!(!plausible_species("Wyvern"));
+        assert!(!plausible_species("wy-vern"));
     }
 }
