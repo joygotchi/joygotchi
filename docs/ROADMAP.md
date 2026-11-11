@@ -127,6 +127,22 @@ it and reaches the model. There is a test for the exact string.
 A species is a row in a registry, registered by anyone for a fee, and
 `CATEGORIES` is gone. Live since 2026-11-11.
 
+Two ways in, and the second is the real one. `/create` recolours a drawing
+this game ships, which is quick and is a recolour. `joygotchi submit
+<folder>` takes a nine-row sprite atlas you drew anywhere — petdex's grid
+unchanged, so a sheet made with their Hatch Pet skill drops in — and a pet
+installed from one really animates per state rather than being moved around
+in CSS.
+
+Walked end to end on 2026-11-11, which is the only way to know it works:
+`submit --into` wrote the sheets, the deploy served them, `create_species`
+registered `reference` (`B4Ck5wPzHoKu25cjC7vkNvCZSRXToAE4ydedNPEMWmyh`),
+`create_pet` minted ATLAS as pet 9
+(`CUSPuYhQDv8NpwmbCAuFd7BkrTW8w6XhaPyRT1L5vS5Y`), and `joygotchi install
+jg1_06vjq08a86dg` brought it down as a `spriteVersion: 2` package with its
+8x9 atlas. The species doubles as the worked example of what the nine rows
+should contain.
+
 The part that had no answer in [`CREATE.md`](CREATE.md) was hosting: art has to
 be at an https url and this project has no storage. It did not need any. Every
 sprite is a GIF with a 16-entry global colour table and the frames reference it
