@@ -127,6 +127,13 @@ pub struct Game {
     species: UnorderedMap<String, Species>,
     /// What `create_species` costs, in yoctoNEAR.
     species_price: u128,
+    /// Revenue taken for pets and species and not yet swept, in yoctoNEAR.
+    ///
+    /// The contract's balance is not this number: it also holds the NEP-171
+    /// storage staking for every token ever minted, and sweeping that would
+    /// take the contract below its own storage cost. Counting what was
+    /// charged is the only way to know what is safe to move.
+    revenue_banked: u128,
 
     paused: bool,
 }
@@ -174,6 +181,7 @@ impl Game {
             treasury,
             species: UnorderedMap::new(StorageKey::Species),
             species_price: DEFAULT_SPECIES_PRICE,
+            revenue_banked: 0,
             paused: false,
         };
 
@@ -439,6 +447,9 @@ impl Game {
             env::attached_deposit().as_yoctonear() >= self.mint_price,
             "Attach at least the mint price"
         );
+        // The whole deposit, not the price: nothing is refunded, so an
+        // overpayment is revenue too and the treasury should see it.
+        self.revenue_banked += env::attached_deposit().as_yoctonear();
         self.internal_mint(env::predecessor_account_id(), name, category, 1)
     }
 
@@ -509,6 +520,7 @@ impl Game {
 
         let creator_id = env::predecessor_account_id();
         let created_at = env::block_timestamp();
+        self.revenue_banked += env::attached_deposit().as_yoctonear();
         self.species.insert(
             &id,
             &Species {
@@ -1413,6 +1425,11 @@ impl Game {
             treasury: old.treasury,
             species: UnorderedMap::new(StorageKey::Species),
             species_price: DEFAULT_SPECIES_PRICE,
+            // Starts at zero, not at the balance. What is on this account
+            // today is mint revenue *and* the storage staking for twenty
+            // tokens, and nothing on chain can tell them apart after the
+            // fact. Everything charged from here on is counted.
+            revenue_banked: 0,
             paused: old.paused,
         };
         contract.seed_built_in_species();
@@ -1478,8 +1495,44 @@ impl Game {
         self.shop.insert(&item.item_id, &item);
     }
 
-    /// Sweep mint and shop revenue to the treasury, which is what gets staked
-    /// with NEAR AI to produce the credit stream.
+    /// Send everything taken for pets and species to the treasury.
+    ///
+    /// This is the first step of the loop the staking contract describes:
+    /// mint revenue reaches the treasury, the treasury stakes it with NEAR
+    /// AI, and the compute allowance that comes back is what
+    /// `pet-stake::fund_epoch_from_reserve` streams to staked pets. Only
+    /// that first step can happen on chain, so this is the step that is
+    /// made automatic and countable rather than a number typed by hand.
+    ///
+    /// It sends the counter, never the balance. This account also holds the
+    /// NEP-171 storage staking for every token ever minted, and a sweep of
+    /// the balance would take the contract below its own storage cost —
+    /// which is unrecoverable without sending NEAR back.
+    ///
+    /// Anyone may call it. There is one destination, it is set by the owner,
+    /// and a sweep nobody can trigger is a sweep that stops happening.
+    pub fn sweep_revenue(&mut self) -> Promise {
+        let amount = self.revenue_banked;
+        require!(amount > 0, "Nothing banked to sweep");
+        self.revenue_banked = 0;
+
+        self.log_event(
+            "revenue_swept",
+            json!({ "treasury": self.treasury, "amount": U128(amount) }),
+        );
+        Promise::new(self.treasury.clone()).transfer(NearToken::from_yoctonear(amount))
+    }
+
+    /// What `sweep_revenue` would send.
+    pub fn get_revenue_banked(&self) -> U128 {
+        U128(self.revenue_banked)
+    }
+
+    /// Move NEAR off this contract by hand.
+    ///
+    /// The escape hatch, kept for the balance that predates the counter and
+    /// for shop revenue. `sweep_revenue` is the one to use: this one trusts
+    /// the caller to know what part of the balance is not storage staking.
     pub fn sweep(&mut self, receiver_id: AccountId, amount: U128) -> Promise {
         self.assert_owner();
         Promise::new(receiver_id).transfer(NearToken::from_yoctonear(amount.0))
@@ -2067,6 +2120,72 @@ mod tests {
         let listed = config["categories"].as_array().unwrap();
         assert_eq!(listed.len(), 3);
         assert!(listed.iter().any(|c| c == "coolbeast"));
+    }
+
+    // ── Revenue ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn minting_and_registering_both_bank_revenue() {
+        let mut contract = deploy();
+
+        testing_env!(ctx(alice(), 0, 3 * ONE_NEAR).build());
+        contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
+        // The whole deposit, not the price: nothing is refunded, so the
+        // extra NEAR is revenue too and the treasury should see it.
+        assert_eq!(contract.get_revenue_banked().0, 3 * ONE_NEAR);
+
+        let price = contract.get_species_price().0;
+        testing_env!(ctx(bob(), 0, price).build());
+        contract.create_species("coolbeast".to_string(), "Beast".to_string(), art("c"));
+        assert_eq!(contract.get_revenue_banked().0, 3 * ONE_NEAR + price);
+    }
+
+    #[test]
+    fn a_mint_through_the_router_banks_nothing_here() {
+        // The router took the payment on its own account; this contract was
+        // handed a pet to create, not money. Counting it would have the
+        // treasury swept twice for one sale.
+        let mut contract = deploy();
+        mint(&mut contract, alice(), 0);
+        assert_eq!(contract.get_revenue_banked().0, 0);
+    }
+
+    #[test]
+    fn sweeping_sends_the_counter_and_empties_it() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 0, 2 * ONE_NEAR).build());
+        contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
+
+        testing_env!(ctx(bob(), 0, 0).build());
+        contract.sweep_revenue();
+        assert_eq!(contract.get_revenue_banked().0, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "Nothing banked to sweep")]
+    fn sweeping_nothing_is_refused_rather_than_sending_zero() {
+        // A zero transfer still costs gas and still logs, which would make
+        // the treasury's history unreadable.
+        let mut contract = deploy();
+        testing_env!(ctx(bob(), 0, 0).build());
+        contract.sweep_revenue();
+    }
+
+    #[test]
+    fn sweeping_never_offers_the_storage_staking() {
+        /*
+         * The counter exists because the balance is not the revenue. This
+         * account also holds the NEP-171 storage staking for every token
+         * ever minted, and sweeping that takes the contract below its own
+         * storage cost — which cannot be undone without sending NEAR back.
+         */
+        let mut contract = deploy();
+        for _ in 0..5 {
+            mint(&mut contract, alice(), 0);
+        }
+        // Five pets' worth of storage sits on this account, and none of it
+        // is sweepable, because none of it was charged as revenue.
+        assert_eq!(contract.get_revenue_banked().0, 0);
     }
 
     // ── Rarity ───────────────────────────────────────────────────────────────

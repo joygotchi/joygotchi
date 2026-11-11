@@ -1198,6 +1198,46 @@ impl PetStake {
         self.log_event("epoch_budget_set", json!({ "epoch_budget": epoch_budget }));
     }
 
+    /// Commit credits the treasury already holds to the staked-pet stream.
+    ///
+    /// This closes the loop the module comment describes. Mint revenue
+    /// reaches the treasury through `game::sweep_revenue`; the treasury
+    /// stakes it with NEAR AI and the compute allowance it earns lands in
+    /// `sale_reserve` through `fund_reserve`; this moves a slice of that
+    /// allowance out of the reserve and into what staked pets are paid.
+    ///
+    /// Only the middle step happens off chain, because NEAR AI is off
+    /// chain. Both ends are a balance here, which is why this moves one
+    /// into the other rather than inventing a number: `set_epoch_budget`
+    /// can be set to anything, and a budget larger than the credits that
+    /// exist is an emission nobody can honour.
+    ///
+    /// `epoch_budget` is a rate — credits per 30-day epoch — so funding is
+    /// an instruction about how fast to pay out, and the reserve it comes
+    /// from is what makes that rate real.
+    pub fn fund_epoch_from_reserve(&mut self, credits: U128) -> U128 {
+        self.assert_owner();
+        require!(
+            self.sale_reserve >= credits.0,
+            "The reserve does not hold that many credits"
+        );
+
+        // Before the rate changes, or everything earned since the last touch
+        // would be recalculated at the new one.
+        self.update_pool();
+
+        self.sale_reserve -= credits.0;
+        self.epoch_budget = credits.0;
+        self.log_event(
+            "epoch_funded_from_reserve",
+            json!({
+                "epoch_budget": credits,
+                "reserve": U128(self.sale_reserve),
+            }),
+        );
+        U128(self.epoch_budget)
+    }
+
     /// Record credits the treasury has actually bought on NEAR AI and is
     /// willing to sell for NEAR or give away through the faucet and mining.
     pub fn fund_reserve(&mut self, credits: U128) {
@@ -2206,6 +2246,75 @@ mod tests {
         contract.fund_reserve(U128(ONE_CREDIT));
         testing_env!(ctx(router(), 0).build());
         contract.grant_credits(alice(), U128(ONE_CREDIT));
+    }
+
+    #[test]
+    fn funding_the_epoch_moves_credits_out_of_the_reserve() {
+        /*
+         * The step that closes the loop. Mint revenue reaches the treasury
+         * through `game::sweep_revenue`, the treasury stakes it with NEAR
+         * AI, and the allowance that buys lands here as reserve. This moves
+         * that allowance into what staked pets are actually paid.
+         */
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(900 * ONE_CREDIT));
+
+        let funded = contract.fund_epoch_from_reserve(U128(600 * ONE_CREDIT));
+
+        assert_eq!(funded.0, 600 * ONE_CREDIT);
+        assert_eq!(contract.get_pool().epoch_budget.0, 600 * ONE_CREDIT);
+        assert_eq!(contract.get_pool().sale_reserve.0, 300 * ONE_CREDIT);
+    }
+
+    #[test]
+    #[should_panic(expected = "The reserve does not hold that many credits")]
+    fn an_epoch_cannot_be_funded_with_credits_nobody_bought() {
+        /*
+         * `set_epoch_budget` can be set to any number, and a budget larger
+         * than the credits that exist is an emission nobody can honour:
+         * every staked pet accrues a claim on compute the treasury never
+         * paid for. This path refuses instead.
+         */
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(10 * ONE_CREDIT));
+        contract.fund_epoch_from_reserve(U128(500 * ONE_CREDIT));
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the owner")]
+    fn nobody_else_may_redirect_the_reserve() {
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(100 * ONE_CREDIT));
+        testing_env!(ctx(alice(), 0).build());
+        contract.fund_epoch_from_reserve(U128(100 * ONE_CREDIT));
+    }
+
+    #[test]
+    fn a_rate_change_does_not_backdate_what_was_already_earned() {
+        /*
+         * `epoch_budget` is a rate. Changing it without settling the pool
+         * first would recalculate everything earned since the last touch at
+         * the new rate — a pet that staked a week ago would be paid as
+         * though the new budget had been in force all week.
+         */
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(10_000 * ONE_CREDIT));
+
+        testing_env!(ctx(game(), 0).build());
+        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(1, 0, 1, Rarity::Common))));
+
+        // A day at the deployed rate.
+        testing_env!(ctx(owner(), 86_400).build());
+        let earned = contract.get_account(alice()).unwrap().pending_credits.0;
+
+        contract.fund_epoch_from_reserve(U128(10_000 * ONE_CREDIT));
+        let after = contract.get_account(alice()).unwrap().pending_credits.0;
+
+        assert_eq!(after, earned, "the old rate's day was repriced");
     }
 
     #[test]
