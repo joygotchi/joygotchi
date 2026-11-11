@@ -50,10 +50,17 @@ on.
    machine — one for the registry, one for a token.
 
    Making the repository public was expected to remove the token step. It did
-   not. An anonymous read of `npm.pkg.github.com` still answers
-   `401 authentication token not provided`: GitHub Packages authenticates
-   reads of public npm packages too. So "one command, no account" is not true
-   today, and only npmjs makes it true.
+   not, and neither did making the package itself public — which is a separate
+   setting, and was the actual reason nobody else could install at all. With
+   both public, an anonymous read of `npm.pkg.github.com` still answers
+   `401 authentication token not provided`, and an `npx` run with an empty
+   user config fails the same way. GitHub Packages authenticates reads of
+   public npm packages.
+
+   So "one command, no account" — the line this CLI was built around — is not
+   true on GitHub Packages at all, by their design rather than by our
+   configuration. Only npmjs makes it true. The npmjs scope and an `npm login`
+   are the only things in the way.
 
 ~~Make the repository public~~ — done; it is public, and Vercel now deploys on
 push to `main`. It did not remove the token step, see above. ~~Buy NEAR AI

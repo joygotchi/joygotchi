@@ -8,12 +8,14 @@
  *    otherwise, so every machine needs the scope pointed at GitHub once. This
  *    is not a visibility setting and making the package public does not
  *    remove it.
- * 2. Reading it needs a GitHub token with `read:packages`. This was written
- *    down as a consequence of the repository being private, which was wrong:
- *    the repository is public now and an anonymous request to
- *    `npm.pkg.github.com` still answers
- *    `401 authentication token not provided`. GitHub Packages authenticates
- *    reads of public npm packages too, and nothing we can set changes that.
+ * 2. Reading it needs a GitHub token with `read:packages`, and no setting on
+ *    our side removes that. This was first written down as a consequence of
+ *    the repository being private, which was a guess. It has since been
+ *    measured: with the repository public *and* the package itself set to
+ *    public, an anonymous `GET https://npm.pkg.github.com/@joygotchi%2fjoygotchi`
+ *    still answers `401 authentication token not provided`, and an `npx`
+ *    run with an empty user config fails the same way. GitHub Packages
+ *    authenticates reads of public npm packages.
  *
  * Both steps are one-time and both are `npm config set`, so nobody has to edit
  * an `.npmrc` by hand.
