@@ -1098,21 +1098,21 @@
         -->
         {@render tile(
           'Shop',
-          '/assets/items/water.png',
+          '/assets/icon/shop.png',
           () => (showShop = true),
           busy !== null,
           'Tonics, wards and lenses, paid in credits'
         )}
         {@render tile(
           'Market',
-          '/assets/item/coin.png',
+          '/assets/icon/market.png',
           () => (showMarket = true),
           busy !== null,
           'Buy and sell items with other players'
         )}
         {@render tile(
           'Evolve',
-          '/assets/item/star.png',
+          '/assets/icon/evolve.png',
           evolve,
           busy !== null || !mine || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
           !mine
@@ -1138,7 +1138,7 @@
         )}
         {@render tile(
           'Claim',
-          '/assets/item/coin.png',
+          '/assets/icon/claim.png',
           () => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.'),
           busy !== null || Number(account?.pending_credits ?? 0) === 0,
           'Move earned credits into the spendable balance',
@@ -1199,7 +1199,7 @@
         )}
         {@render tile(
           'Style',
-          '/assets/hat/crown.svg',
+          '/assets/icon/style.png',
           () => (showStyle = true),
           busy !== null,
           'Hats and backdrops, kept on this machine'

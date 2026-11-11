@@ -26,7 +26,17 @@ pub const ATTACK_COOLDOWN_SECONDS: u64 = 60 * 60;
 pub const ATTACKED_COOLDOWN_SECONDS: u64 = 60 * 60;
 
 /// XP needed to reach level 1 from 0. Each level costs 18% more.
-pub const BASE_LEVEL_XP: u32 = 100;
+/// XP for the first level, and how much steeper each one gets.
+///
+/// Was 100 and 1.18, which put level 5 — the old first evolution — 714 XP
+/// away: twenty-six meals with a Focus Lens doubling every one of them, or
+/// twenty-nine battle wins an hour apart. Long enough that nothing a player
+/// did in a sitting moved the number they were watching.
+pub const BASE_LEVEL_XP: u32 = 60;
+pub const LEVEL_XP_GROWTH_PERCENT: u64 = 112;
+
+/// Levels between evolutions. Phase one evolves at level 2, not level 5.
+pub const LEVELS_PER_PHASE: u32 = 2;
 pub const MAX_LEVEL: u32 = 20;
 pub const MAX_STAR: u32 = 5;
 
@@ -179,7 +189,7 @@ impl Pet {
     pub fn xp_for_next_level(&self) -> u32 {
         let mut need = BASE_LEVEL_XP as u64;
         for _ in 0..self.level {
-            need = need * 118 / 100;
+            need = need * LEVEL_XP_GROWTH_PERCENT / 100;
         }
         need as u32
     }

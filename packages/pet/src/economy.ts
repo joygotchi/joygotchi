@@ -105,16 +105,19 @@ export type CreditAction = keyof typeof ACTION_PRICE;
 /**
  * Evolving, as the game contract gates it.
  *
- * Phase 1 needs level 5, phase 2 needs 10, and four is the end of it. Mirrored
+ * Phase 1 needs level 2, phase 2 needs 4, and four phases is the end of it.
+ * Mirrored
  * here so a button can be dark before it is pressed rather than after: the
  * contract refuses and refunds, but a refund the player has to notice is a
  * worse answer than a button that explains itself.
  */
 export const MAX_EVOLUTION_PHASE = 4;
 
+export const LEVELS_PER_PHASE = 2;
+
 export function levelToEvolve(phase: number): number | null {
   if (phase >= MAX_EVOLUTION_PHASE) return null;
-  return phase * 5;
+  return phase * LEVELS_PER_PHASE;
 }
 
 export const AUTO_FEED_HOURS = 12;

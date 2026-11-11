@@ -610,7 +610,7 @@ impl Game {
             "This pet is fully evolved"
         );
         require!(
-            pet.level >= pet.evolution_phase as u32 * 5,
+            pet.level >= pet.evolution_phase as u32 * LEVELS_PER_PHASE,
             "Not enough levels to evolve yet"
         );
 
@@ -657,7 +657,7 @@ impl Game {
             env::log_str("This pet is fully evolved");
             return false;
         }
-        if pet.level < pet.evolution_phase as u32 * 5 {
+        if pet.level < pet.evolution_phase as u32 * LEVELS_PER_PHASE {
             env::log_str("Not enough levels to evolve yet");
             return false;
         }
@@ -1816,16 +1816,21 @@ mod tests {
         let mut contract = deploy();
         let pet_id = mint(&mut contract, alice(), 100);
 
-        // 100 XP for level 1, then 18% more each time.
-        assert_eq!(contract.get_pet(pet_id).unwrap().xp_for_next_level, 100);
+        // The curve is read from the constants rather than copied, so
+        // changing them is one edit instead of two that can disagree.
+        let first = BASE_LEVEL_XP;
+        assert_eq!(contract.get_pet(pet_id).unwrap().xp_for_next_level, first);
 
         testing_env!(ctx(stake(), 100, 0).build());
-        contract.award_xp(pet_id, 100);
+        contract.award_xp(pet_id, first);
 
         let pet = contract.get_pet(pet_id).unwrap();
         assert_eq!(pet.level, 1);
         assert_eq!(pet.xp, 0);
-        assert_eq!(pet.xp_for_next_level, 118);
+        assert_eq!(
+            pet.xp_for_next_level,
+            (first as u64 * LEVEL_XP_GROWTH_PERCENT / 100) as u32
+        );
         // Stats grow with level, so combat keeps pace with staking weight.
         assert_eq!(pet.atk, 104);
     }
