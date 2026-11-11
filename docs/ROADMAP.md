@@ -9,7 +9,7 @@ be most of the remaining work.
 | | |
 |---|---|
 | Gallery | <https://joygotchi.vercel.app> — reads `jg-game-5656.testnet` directly, 8 pets |
-| CLI | `@joygotchi/joygotchi@0.1.0` on GitHub Packages |
+| CLI | `@joygotchi/joygotchi@0.2.0` on GitHub Packages — `install`, `list`, `submit` |
 | Contracts | game, pet-stake, mint-router on testnet; 212 Rust tests, hashes in [`DEPLOYED.md`](../contracts/DEPLOYED.md) |
 | Desktop | Tauri 2, pixel-art game UI, hook server on `127.0.0.1:7777`; 218 TypeScript tests across the workspace |
 | Pet speech | NEAR AI answers, reads the pet's real state, and may propose one action |
