@@ -1,6 +1,5 @@
 <script lang="ts">
   import CopyField from '#lib/components/CopyField.svelte';
-  import { CLI_PACKAGE, SETUP_REGISTRY, SETUP_TOKEN, TOKEN_URL } from '#lib/cli';
   import {
     ALL_RELEASES,
     DESKTOP_VERSION,
@@ -74,15 +73,15 @@
     <div class="border-b border-line px-4 py-3">
       <h2 class="text-sm tracking-widest text-muted uppercase">First launch</h2>
       <p class="mt-1 text-xs text-muted">
-        The macOS builds are signed with an Apple Developer ID and notarized by Apple. The Windows
-        build is not signed yet.
+        The builds aren't code-signed yet, so your system asks once whether to trust them.
       </p>
     </div>
     <div class="flex flex-col gap-3 p-4 text-xs text-muted">
       <p>
-        <span class="text-text">macOS</span>: open the <code class="text-text">.dmg</code> and drag
-        JOYGOTCHI to Applications. It opens like any other app.
+        <span class="text-text">macOS</span> says the app is damaged or can't be opened. Drag it to
+        Applications, then run this once:
       </p>
+      <CopyField label="Allow it on macOS" prefix="$ " value="xattr -dr com.apple.quarantine /Applications/JOYGOTCHI.app" />
       <p>
         <span class="text-text">Windows</span> SmartScreen: click <em>More info</em>, then
         <em>Run anyway</em>.
@@ -115,32 +114,5 @@
         so nothing off this machine can reach it.
       </p>
     </div>
-  </div>
-</div>
-
-<div class="mt-8 border border-line bg-panel">
-  <div class="border-b border-line px-4 py-3">
-    <h2 class="text-sm tracking-widest text-muted uppercase">Install a pet</h2>
-    <p class="mt-1 text-xs text-muted">
-      Copy the install code from any pet's page and run the command it shows. The pet lands in
-      <code class="text-text">~/.joygotchi/pets/</code> and the app finds it there.
-    </p>
-  </div>
-
-  <div class="flex flex-col gap-3 p-4">
-    <p class="text-xs text-muted">
-      Two commands first, once per machine. <code class="text-text">{CLI_PACKAGE}</code> is
-      published to GitHub Packages, and npm looks for a scoped name on npmjs unless told
-      otherwise — that part is not a visibility setting and does not go away.
-    </p>
-    <CopyField label="Point the scope at GitHub" prefix="$ " value={SETUP_REGISTRY} />
-
-    <p class="text-xs text-muted">
-      GitHub Packages asks for a token even to read a public package, so npm also needs one with
-      <code class="text-text">read:packages</code> —
-      <a class="text-accent hover:underline" href={TOKEN_URL} rel="noreferrer" target="_blank">
-        make one here</a>.
-    </p>
-    <CopyField label="Give npm a token" prefix="$ " value={SETUP_TOKEN} />
   </div>
 </div>

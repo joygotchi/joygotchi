@@ -1,6 +1,6 @@
 [package]
 name = "joygotchi-desktop"
-version = "0.1.1"
+version = "0.1.0"
 description = "A JOYGOTCHI pet that floats over your editor and reacts to your coding agent."
 edition = "2021"
 rust-version = "1.77"
