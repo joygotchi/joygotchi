@@ -2,20 +2,75 @@ import { copyFile, mkdir, readdir, readFile, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toPetPackage, type ChainPet, type PetPackage } from '@joygotchi/pet';
-import { fetchPet, type ChainConfig } from './chain.js';
+import { isBundledKind, toPetPackage, type ChainPet, type PetPackage } from '@joygotchi/pet';
+import { fetchPet, fetchSpecies, type ChainConfig } from './chain.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
 
 /**
- * The art ships inside this package.
+ * The art for the species this project ships.
  *
- * petdex downloads spritesheets because its pets are community submissions; a
- * JOYGOTCHI pet's art is one of six drawings that come with the game, and the
- * chain only decides which. Bundling them means `install` needs no CDN, no
- * registry and no second request that can fail halfway.
+ * The two dragons come with the CLI, so installing one of them needs no CDN,
+ * no registry and no second request that can fail halfway. A species
+ * somebody registered on the contract cannot work that way — its drawings
+ * were made after this package was built — so those are downloaded, under
+ * the limits in `fetchArt`.
  */
 const ART_ROOT = resolve(here, '../assets/animation');
+
+/** Most we will pull down for one drawing. A GIF of a pet is a few KB. */
+const MAX_ART_BYTES = 2 * 1024 * 1024;
+
+/** What a drawing is allowed to be. */
+const ART_TYPES = ['image/gif', 'image/png', 'image/webp'];
+
+/**
+ * Fetch one drawing for a species nobody shipped.
+ *
+ * Everything here treats the url as what it is: a string a stranger wrote
+ * into a public contract, pointing at a host of their choosing. So the
+ * protocol is re-checked rather than trusted from the chain, the response is
+ * capped before it is held in memory, the type has to be an image, and the
+ * file is written to a path built from the species id and the phase number —
+ * never from anything in the url.
+ */
+async function fetchArt(uri: string): Promise<Buffer> {
+  let url: URL;
+  try {
+    url = new URL(uri);
+  } catch {
+    throw new Error(`That species' art is not a url: ${uri.slice(0, 80)}`);
+  }
+  if (url.protocol !== 'https:') {
+    throw new Error(`That species' art is not served over https: ${url.protocol}//…`);
+  }
+
+  const response = await fetch(url, { redirect: 'follow' });
+  if (!response.ok) {
+    throw new Error(`${url.host} answered HTTP ${response.status} for this species' art`);
+  }
+  // A redirect chain can end somewhere else entirely.
+  if (!response.url.startsWith('https://')) {
+    throw new Error("That species' art redirected off https");
+  }
+
+  const type = (response.headers.get('content-type') ?? '').split(';')[0]!.trim();
+  if (!ART_TYPES.includes(type)) {
+    throw new Error(`That species' art is ${type || 'of no stated type'}, not an image`);
+  }
+
+  const declared = Number(response.headers.get('content-length') ?? 0);
+  if (declared > MAX_ART_BYTES) {
+    throw new Error(`That species' art is ${declared} bytes, over the ${MAX_ART_BYTES} limit`);
+  }
+
+  const body = Buffer.from(await response.arrayBuffer());
+  // Checked again: `content-length` is a claim, not a measurement.
+  if (body.byteLength > MAX_ART_BYTES) {
+    throw new Error(`That species' art is over the ${MAX_ART_BYTES} byte limit`);
+  }
+  return body;
+}
 
 /** Where pets live. Overridable mostly so the tests do not touch `$HOME`. */
 export function petsRoot(): string {
@@ -58,14 +113,35 @@ export async function installPet(config: ChainConfig, petId: number): Promise<In
   const files = ['pet.json'];
   await writeFile(join(directory, 'pet.json'), `${JSON.stringify(pkg, null, 2)}\n`, 'utf8');
 
+  /*
+   * A species this project ships is copied off disk; anything else is
+   * downloaded from the url its creator registered.
+   *
+   * The download happens once, here, so the pet works offline afterwards and
+   * the desktop app never has to load a stranger's url into its webview —
+   * the file ends up under `~/.joygotchi`, which is the one place the app's
+   * asset protocol is allowed to read.
+   */
+  const remote = isBundledKind(pkg.kind)
+    ? null
+    : await fetchSpecies(config, pkg.kind).catch(() => null);
+  if (!isBundledKind(pkg.kind) && !remote) {
+    throw new Error(`${config.contract} knows no species "${pkg.kind}"`);
+  }
+
   // One copy per distinct file, not per state: all nine states point at the
   // same idle loop today, and writing it nine times would be nine identical
   // GIFs in a folder a person is going to open.
   for (const asset of new Set(Object.values(pkg.states))) {
-    const source = join(ART_ROOT, asset);
     const target = join(directory, asset);
     await mkdir(dirname(target), { recursive: true });
-    await copyFile(source, target);
+    if (remote) {
+      const uri = remote.art[Math.min(pkg.evolutionPhase, remote.art.length) - 1];
+      if (!uri) throw new Error(`Species "${pkg.kind}" has no drawing for that phase`);
+      await writeFile(target, await fetchArt(uri));
+    } else {
+      await copyFile(join(ART_ROOT, asset), target);
+    }
     files.push(asset);
   }
 

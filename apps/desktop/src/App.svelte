@@ -263,7 +263,10 @@
       category: chainSelf?.category,
       evolution_phase: Number(chainSelf?.evolution_phase ?? 0) || 1
     });
-    if (chainSelf && file && !wanted.endsWith(file)) return wanted;
+    // `wanted` is null for a species this app ships no drawings for, and
+    // then the folder is the only copy there is — downloaded at install
+    // time from the url its creator registered.
+    if (wanted && chainSelf && file && !wanted.endsWith(file)) return wanted;
 
     return file ? convertFileSrc(`${active.directory}/${file}`) : null;
   });

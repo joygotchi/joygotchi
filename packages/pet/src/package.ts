@@ -18,7 +18,11 @@ export type PetPackage = {
   /** Token id on the game contract. The install code encodes exactly this. */
   petId: number;
   installCode: string;
-  kind: PetKind;
+  /**
+   * The species id, which is the `category` on the game contract. Any
+   * registered species, not only the ones in `PET_KINDS`.
+   */
+  kind: string;
   rarity: Rarity;
   level: number;
   star: number;
@@ -45,8 +49,21 @@ export type PetPackage = {
   states: Record<PetState, string>;
 };
 
+/**
+ * The species this project ships drawings for.
+ *
+ * Not the species that exist. Anybody can register one on the game contract
+ * and its art lives at a url, so this list is only "what the app and the CLI
+ * already have on disk" — the question it answers is whether art has to be
+ * downloaded, never whether a pet is real.
+ */
 export const PET_KINDS = ['blackdragon', 'greendragon'] as const;
 export type PetKind = (typeof PET_KINDS)[number];
+
+/** Does this project ship the drawings for this species? */
+export function isBundledKind(kind: string): kind is PetKind {
+  return (PET_KINDS as readonly string[]).includes(kind);
+}
 
 export const RARITIES = ['common', 'rare', 'epic', 'legendary'] as const;
 export type Rarity = (typeof RARITIES)[number];
@@ -72,10 +89,17 @@ export type ChainPet = {
   locked?: boolean;
 };
 
-function asKind(category: string): PetKind {
-  return (PET_KINDS as readonly string[]).includes(category)
-    ? (category as PetKind)
-    : 'blackdragon';
+/**
+ * The species id a pet carries, as a name safe to use as a folder.
+ *
+ * This used to coerce anything unrecognised to `blackdragon`, which was
+ * right while the contract had exactly two species and is wrong now that
+ * anybody can add one: a player's own animal would have installed as
+ * somebody else's. The check that remains is the contract's own id rule,
+ * because this string becomes a directory under `~/.joygotchi`.
+ */
+function asKind(category: string): string {
+  return /^[a-z0-9]{3,24}$/.test(category) ? category : 'blackdragon';
 }
 
 function asRarity(rarity: string): Rarity {
@@ -94,7 +118,7 @@ function asPhase(phase: number | undefined): EvolutionPhase {
  * Phase 4 has no drawing of its own, so it shows phase 3. Falling back is
  * better than a broken image, and the contract caps evolution at 4.
  */
-export function artPath(kind: PetKind, phase: EvolutionPhase): string {
+export function artPath(kind: string, phase: EvolutionPhase): string {
   return `${kind}/${Math.min(3, phase)}.gif`;
 }
 
@@ -111,6 +135,22 @@ export function petSlug(pet: Pick<ChainPet, 'pet_id' | 'name'>): string {
     .replace(/^-|-$/g, '');
   return name ? `${name}-${pet.pet_id}` : `pet-${pet.pet_id}`;
 }
+
+/**
+ * A species as the game contract's `get_species` returns it.
+ *
+ * `art` is one absolute url per evolution phase. It is written by whoever
+ * registered the species, so it is data from a stranger: an installer uses
+ * it to fetch a file and must bound what it accepts, and nothing should put
+ * it anywhere it would be read as markup or as a path.
+ */
+export type ChainSpecies = {
+  id: string;
+  name: string;
+  creator_id: string;
+  art: string[];
+  minted?: number;
+};
 
 /** Build the on-disk package for a pet read off the chain. */
 export function toPetPackage(

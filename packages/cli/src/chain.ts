@@ -1,4 +1,4 @@
-import type { ChainPet } from '@joygotchi/pet';
+import type { ChainPet, ChainSpecies } from '@joygotchi/pet';
 
 /**
  * The chain, read directly.
@@ -96,4 +96,12 @@ export async function fetchPets(config: ChainConfig, limit: number): Promise<Cha
 
   const pets = await Promise.all(ids.map((id) => fetchPet(config, id).catch(() => null)));
   return pets.filter((pet): pet is ChainPet => pet !== null);
+}
+
+/** The species a pet belongs to, which is where its art lives. */
+export async function fetchSpecies(
+  config: ChainConfig,
+  id: string
+): Promise<ChainSpecies | null> {
+  return viewFunction<ChainSpecies | null>(config, 'get_species', { id });
 }

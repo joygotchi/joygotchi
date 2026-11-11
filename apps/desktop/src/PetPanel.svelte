@@ -149,7 +149,9 @@
       category: onChain?.category,
       evolution_phase: Number(onChain?.evolution_phase ?? 0) || 1
     });
-    if (onChain && file && !wanted.endsWith(file)) return wanted;
+    // Null when this app ships no art for the species; the folder's copy is
+    // then the only one, so it wins by default rather than by accident.
+    if (wanted && onChain && file && !wanted.endsWith(file)) return wanted;
     return convertFileSrc(`${pet.directory}/${file}`);
   });
   /** Whether this session's key covers staking, or predates it being granted. */

@@ -1,4 +1,4 @@
-import { artPath, type EvolutionPhase, type PetKind } from '@joygotchi/pet';
+import { artPath, isBundledKind, type EvolutionPhase } from '@joygotchi/pet';
 
 /**
  * Art for a pet that is not installed on this machine.
@@ -16,8 +16,22 @@ import { artPath, type EvolutionPhase, type PetKind } from '@joygotchi/pet';
  * `artPath` keeps this and the CLI's bundle agreeing about which drawing
  * belongs to which kind and phase.
  */
-export function artPathFor(pet: { kind?: string; category?: string; evolution_phase?: number }) {
-  const kind = (pet.kind ?? pet.category ?? 'blackdragon') as PetKind;
+export function artPathFor(pet: {
+  kind?: string;
+  category?: string;
+  evolution_phase?: number;
+}): string | null {
+  const kind = pet.kind ?? pet.category ?? 'blackdragon';
+  /*
+   * `null`, not a path, for a species this app ships no drawings for.
+   *
+   * Anybody can register a species on the contract, and its art lives at a
+   * url that was chosen after this app was built. Returning a path anyway
+   * would produce `/assets/animation/wyvern/1.gif`, which is a 404 — and a
+   * 404 here is an empty pet, which is how this app has already broken an
+   * arena once. Callers fall back to the copy in the pet's own folder.
+   */
+  if (!isBundledKind(kind)) return null;
   const phase = Math.min(4, Math.max(1, Math.trunc(pet.evolution_phase ?? 1))) as EvolutionPhase;
   return `/assets/animation/${artPath(kind, phase)}`;
 }

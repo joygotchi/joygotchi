@@ -24,8 +24,26 @@ describe('artPathFor', () => {
     const installed = 'greendragon/1.gif';
     const wanted = artPathFor({ kind: 'greendragon', evolution_phase: 2 });
 
-    expect(wanted.endsWith(installed)).toBe(false);
-    expect(artPathFor({ kind: 'greendragon', evolution_phase: 1 }).endsWith(installed)).toBe(true);
+    expect(wanted?.endsWith(installed)).toBe(false);
+    expect(artPathFor({ kind: 'greendragon', evolution_phase: 1 })?.endsWith(installed)).toBe(
+      true
+    );
+  });
+
+  it('has nothing to offer for a species this app ships no art for', () => {
+    /*
+     * Anybody can register a species on the contract, and its drawings live
+     * at a url chosen long after this app was built. Answering with
+     * `/assets/animation/wyvern/1.gif` would be a 404, and a 404 here is an
+     * empty pet — the exact shape of the bug that emptied the arena once
+     * already. Null makes every caller choose instead of guessing.
+     */
+    expect(artPathFor({ kind: 'wyvern', evolution_phase: 1 })).toBeNull();
+    expect(artPathFor({ category: 'coolbeast' })).toBeNull();
+
+    // The two it does ship still answer.
+    expect(artPathFor({ kind: 'blackdragon' })).toContain('blackdragon');
+    expect(artPathFor({ kind: 'greendragon' })).toContain('greendragon');
   });
 
   it('caps at the last drawing there is', () => {

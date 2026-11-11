@@ -60,12 +60,28 @@
         the whole fight and turned round only between animations.
       -->
       <span class="flip">
-        <img
-          class="sprite"
-          alt={target.name}
-          src={theirArt}
-          style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
-        />
+        {#if theirArt}
+          <img
+            class="sprite"
+            alt={target.name}
+            src={theirArt}
+            style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
+          />
+        {:else}
+          <!--
+            A species registered on the contract after this app was built.
+            Its drawings live at a url, and the window's CSP allows images
+            from `'self'`, `asset:` and `data:` only — which is deliberate,
+            and means an opponent's art genuinely is not loadable here.
+            A marked silhouette says so; an `img` with a 404 behind it would
+            leave the arena looking broken instead.
+          -->
+          <span
+            class="sprite unknown"
+            title="{target.name} is a species this app has no drawings for"
+            style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
+          >?</span>
+        {/if}
       </span>
       <span class="name">{target.name}</span>
     </div>
@@ -128,6 +144,17 @@
     align-items: center;
     gap: 2px;
     min-width: 0;
+  }
+
+  .unknown {
+    display: grid;
+    place-items: center;
+    font-size: 28px;
+    color: var(--jg-muted);
+    background: color-mix(in srgb, var(--jg-ink) 12%, transparent);
+    border: 2px dashed var(--jg-muted);
+    border-radius: 8px;
+    box-sizing: border-box;
   }
 
   .sprite {

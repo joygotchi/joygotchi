@@ -44,12 +44,28 @@ describe('toPetPackage', () => {
     }
   });
 
-  it('falls back rather than trusting a category or rarity it does not know', () => {
-    // The contract is the authority on these, but a renamed category should
-    // show a dragon, not a broken image.
-    const odd = toPetPackage({ ...pet, category: 'wyvern', rarity: 'MYTHIC' }, chain);
-    expect(odd.kind).toBe('blackdragon');
-    expect(odd.rarity).toBe('common');
+  it('keeps a species this project ships no art for', () => {
+    /*
+     * This used to coerce anything outside `PET_KINDS` to `blackdragon`,
+     * which was right while the contract had two species baked into its
+     * source. Anybody can register one now, so coercing would install a
+     * player's own animal as somebody else's.
+     */
+    const mine = toPetPackage({ ...pet, category: 'wyvern' }, chain);
+    expect(mine.kind).toBe('wyvern');
+    expect(mine.states.idle).toBe('wyvern/1.gif');
+  });
+
+  it('still refuses a category that would not be safe as a folder name', () => {
+    // `kind` becomes a directory under `~/.joygotchi` and a path inside the
+    // package, so it is held to the same rule the contract enforces.
+    for (const bad of ['../../etc', 'Wyvern', 'a', 'wy vern', '']) {
+      expect(toPetPackage({ ...pet, category: bad }, chain).kind).toBe('blackdragon');
+    }
+  });
+
+  it('falls back rather than trusting a rarity it does not know', () => {
+    expect(toPetPackage({ ...pet, rarity: 'MYTHIC' }, chain).rarity).toBe('common');
   });
 
   it('normalises rarity case, which the contract lowercases and the UI does not', () => {
