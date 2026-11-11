@@ -47,7 +47,7 @@
   <p class="mt-4 border border-bad/40 bg-panel p-4 text-xs text-bad">{error}</p>
 {:else if pets.length === 0}
   <p class="mt-4 border border-line bg-panel p-8 text-sm text-muted">
-    No pets on this account yet. <a class="text-accent hover:underline" href="/#mint">Mint one.</a>
+    No pets on this account yet. <a class="text-accent hover:underline" href="/#pets">Pick one in the gallery to mint.</a>
   </p>
 {:else}
   <div class="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">

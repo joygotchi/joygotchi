@@ -1,5 +1,4 @@
 <script lang="ts">
-  import MintPanel from '#lib/components/MintPanel.svelte';
   import PetCard from '#lib/components/PetCard.svelte';
   import { listPets, type GalleryPet } from '#lib/pets';
 
@@ -39,8 +38,8 @@
   </p>
 
   <div class="mt-6 flex flex-wrap gap-2 text-xs">
-    <a class="border border-accent bg-accent px-3 py-2 font-bold text-ink" href="#mint">
-      Mint a pet
+    <a class="border border-accent bg-accent px-3 py-2 font-bold text-ink" href="#pets">
+      Pick a pet to mint
     </a>
     <a class="border border-line px-3 py-2 hover:border-line-bright" href="/download">
       Get the desktop app
@@ -48,7 +47,7 @@
   </div>
 </section>
 
-<div class="mb-4 flex items-end justify-between gap-4">
+<div class="mb-4 flex scroll-mt-20 items-end justify-between gap-4" id="pets">
   <div class="flex items-baseline gap-3">
     <h2 class="text-sm tracking-widest text-muted uppercase">Pets</h2>
     <span class="text-xs text-muted">{pets.length} minted</span>
@@ -86,7 +85,7 @@
   </div>
 {:else if shown.length === 0}
   <div class="border border-line bg-panel p-8 text-center text-sm text-muted">
-    {pets.length === 0 ? 'No pets yet. Mint the first one.' : 'No pets of that kind yet.'}
+    {pets.length === 0 ? 'No pets yet.' : 'No pets of that kind yet.'}
   </div>
 {:else}
   <div class="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
@@ -95,7 +94,3 @@
     {/each}
   </div>
 {/if}
-
-<section class="mt-12 scroll-mt-20" id="mint">
-  <MintPanel onminted={load} />
-</section>

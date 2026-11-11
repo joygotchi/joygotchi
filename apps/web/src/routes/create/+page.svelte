@@ -19,6 +19,8 @@
   let base = $state<BaseKind>('greendragon');
   let hue = $state(200);
   let saturation = $state(110);
+  /** Which phase the big preview shows. */
+  let shown = $state(0);
   let id = $state('');
   let displayName = $state('');
   let petName = $state('');
@@ -116,82 +118,77 @@
   }
 </script>
 
-<h1 class="text-sm tracking-widest text-muted uppercase">Create a species</h1>
-<p class="mt-2 max-w-2xl text-sm text-muted">
-  Recolour a drawing this game already ships. Anyone can then mint one, and
-  the art is served by this site, so there is nothing to upload and nothing
-  for you to keep online.
-</p>
-<p class="mt-2 max-w-2xl text-sm text-muted">
-  This is the quick way, and it is a recolour: the pet moves the way every
-  pet here moves, which is CSS over one drawing. To draw your own —
-  <span class="text-text">nine states, eight frames each</span>, really
-  animated — make the sheet in whatever you like and submit the folder:
-</p>
-<pre class="mt-3 max-w-2xl overflow-x-auto border border-line bg-panel p-3 text-xs text-muted"><code>my-wyvern/
-  species.json   {"{"}"id":"wyvern","name":"Azure Wyvern"{"}"}
-  1.png          8×9 atlas, 1536×1872. Phases 2 and 3 optional.
+<header class="max-w-2xl">
+  <h1 class="text-2xl text-text">Create a species</h1>
+  <p class="mt-2 text-sm leading-relaxed text-muted">
+    Recolour a dragon, name it, register it. Anyone can then mint one, and the art is served from
+    here, so there is nothing to upload.
+  </p>
+</header>
 
-npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
-<p class="mt-2 max-w-2xl text-xs text-muted">
-  It checks the grid and prints the call that registers the species — which
-  you sign, because it costs NEAR. The sheet is the
-  <a
-    class="text-accent"
-    href="https://petdex.dev/docs"
-    rel="noreferrer noopener"
-    target="_blank">same format petdex uses</a
-  >, so one made for either works in the other.
-</p>
-
-<div class="mt-6 grid gap-6 lg:grid-cols-[320px_1fr]">
-  <!-- What it will look like, at the size a player sees it. -->
-  <div class="border border-line bg-panel p-4">
-    <div class="grid grid-cols-3 gap-2">
-      {#each previews as src, index (src)}
-        <figure class="border border-line bg-ink p-1">
-          <img class="pixel w-full" alt="Phase {BASE_PHASES[index]}" {src} />
-          <figcaption class="mt-1 text-center text-[0.6rem] text-muted">
-            Phase {BASE_PHASES[index]}
-          </figcaption>
-        </figure>
-      {/each}
+<div class="mt-8 grid overflow-hidden border border-line bg-panel lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+  <!-- Look -->
+  <section class="flex flex-col gap-5 border-line p-5 lg:border-r">
+    <div class="grid-bg flex h-64 items-center justify-center border border-line bg-ink">
+      <img class="pixel h-44" alt="Phase {BASE_PHASES[shown]}" src={previews[shown]} />
     </div>
 
-    <div class="mt-4 flex gap-2">
-      {#each BASE_KINDS as kind (kind)}
+    <div class="grid grid-cols-3 gap-2" role="tablist" aria-label="Evolution phase">
+      {#each previews as src, index (src)}
         <button
-          class="flex-1 border px-2 py-1.5 text-xs"
-          class:border-accent={base === kind}
-          class:text-accent={base === kind}
-          class:border-line={base !== kind}
-          class:text-muted={base !== kind}
-          onclick={() => (base = kind)}
+          class="flex flex-col items-center gap-1 border bg-ink py-2 transition-colors"
+          class:border-accent={shown === index}
+          class:border-line={shown !== index}
+          role="tab"
+          aria-selected={shown === index}
+          onclick={() => (shown = index)}
           type="button"
         >
-          {kind === 'blackdragon' ? 'Black' : 'Green'}
+          <img class="pixel h-10" alt="" {src} />
+          <span class="text-[0.6rem]" class:text-accent={shown === index} class:text-muted={shown !== index}>
+            Phase {BASE_PHASES[index]}
+          </span>
         </button>
       {/each}
     </div>
 
-    <!--
-      A shift, not a colour. Every colour in the drawing moves by this much,
-      which is what keeps a dragon's shading and its highlights looking
-      drawn rather than painted over.
-    -->
-    <label class="mt-4 block text-xs text-muted">
-      Hue shift <span class="text-text">{hue}°</span>
-      <input class="mt-1 w-full" type="range" min="0" max="359" bind:value={hue} />
-    </label>
-    <label class="mt-2 block text-xs text-muted">
-      Saturation <span class="text-text">{saturation}%</span>
-      <input class="mt-1 w-full" type="range" min="25" max="200" bind:value={saturation} />
-    </label>
-  </div>
+    <fieldset>
+      <legend class="mb-2 text-xs text-muted">Base</legend>
+      <div class="grid grid-cols-2 gap-2">
+        {#each BASE_KINDS as kind (kind)}
+          <button
+            class="border px-2 py-1.5 text-xs transition-colors"
+            class:border-accent={base === kind}
+            class:text-accent={base === kind}
+            class:border-line={base !== kind}
+            class:text-muted={base !== kind}
+            onclick={() => (base = kind)}
+            type="button"
+          >
+            {kind === 'blackdragon' ? 'Black dragon' : 'Green dragon'}
+          </button>
+        {/each}
+      </div>
+    </fieldset>
 
-  <div class="border border-line bg-panel p-4">
+    <!--
+      A shift, not a colour: every colour in the drawing moves by this much,
+      which keeps the shading looking drawn rather than painted over.
+    -->
+    <label class="block text-xs text-muted">
+      <span class="flex justify-between">Hue <span class="text-text">{hue}°</span></span>
+      <input class="mt-2 w-full accent-accent" type="range" min="0" max="359" bind:value={hue} />
+    </label>
+    <label class="block text-xs text-muted">
+      <span class="flex justify-between">Saturation <span class="text-text">{saturation}%</span></span>
+      <input class="mt-2 w-full accent-accent" type="range" min="25" max="200" bind:value={saturation} />
+    </label>
+  </section>
+
+  <!-- Register -->
+  <section class="flex flex-col border-t border-line p-5 lg:border-t-0">
     {#if !wallet.accountId}
-      <p class="text-sm text-muted">Connect a wallet to register a species.</p>
+      <p class="m-auto text-center text-sm text-muted">Connect a wallet to register a species.</p>
     {:else if minted}
       <p class="text-sm">
         <span class="text-accent">{cleanPetName}</span> is the first
@@ -200,24 +197,24 @@ npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
       <p class="mt-2 text-xs text-muted">
         Install it on your desktop, or
         <a class="text-accent" href={explorerToken(minted.petId)} rel="noreferrer" target="_blank">
-          see it on the explorer
-        </a>. Its art is a url now, so the explorer draws it too.
+          see it on the explorer</a
+        >.
       </p>
-      <div class="mt-3"><CopyField label="Install it" value={installCommand(minted.installCode)} /></div>
+      <div class="mt-4"><CopyField label="Install it" value={installCommand(minted.installCode)} /></div>
     {:else if registered}
       <p class="text-sm">
         <span class="text-accent">{cleanName}</span> is registered. Anyone can mint one.
       </p>
-      <label class="mt-4 block text-xs text-muted">
+      <label class="mt-5 block text-xs text-muted">
         Name the first one
         <input
-          class="mt-1 w-full border border-line bg-ink px-2 py-1.5 text-sm text-text"
+          class="mt-1 w-full border border-line bg-ink px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
           bind:value={petName}
           placeholder="SMAUG"
         />
       </label>
       <button
-        class="mt-3 bg-accent px-3 py-2 text-xs font-bold text-ink disabled:opacity-40"
+        class="mt-4 w-full bg-accent px-3 py-2.5 text-sm font-bold text-ink disabled:opacity-40"
         disabled={busy || cleanPetName.length < 2}
         onclick={mintFirst}
         type="button"
@@ -225,48 +222,69 @@ npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
         {busy ? 'Minting…' : 'Mint the first one'}
       </button>
     {:else}
-      <label class="block text-xs text-muted">
-        Id <span class="text-muted/70">— lowercase, in urls and on every pet</span>
-        <input
-          class="mt-1 w-full border bg-ink px-2 py-1.5 text-sm text-text"
-          class:border-bad={idProblem}
-          class:border-line={!idProblem}
-          bind:value={id}
-          placeholder="wyvern"
-        />
-      </label>
-      {#if idProblem}<p class="mt-1 text-xs text-bad">{idProblem}</p>{/if}
+      <div class="flex flex-col gap-5">
+        <label class="block text-xs text-muted">
+          Name
+          <input
+            class="mt-1 w-full border border-line bg-ink px-3 py-2 text-sm text-text focus:border-accent focus:outline-none"
+            bind:value={displayName}
+            placeholder="Azure Wyvern"
+          />
+        </label>
 
-      <label class="mt-4 block text-xs text-muted">
-        Name <span class="text-muted/70">— what players read</span>
-        <input
-          class="mt-1 w-full border border-line bg-ink px-2 py-1.5 text-sm text-text"
-          bind:value={displayName}
-          placeholder="Azure Wyvern"
-        />
-      </label>
+        <label class="block text-xs text-muted">
+          Id <span class="text-muted/60">· lowercase, permanent</span>
+          <input
+            class="mt-1 w-full border bg-ink px-3 py-2 text-sm text-text focus:outline-none"
+            class:border-bad={idProblem}
+            class:border-line={!idProblem}
+            class:focus:border-accent={!idProblem}
+            bind:value={id}
+            placeholder="wyvern"
+          />
+        </label>
+        {#if idProblem}<p class="-mt-3 text-xs text-bad">{idProblem}</p>{/if}
+        {#if uriProblem}<p class="-mt-3 text-xs text-bad">{uriProblem}</p>{/if}
+      </div>
 
-      {#if uriProblem}
-        <p class="mt-3 text-xs text-bad">{uriProblem}</p>
-      {/if}
-
-      <p class="mt-4 text-xs text-muted">
-        Registering costs <span class="text-text">{price} NEAR</span> and cannot be undone:
-        pets of a species point at its id, so it is never deleted.
-      </p>
-
-      <button
-        class="mt-3 bg-accent px-3 py-2 text-xs font-bold text-ink disabled:opacity-40"
-        disabled={!ready}
-        onclick={register}
-        type="button"
-      >
-        {busy ? 'Registering…' : `Register for ${price} NEAR`}
-      </button>
+      <div class="mt-auto pt-6">
+        <button
+          class="w-full bg-accent px-3 py-2.5 text-sm font-bold text-ink disabled:opacity-40"
+          disabled={!ready}
+          onclick={register}
+          type="button"
+        >
+          {busy ? 'Registering…' : `Register for ${price} NEAR`}
+        </button>
+        <p class="mt-2 text-center text-[0.65rem] text-muted">
+          One-time fee. A species can't be deleted once pets point at it.
+        </p>
+      </div>
     {/if}
 
     {#if error}
       <p class="mt-3 border border-bad/40 bg-bad/10 p-2 text-xs text-bad">{error}</p>
     {/if}
-  </div>
+  </section>
 </div>
+
+<details class="group mt-6 border border-line bg-panel">
+  <summary class="flex cursor-pointer list-none items-center justify-between px-5 py-3 text-xs text-muted hover:text-text">
+    <span>Drew your own? Submit a sprite sheet with nine animated states</span>
+    <span class="transition-transform group-open:rotate-90">›</span>
+  </summary>
+  <div class="border-t border-line px-5 py-4">
+    <pre class="overflow-x-auto bg-ink p-3 text-xs text-muted"><code>my-wyvern/
+  species.json   {"{"}"id":"wyvern","name":"Azure Wyvern"{"}"}
+  1.png          8×9 atlas, 1536×1872. Phases 2 and 3 optional.
+
+npx @joygotchi/joygotchi submit ./my-wyvern</code></pre>
+    <p class="mt-2 text-xs text-muted">
+      Same sheet format as
+      <a class="text-accent" href="https://petdex.dev/docs" rel="noreferrer noopener" target="_blank"
+        >petdex</a
+      >. The CLI checks the grid and prints the call for you to sign.
+    </p>
+  </div>
+</details>
+

@@ -2,6 +2,7 @@
   import { page } from '$app/state';
   import CopyField from '#lib/components/CopyField.svelte';
   import { installCommand } from '#lib/cli';
+  import MintOne from '#lib/components/MintOne.svelte';
   import PetChat from '#lib/components/PetChat.svelte';
   import PetSprite from '#lib/components/PetSprite.svelte';
   import StateViewer from '#lib/components/StateViewer.svelte';
@@ -171,11 +172,12 @@
           <CopyField label="Install code" value={pet.pkg.installCode} />
           <CopyField label="Install it" prefix="$ " value={installCommand(pet.pkg.installCode)} />
 
-
           <p class="text-[0.65rem] text-muted">
             Then open the desktop app and pick {pet.name} under Pets.
             <a class="text-accent hover:underline" href="/download">Get it here.</a>
           </p>
+
+          <MintOne species={pet.category} />
         </div>
       </div>
 
