@@ -111,7 +111,7 @@ fn write_keys(app_dir: &Path, keys: &Keys) -> Result<(), String> {
             .open(&path)
             .map_err(|e| e.to_string())?;
         let json = serde_json::to_string(keys).map_err(|e| e.to_string())?;
-        return file.write_all(json.as_bytes()).map_err(|e| e.to_string());
+        file.write_all(json.as_bytes()).map_err(|e| e.to_string())
     }
 
     #[cfg(not(unix))]

@@ -531,7 +531,7 @@ impl Game {
             // No callback. A transfer to an account that no longer exists
             // fails and the NEAR stays here, which is the outcome a callback
             // would have had to arrange anyway.
-            Promise::new(creator).transfer(NearToken::from_yoctonear(royalty));
+            Promise::new(creator).transfer(NearToken::from_yoctonear(royalty)).detach();
         }
 
         pet_id
@@ -2389,7 +2389,7 @@ mod tests {
         contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
 
         testing_env!(ctx(bob(), 0, 0).build());
-        contract.sweep_revenue();
+        contract.sweep_revenue().detach();
         assert_eq!(contract.get_revenue_banked().0, 0);
     }
 
@@ -2400,7 +2400,7 @@ mod tests {
         // the treasury's history unreadable.
         let mut contract = deploy();
         testing_env!(ctx(bob(), 0, 0).build());
-        contract.sweep_revenue();
+        contract.sweep_revenue().detach();
     }
 
     #[test]

@@ -22,7 +22,7 @@ use near_sdk::collections::{LookupMap, UnorderedMap};
 use near_sdk::json_types::{U128, U64};
 use near_sdk::serde_json::json;
 use near_sdk::{
-    env, ext_contract, near, require, AccountId, BorshStorageKey, Gas, NearToken, PanicOnDefault,
+    env, ext_contract, near, require, AccountId, BorshStorageKey, Gas, PanicOnDefault,
     Promise, PromiseError,
 };
 
@@ -2327,7 +2327,7 @@ mod tests {
 
         let before = contract.get_account(alice()).unwrap().credit_balance.0;
         testing_env!(ctx(alice(), 100).build());
-        contract.feed_pet(1);
+        contract.feed_pet(1).detach();
 
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
         assert_eq!(before - charged, 15_000, "a meal costs what the price says");
@@ -2347,7 +2347,7 @@ mod tests {
 
         let before = contract.get_account(alice()).unwrap().credit_balance.0;
         testing_env!(ctx(alice(), 100).build());
-        contract.revive_pet(1);
+        contract.revive_pet(1).detach();
 
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
         assert_eq!(before - charged, 75_000, "five meals, as Holy Water was five Beef");
@@ -2383,7 +2383,7 @@ mod tests {
 
         let before = contract.get_account(alice()).unwrap().credit_balance.0;
         testing_env!(ctx(alice(), 100).build());
-        contract.evolve_pet(1);
+        contract.evolve_pet(1).detach();
 
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
         assert_eq!(before - charged, 500_000, "the price the sinks were seeded with");
@@ -2399,7 +2399,7 @@ mod tests {
         fund_alice(&mut contract);
 
         testing_env!(ctx(alice(), 100).build());
-        contract.evolve_pet(1);
+        contract.evolve_pet(1).detach();
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
 
         contract.on_evolved(alice(), 1, U128(500_000), Ok(true));
@@ -2412,7 +2412,7 @@ mod tests {
         fund_alice(&mut contract);
 
         testing_env!(ctx(alice(), 100).build());
-        contract.revive_pet(1);
+        contract.revive_pet(1).detach();
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
 
         contract.on_revived(alice(), 1, U128(75_000), Ok(true));
@@ -2428,7 +2428,7 @@ mod tests {
 
         let before = contract.get_account(alice()).unwrap().credit_balance.0;
         testing_env!(ctx(alice(), 100).build());
-        contract.revive_pet(1);
+        contract.revive_pet(1).detach();
         contract.on_revived(alice(), 1, U128(75_000), Err(PromiseError::Failed));
 
         assert_eq!(contract.get_account(alice()).unwrap().credit_balance.0, before);
@@ -2439,7 +2439,7 @@ mod tests {
     fn reviving_without_credits_never_reaches_the_game() {
         let mut contract = deploy();
         testing_env!(ctx(alice(), 100).build());
-        contract.revive_pet(1);
+        contract.revive_pet(1).detach();
     }
 
     #[test]
@@ -2449,7 +2449,7 @@ mod tests {
 
         let before = contract.get_pool().total_spent.0;
         testing_env!(ctx(alice(), 100).build());
-        contract.revive_pet(1);
+        contract.revive_pet(1).detach();
         contract.on_revived(alice(), 1, U128(75_000), Ok(false));
 
         assert_eq!(contract.get_pool().total_spent.0, before);
@@ -2461,7 +2461,7 @@ mod tests {
         fund_alice(&mut contract);
 
         testing_env!(ctx(alice(), 100).build());
-        contract.feed_pet(1);
+        contract.feed_pet(1).detach();
         let charged = contract.get_account(alice()).unwrap().credit_balance.0;
 
         contract.on_fed(alice(), 1, U128(15_000), Ok(true));
@@ -2473,7 +2473,7 @@ mod tests {
     fn feeding_without_credits_never_reaches_the_game() {
         let mut contract = deploy();
         testing_env!(ctx(alice(), 100).build());
-        contract.feed_pet(1);
+        contract.feed_pet(1).detach();
     }
 
     #[test]
