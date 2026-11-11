@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { artPathFor } from './art';
+import { artPathFor, hatAnchorFor } from './art';
 
 /*
  * The pet's drawing changes with its evolution phase, and the phase lives on
@@ -38,5 +38,45 @@ describe('artPathFor', () => {
   it('falls back rather than drawing nothing', () => {
     expect(artPathFor({})).toContain('blackdragon');
     expect(artPathFor({ kind: 'greendragon' })).toContain('greendragon/1');
+  });
+});
+
+describe('hatAnchorFor', () => {
+  /*
+   * A hat used to sit at one fixed spot in CSS, which fitted the phase-one
+   * green dragon and nothing else. The head moves right and up with each
+   * evolution, so evolving left the hat over a wing.
+   */
+  it('keeps the placement that was already right', () => {
+    expect(hatAnchorFor({ kind: 'greendragon', evolution_phase: 1 })).toEqual({
+      left: 50,
+      top: 14
+    });
+  });
+
+  it('moves the hat as the head moves', () => {
+    const one = hatAnchorFor({ kind: 'greendragon', evolution_phase: 1 });
+    const two = hatAnchorFor({ kind: 'greendragon', evolution_phase: 2 });
+
+    expect(two.left).toBeGreaterThan(one.left);
+    expect(two.top).toBeLessThan(one.top);
+  });
+
+  it('has a row for every drawing that exists', () => {
+    for (const kind of ['greendragon', 'blackdragon']) {
+      for (const phase of [1, 2, 3]) {
+        const at = hatAnchorFor({ kind, evolution_phase: phase });
+        expect(at.left, `${kind} ${phase}`).toBeGreaterThan(0);
+        expect(at.top).toBeGreaterThanOrEqual(0);
+      }
+    }
+  });
+
+  it('falls back rather than dropping the hat at 0,0', () => {
+    expect(hatAnchorFor({ kind: 'nosuchpet' })).toEqual({ left: 50, top: 14 });
+    // Phase 4 wears phase 3's drawing, so it wears phase 3's placement.
+    expect(hatAnchorFor({ kind: 'greendragon', evolution_phase: 4 })).toEqual(
+      hatAnchorFor({ kind: 'greendragon', evolution_phase: 3 })
+    );
   });
 });

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { convertFileSrc, invoke } from '@tauri-apps/api/core';
-  import { artPathFor } from './art';
+  import { artPathFor, hatAnchorFor } from './art';
   import { listen } from '@tauri-apps/api/event';
   import type { AgentEvent } from '@joygotchi/pet';
   import BattleScene from './BattleScene.svelte';
@@ -225,6 +225,15 @@
   /** Read off the accessory contract: the hat is a token, not a setting. */
   let worn = $state<OwnedAccessory | null>(null);
   const hatArt = $derived(worn?.art ?? null);
+
+  /** Where it sits, which depends on which drawing the pet currently is. */
+  const hatAt = $derived(
+    hatAnchorFor({
+      kind: active?.kind,
+      category: chainSelf?.category,
+      evolution_phase: Number(chainSelf?.evolution_phase ?? 1)
+    })
+  );
 
   /**
    * The sprite, preferring the chain over the copy on disk.
@@ -489,7 +498,15 @@
             Inside `.pet`, so it rides the sprite's animation: a hat that
             stays still while the pet bobs is a hat floating next to a pet.
           -->
-          <img class="hat jg-hat" alt="" data-tauri-drag-region draggable="false" src={hatArt} />
+          <img
+            class="hat jg-hat"
+            alt=""
+            data-tauri-drag-region
+            draggable="false"
+            src={hatArt}
+            style:left="{hatAt.left}%"
+            style:top="{hatAt.top}%"
+          />
         {/if}
         <!--
           A shadow, so the pet stands on the desktop rather than hovering in
@@ -776,10 +793,9 @@
    * line: lower and it covers the eyes, higher and it hovers.
    */
   /* Above the sprite, which now has a layer of its own. */
+  /* `left` and `top` come from the sprite — see `hatAnchorFor`. */
   .hat {
     position: absolute;
-    left: 50%;
-    top: 14%;
     width: 44%;
     pointer-events: none;
     z-index: 2;
