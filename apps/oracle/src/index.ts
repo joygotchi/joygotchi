@@ -36,6 +36,7 @@ import { ACTION_PRICE } from '@joygotchi/pet';
 import { DEFAULT_RULES, decideMeals, type AutoFeedAccount, type OwnedPet } from './decide.ts';
 
 import { serve } from './serve.ts';
+import { treasuryStatus, type PoolView } from './treasury.ts';
 import type { TxStatus } from '@joygotchi/pet';
 
 const required = (name: string): string => {
@@ -180,7 +181,26 @@ async function line(petId: number): Promise<string | null> {
   return typeof body.line === 'string' && body.line.trim() ? body.line.trim() : null;
 }
 
+/**
+ * Say when the treasury has to buy credits. Signs nothing: the staking
+ * contract rolls funded epochs by itself, and the purchase is a person's.
+ */
+async function watchTreasury() {
+  const pool = await view<PoolView>(STAKE, 'get_pool');
+  if (!pool || pool.epoch_target === undefined) return; // an older contract
+  const status = treasuryStatus(pool, Date.now());
+  if (status.kind === 'low') {
+    log('treasury: reserve will not cover the next epoch', status);
+  } else if (status.kind === 'stopped') {
+    log('treasury: credit stream stopped — buy credits on NEAR AI, then fund_reserve', status);
+  }
+}
+
 async function round(account: Account | null) {
+  await watchTreasury().catch((error) =>
+    log('treasury check failed', { why: error instanceof Error ? error.message : String(error) })
+  );
+
   const accounts =
     (await view<AutoFeedAccount[]>(STAKE, 'get_auto_feed_accounts', {
       from_index: 0,
