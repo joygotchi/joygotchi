@@ -10,7 +10,7 @@
   import { HOLD_MS, MOTION_CSS, motionDuration } from '@joygotchi/pet';
   import { petReaction, session as walletSession, watchConnect } from './wallet.svelte';
   import { say, threadFor } from './chat.svelte';
-  import { canAfford, feedPet } from './actions';
+  import { canAfford, feedAndGrade } from './actions';
   import {
     accessoryContractFor,
     forgetReads,
@@ -167,7 +167,20 @@
     feeding = true;
     feedError = null;
     try {
-      await feedPet(active.chain.network, active.petId, account);
+      const graded = await feedAndGrade(
+        active.chain.network,
+        active.petId,
+        account,
+        walletSession.current?.accountId ?? ''
+      );
+      // Say what the meal earned, in the bubble the pet already speaks from.
+      if (graded.xp !== null) {
+        line = graded.line ? `+${graded.xp} XP — ${graded.line}` : `+${graded.xp} XP`;
+        setTimeout(() => (line = null), SAID_MS);
+      } else if (graded.why) {
+        feedError = graded.why;
+        setTimeout(() => (feedError = null), 8_000);
+      }
       forgetReads();
       await Promise.all([loadAccount(), pollBattles()]);
     } catch (cause) {

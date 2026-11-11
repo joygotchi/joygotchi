@@ -176,6 +176,26 @@ export async function gradeFeed(
 }
 
 /**
+ * Feed a pet and have its XP paid. One call, because there are two buttons.
+ *
+ * The panel's tile and the name plate's beef icon both feed, and for a while
+ * only the tile asked for the XP — so whichever one you happened to press
+ * decided whether the meal counted. Pressing the visible one fed the pet and
+ * earned nothing, with no error anywhere, because nothing had gone wrong.
+ *
+ * The sequence lives here so there is one of it.
+ */
+export async function feedAndGrade(
+  network: string,
+  petId: number,
+  account: StakeAccount | null,
+  accountId: string
+): Promise<{ xp: number | null; line?: string | null; why?: string }> {
+  const hash = await feedPet(network, petId, account);
+  return gradeFeed(hash, accountId);
+}
+
+/**
  * Move a pet to its next phase, paid in credits.
  *
  * The price has been in the contract since the sinks were seeded and nothing

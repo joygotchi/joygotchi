@@ -35,7 +35,7 @@
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
   import { artPathFor } from './art';
-  import { canAfford, canSpend, evolvePet, feedPet, gradeFeed, revivePet } from './actions';
+  import { canAfford, canSpend, evolvePet, feedAndGrade, revivePet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { clearThread, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
@@ -264,8 +264,12 @@
     void act(
       'feed',
       async () => {
-        const hash = await feedPet(net(), pet.petId, account);
-        const graded = await gradeFeed(hash, session?.accountId ?? '');
+        const graded = await feedAndGrade(
+          net(),
+          pet.petId,
+          account,
+          session?.accountId ?? ''
+        );
         if (graded.xp === null) {
           // Louder than a note: the meal was paid for and earned nothing.
           refused = `Fed, but no XP: ${graded.why ?? 'the feeder did not answer'}`;
