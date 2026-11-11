@@ -8,11 +8,20 @@
  *    otherwise, so every machine needs the scope pointed at GitHub once. This
  *    is not a visibility setting and making the package public does not
  *    remove it.
- * 2. While the repository is private the package is too, so reading it needs a
- *    GitHub token with `read:packages`.
+ * 2. Reading it needs a GitHub token with `read:packages`. This was written
+ *    down as a consequence of the repository being private, which was wrong:
+ *    the repository is public now and an anonymous request to
+ *    `npm.pkg.github.com` still answers
+ *    `401 authentication token not provided`. GitHub Packages authenticates
+ *    reads of public npm packages too, and nothing we can set changes that.
  *
  * Both steps are one-time and both are `npm config set`, so nobody has to edit
  * an `.npmrc` by hand.
+ *
+ * It is also why `npx @joygotchi/joygotchi` on a fresh machine fails with a
+ * 404 from npmjs rather than anything mentioning GitHub: npm looked the scope
+ * up where it was told to, and nobody told it. Publishing to npmjs would end
+ * both steps, and is the open question in the roadmap.
  */
 
 export const CLI_PACKAGE = '@joygotchi/joygotchi';

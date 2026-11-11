@@ -16,7 +16,8 @@ be most of the remaining work.
 | Species | A row on chain, not a constant. Anyone can register one at `/create` |
 
 Working end to end: connect a wallet → mint for 2 testnet NEAR → copy the
-install code → `npx @joygotchi/joygotchi install <code>` → the pet lands in
+install code → `npx @joygotchi/joygotchi install <code>` (after the two
+`npm config set` lines below — this fails with a bare `npx`) → the pet lands in
 `~/.joygotchi/pets/` → the desktop app shows it and animates on agent events.
 Staking, claiming, the faucet, mining, battling, and buying and using all four
 items work from the desktop app, which is where the controls live — the
@@ -33,17 +34,31 @@ needed to know who attacked you and whether you won.
 
 ## Waiting on a decision, not on work
 
-One left, where there were three.
+Two left, where there were three — and the second one is new, found by a
+command in this repository's own README failing on the machine it was written
+on.
 
 1. **A 1Click *partner* key.** The one on hand is an `explorer` key, which the
    API will not accept for quotes. Without it, minting is NEAR-only — the
    mint-router is deployed and its wNEAR path is tested, so this is the only
    thing between here and paying with ZEC or SOL.
 
+2. **Publish the CLI to npmjs.** It is on GitHub Packages, which is why
+   `npx @joygotchi/joygotchi install <code>` on a fresh machine fails with a
+   404 from npmjs: npm resolves a scoped name against npmjs unless told
+   otherwise, and nobody told it. Two `npm config set` lines fix it per
+   machine — one for the registry, one for a token.
+
+   Making the repository public was expected to remove the token step. It did
+   not. An anonymous read of `npm.pkg.github.com` still answers
+   `401 authentication token not provided`: GitHub Packages authenticates
+   reads of public npm packages too. So "one command, no account" is not true
+   today, and only npmjs makes it true.
+
 ~~Make the repository public~~ — done; it is public, and Vercel now deploys on
-push to `main`. ~~Buy NEAR AI credits~~ — done; the chat endpoint returns real
-answers from `near-ai`, and a pet asked to feed itself replies and proposes
-`{kind: "feed"}`.
+push to `main`. It did not remove the token step, see above. ~~Buy NEAR AI
+credits~~ — done; the chat endpoint returns real answers from `near-ai`, and a
+pet asked to feed itself replies and proposes `{kind: "feed"}`.
 
 ## The gap that shapes everything else
 
