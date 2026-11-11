@@ -25,7 +25,13 @@
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { Account, JsonRpcProvider, KeyPairSigner, type KeyPairString } from 'near-api-js';
+import {
+  Account,
+  FailoverRpcProvider,
+  JsonRpcProvider,
+  KeyPairSigner,
+  type KeyPairString
+} from 'near-api-js';
 import { ACTION_PRICE } from '@joygotchi/pet';
 import { DEFAULT_RULES, decideMeals, type AutoFeedAccount, type OwnedPet } from './decide.ts';
 
@@ -240,7 +246,18 @@ async function main() {
    * end up in shell history.
    */
   const accountId = DRY_RUN ? (process.env.ORACLE_ACCOUNT ?? 'dry-run') : required('ORACLE_ACCOUNT');
-  const provider = new JsonRpcProvider({ url: RPC_URLS[0]! });
+  /*
+   * Both nodes, not the first one.
+   *
+   * The `view` helper above has rotated across them from the start, and the
+   * comment next to RPC_URLS says why — then the signer was handed a single
+   * endpoint anyway. Auto-feed spent a night failing with "fetch failed"
+   * against a node having a bad hour, while reads on the other one were
+   * fine.
+   */
+  const provider = new FailoverRpcProvider(
+    RPC_URLS.map((url) => new JsonRpcProvider({ url }))
+  );
   const account = DRY_RUN
     ? null
     : new Account(
