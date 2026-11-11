@@ -57,6 +57,8 @@ enum StorageKey {
 #[allow(dead_code)]
 trait Game {
     fn get_pet_attrs(&self, pet_id: u64) -> (AccountId, PetAttrs);
+    /// The same, plus the pet's shields, which count towards weight.
+    fn get_pet_stake_attrs(&self, pet_id: u64) -> (AccountId, PetAttrs, u32);
 
     /// Mirror the staked flag on the pet contract, so a pet at work here
     /// cannot be transferred there. A transfer has to be atomic, and a
@@ -171,6 +173,14 @@ pub struct PetStake {
     /// cannot keep that record itself — it is a stateless request handler, and
     /// a restart would forget every meal it had ever graded.
     graded_meals: LookupMap<String, u64>,
+
+    /// Credits one 30-day epoch should pay staked pets. `roll_epoch` funds the
+    /// next epoch from the reserve at exactly this, or not at all.
+    epoch_target: u128,
+    /// When the funded epoch runs out. Nothing is emitted past it: the stream
+    /// used to run on at `epoch_budget` forever, and paid out 95 credits
+    /// against 49 ever bought.
+    epoch_ends_at: u64,
 }
 
 #[near]
@@ -217,6 +227,8 @@ impl PetStake {
             paused: false,
             auto_feed_spend: LookupMap::new(StorageKey::AutoFeedSpend),
             graded_meals: LookupMap::new(StorageKey::GradedMeals),
+            epoch_target: epoch_budget.0,
+            epoch_ends_at: env::block_timestamp() + EPOCH_SECONDS * NANOS_PER_SECOND,
         };
 
         // Keep these in step with src/lib/economy/params.ts.
@@ -271,20 +283,61 @@ impl PetStake {
             return;
         }
         if self.total_weight == 0 {
+            // Nobody to pay: let time pass, and leave the reserve alone rather
+            // than funding an epoch nobody can earn from.
             self.updated_at = now;
             return;
         }
 
-        let elapsed = ((now - self.updated_at) / NANOS_PER_SECOND) as u128;
-        if elapsed == 0 {
+        loop {
+            // Pay out up to the end of the funded epoch, or to now.
+            let until = now.min(self.epoch_ends_at);
+            if until > self.updated_at {
+                let elapsed = ((until - self.updated_at) / NANOS_PER_SECOND) as u128;
+                if elapsed > 0 {
+                    let scaled = self.scaled_emission(elapsed);
+                    self.acc_credit_per_weight += scaled / self.total_weight;
+                    self.total_distributed += scaled / ACC_PRECISION;
+                    // Whole seconds only, so no fraction of a second is lost.
+                    self.updated_at += elapsed as u64 * NANOS_PER_SECOND;
+                }
+            }
+            if now < self.epoch_ends_at {
+                return;
+            }
+
+            // The epoch is over. The next one starts where it ended, so there
+            // is no gap to back-pay or to lose — if the reserve holds a whole
+            // epoch. Otherwise the stream stops until someone funds it.
+            if self.epoch_target > 0 && self.sale_reserve >= self.epoch_target {
+                self.updated_at = self.updated_at.max(self.epoch_ends_at);
+                self.sale_reserve -= self.epoch_target;
+                self.epoch_budget = self.epoch_target;
+                self.epoch_ends_at += EPOCH_SECONDS * NANOS_PER_SECOND;
+                self.log_event(
+                    "epoch_rolled",
+                    json!({
+                        "epoch_budget": U128(self.epoch_budget),
+                        "ends_at": U64(self.epoch_ends_at),
+                        "reserve": U128(self.sale_reserve),
+                    }),
+                );
+                continue;
+            }
+            if self.epoch_budget > 0 {
+                self.epoch_budget = 0;
+                self.log_event(
+                    "epoch_unfunded",
+                    json!({
+                        "target": U128(self.epoch_target),
+                        "reserve": U128(self.sale_reserve),
+                        "short_by": U128(self.epoch_target.saturating_sub(self.sale_reserve)),
+                    }),
+                );
+            }
+            self.updated_at = now;
             return;
         }
-
-        let scaled = self.scaled_emission(elapsed);
-        self.acc_credit_per_weight += scaled / self.total_weight;
-        self.total_distributed += scaled / ACC_PRECISION;
-        // Advance only by whole seconds so no fraction of a second is lost.
-        self.updated_at += elapsed as u64 * NANOS_PER_SECOND;
     }
 
     fn accrued(&self, account: &Account) -> u128 {
@@ -348,7 +401,7 @@ impl PetStake {
 
         ext_game::ext(self.game_contract.clone())
             .with_static_gas(GAS_FOR_METADATA)
-            .get_pet_attrs(pet_id)
+            .get_pet_stake_attrs(pet_id)
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_RESOLVE)
@@ -361,9 +414,9 @@ impl PetStake {
         &mut self,
         pet_id: u64,
         account_id: AccountId,
-        #[callback_result] result: Result<(AccountId, PetAttrs), PromiseError>,
+        #[callback_result] result: Result<(AccountId, PetAttrs, u32), PromiseError>,
     ) -> bool {
-        let Ok((owner_id, attrs)) = result else {
+        let Ok((owner_id, attrs, shields)) = result else {
             env::log_str("Could not read the pet from the game contract");
             return false;
         };
@@ -373,7 +426,7 @@ impl PetStake {
             return false;
         }
 
-        self.internal_stake(pet_id, account_id, attrs);
+        self.internal_stake(pet_id, account_id, attrs, shields);
         true
     }
 
@@ -397,10 +450,13 @@ impl PetStake {
         self.pets.remove(&pet_id);
     }
 
-    fn internal_stake(&mut self, pet_id: u64, account_id: AccountId, attrs: PetAttrs) {
+    fn internal_stake(&mut self, pet_id: u64, account_id: AccountId, attrs: PetAttrs, shields: u32) {
         self.update_pool();
 
-        let weight = attrs.weight();
+        // Shields are not stored on the record — `PetAttrs` lives inside every
+        // `StakedPet`, and growing it broke them all once. They only change
+        // the weight, and the weight is stored on its own.
+        let weight = attrs.weight_with_shields(shields);
         let mut account = self.account_or_default(&account_id);
         // Harvest first: everything earned so far was earned at the old weight.
         self.harvest(&mut account);
@@ -482,7 +538,7 @@ impl PetStake {
         let pet = self.pets.get(&pet_id).expect("Pet is not staked");
         ext_game::ext(self.game_contract.clone())
             .with_static_gas(GAS_FOR_METADATA)
-            .get_pet_attrs(pet_id)
+            .get_pet_stake_attrs(pet_id)
             .then(
                 ext_self::ext(env::current_account_id())
                     .with_static_gas(GAS_FOR_RESOLVE)
@@ -1195,6 +1251,8 @@ impl PetStake {
         self.assert_owner();
         self.update_pool();
         self.epoch_budget = epoch_budget.0;
+        self.epoch_target = epoch_budget.0;
+        self.epoch_ends_at = env::block_timestamp() + EPOCH_SECONDS * NANOS_PER_SECOND;
         self.log_event("epoch_budget_set", json!({ "epoch_budget": epoch_budget }));
     }
 
@@ -1228,6 +1286,8 @@ impl PetStake {
 
         self.sale_reserve -= credits.0;
         self.epoch_budget = credits.0;
+        self.epoch_target = credits.0;
+        self.epoch_ends_at = env::block_timestamp() + EPOCH_SECONDS * NANOS_PER_SECOND;
         self.log_event(
             "epoch_funded_from_reserve",
             json!({
@@ -1236,6 +1296,62 @@ impl PetStake {
             }),
         );
         U128(self.epoch_budget)
+    }
+
+    /// Start the next epoch once the current one has run out. Anyone may call it.
+    ///
+    /// Usually nothing needs to: any call that settles the pool — a claim, a
+    /// stake, every auto-feed the oracle makes — rolls an ended epoch on its
+    /// own, back to back. This is for when nobody has touched the pool.
+    ///
+    /// It moves exactly `epoch_target` from the reserve into the stream, or
+    /// nothing: an epoch is funded in full or not at all, so the rate staked
+    /// pets see is always one the treasury actually holds. When the reserve is
+    /// short it says by how much — that is the number the treasury has to buy
+    /// on NEAR AI, which is the one step that cannot happen on chain.
+    ///
+    /// Open to anyone because it can only do the one thing the owner already
+    /// decided: the amount is `epoch_target`, and the credits are the reserve's.
+    pub fn roll_epoch(&mut self) -> bool {
+        let now = env::block_timestamp();
+        require!(now >= self.epoch_ends_at, "The current epoch has not ended yet");
+        // With pets staked, settling the pool rolls the epoch itself.
+        self.update_pool();
+        if now < self.epoch_ends_at {
+            return true;
+        }
+        // Nobody staked, so nothing rolled it: start a fresh epoch from now.
+        if self.epoch_target > 0 && self.sale_reserve >= self.epoch_target {
+            self.sale_reserve -= self.epoch_target;
+            self.epoch_budget = self.epoch_target;
+            self.epoch_ends_at = now + EPOCH_SECONDS * NANOS_PER_SECOND;
+            self.log_event(
+                "epoch_rolled",
+                json!({
+                    "epoch_budget": U128(self.epoch_budget),
+                    "ends_at": U64(self.epoch_ends_at),
+                    "reserve": U128(self.sale_reserve),
+                }),
+            );
+            return true;
+        }
+        self.epoch_budget = 0;
+        self.log_event(
+            "epoch_unfunded",
+            json!({
+                "target": U128(self.epoch_target),
+                "reserve": U128(self.sale_reserve),
+                "short_by": U128(self.epoch_target.saturating_sub(self.sale_reserve)),
+            }),
+        );
+        false
+    }
+
+    /// How many credits each epoch `roll_epoch` funds should pay. Owner only.
+    pub fn set_epoch_target(&mut self, credits: U128) {
+        self.assert_owner();
+        self.epoch_target = credits.0;
+        self.log_event("epoch_target_set", json!({ "epoch_target": credits }));
     }
 
     /// Record credits the treasury has actually bought on NEAR AI and is
@@ -1359,7 +1475,8 @@ impl PetStake {
             );
         }
         // `internal_stake` replaces the old weight rather than adding to it.
-        self.internal_stake(pet_id, owner_id, attrs);
+        // An operator push carries no shields; the next `sync_pet` adds them.
+        self.internal_stake(pet_id, owner_id, attrs, 0);
     }
 
     // ── Views ────────────────────────────────────────────────────────────────
@@ -1375,6 +1492,8 @@ impl PetStake {
             sale_reserve: U128(self.sale_reserve),
             updated_at: U64(self.updated_at),
             paused: self.paused,
+            epoch_target: U128(self.epoch_target),
+            epoch_ends_at: U64(self.epoch_ends_at),
         }
     }
 
@@ -2092,6 +2211,8 @@ impl PetStake {
             market_rake_bps: old.market_rake_bps,
             paused: old.paused,
             oracle,
+            epoch_target: old.epoch_budget,
+            epoch_ends_at: env::block_timestamp(),
         }
     }
 
@@ -2136,6 +2257,8 @@ impl PetStake {
             oracle: old.oracle,
             auto_feed_spend: LookupMap::new(StorageKey::AutoFeedSpend),
             graded_meals: LookupMap::new(StorageKey::GradedMeals),
+            epoch_target: old.epoch_budget,
+            epoch_ends_at: env::block_timestamp(),
         }
     }
 
@@ -2179,7 +2302,100 @@ impl PetStake {
             oracle: old.oracle,
             auto_feed_spend: old.auto_feed_spend,
             graded_meals: LookupMap::new(StorageKey::GradedMeals),
+            epoch_target: old.epoch_budget,
+            epoch_ends_at: env::block_timestamp(),
         }
+    }
+}
+
+/// The layout deployed before epochs could end — `tests/migration.rs` checks
+/// it against the live `STATE` bytes. Field order is the layout.
+#[derive(near_sdk::borsh::BorshDeserialize)]
+#[borsh(crate = "near_sdk::borsh")]
+struct PetStakeV4 {
+    owner_id: AccountId,
+    game_contract: AccountId,
+    granter: AccountId,
+    epoch_budget: u128,
+    total_weight: u128,
+    acc_credit_per_weight: u128,
+    updated_at: u64,
+    accounts: UnorderedMap<AccountId, Account>,
+    pets: UnorderedMap<u64, StakedPet>,
+    prices: LookupMap<String, u128>,
+    pet_states: UnorderedMap<u64, PetState>,
+    item_prices: LookupMap<u16, u128>,
+    battle_wager: u128,
+    battle_rake_bps: u16,
+    total_distributed: u128,
+    total_spent: u128,
+    sale_reserve: u128,
+    faucet_amount: u128,
+    mining_reward: u128,
+    listings: UnorderedMap<u64, Listing>,
+    next_listing_id: u64,
+    market_rake_bps: u16,
+    paused: bool,
+    oracle: AccountId,
+    auto_feed_spend: LookupMap<AccountId, AutoFeedWindow>,
+    graded_meals: LookupMap<String, u64>,
+}
+
+#[near]
+impl PetStake {
+    /// Give the stream an end. A pure append: `epoch_target` and
+    /// `epoch_ends_at` go after every existing field.
+    ///
+    /// The epoch that was running had no end and had already paid out more
+    /// than the treasury ever bought, so it closes now. Everything earned up
+    /// to this block is kept — the pool is settled at the old rate first —
+    /// and the next epoch starts only when `roll_epoch` can fund it in full
+    /// at the old budget, which becomes the target.
+    #[init(ignore_state)]
+    pub fn migrate_epochs() -> Self {
+        let old: PetStakeV4 = env::state_read().expect("No state to migrate");
+        require!(
+            env::predecessor_account_id() == old.owner_id,
+            "Only the owner can migrate"
+        );
+        let now = env::block_timestamp();
+        let mut contract = Self {
+            owner_id: old.owner_id,
+            game_contract: old.game_contract,
+            granter: old.granter,
+            epoch_budget: old.epoch_budget,
+            total_weight: old.total_weight,
+            acc_credit_per_weight: old.acc_credit_per_weight,
+            updated_at: old.updated_at,
+            accounts: old.accounts,
+            pets: old.pets,
+            prices: old.prices,
+            pet_states: old.pet_states,
+            item_prices: old.item_prices,
+            battle_wager: old.battle_wager,
+            battle_rake_bps: old.battle_rake_bps,
+            total_distributed: old.total_distributed,
+            total_spent: old.total_spent,
+            sale_reserve: old.sale_reserve,
+            faucet_amount: old.faucet_amount,
+            mining_reward: old.mining_reward,
+            listings: old.listings,
+            next_listing_id: old.next_listing_id,
+            market_rake_bps: old.market_rake_bps,
+            paused: old.paused,
+            oracle: old.oracle,
+            auto_feed_spend: old.auto_feed_spend,
+            graded_meals: old.graded_meals,
+            epoch_target: old.epoch_budget,
+            epoch_ends_at: now,
+        };
+        contract.update_pool();
+        contract.epoch_budget = 0;
+        contract.log_event(
+            "epochs_enabled",
+            json!({ "epoch_target": U128(contract.epoch_target), "reserve": U128(contract.sale_reserve) }),
+        );
+        contract
     }
 }
 
@@ -2305,7 +2521,7 @@ mod tests {
         contract.fund_reserve(U128(10_000 * ONE_CREDIT));
 
         testing_env!(ctx(game(), 0).build());
-        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(1, 0, 1, Rarity::Common))));
+        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(1, 0, 1, Rarity::Common), 0)));
 
         // A day at the deployed rate.
         testing_env!(ctx(owner(), 86_400).build());
@@ -2567,7 +2783,7 @@ mod tests {
     /// Every existing test went through `admin_set_pet`, which unwound the old
     /// record by hand — which is exactly why none of them caught this.
     fn resync(contract: &mut PetStake, pet_id: u64, owner: AccountId, attrs: PetAttrs) {
-        contract.on_pet_attrs(pet_id, owner.clone(), Ok((owner, attrs)));
+        contract.on_pet_attrs(pet_id, owner.clone(), Ok((owner, attrs, 0)));
     }
 
     #[test]
@@ -3459,7 +3675,7 @@ mod tests {
 
         resync(&mut contract, 1, alice(), attrs(0, 0, 1, Rarity::Common));
         // The game contract says bob owns it; alice asked. Nothing moves.
-        contract.on_pet_attrs(1, alice(), Ok((bob(), attrs(5, 0, 1, Rarity::Common))));
+        contract.on_pet_attrs(1, alice(), Ok((bob(), attrs(5, 0, 1, Rarity::Common), 0)));
 
         assert_eq!(contract.get_account(alice()).unwrap().weight.0, 100);
         assert!(contract.get_account(bob()).is_none());
@@ -4020,5 +4236,105 @@ mod tests {
         assert_eq!(outcome.transferred.0, 0, "nothing to take");
         assert_eq!(outcome.rake.0, 0);
         assert!(contract.get_pet_state(2).wounded_until.0 > 0, "still wounded");
+    }
+
+    // ── Shields and weight ───────────────────────────────────────────────────
+
+    #[test]
+    fn shields_add_five_percent_each_up_to_three() {
+        let pet = attrs(0, 0, 1, Rarity::Common); // weight 100
+        assert_eq!(pet.weight_with_shields(0), 100);
+        assert_eq!(pet.weight_with_shields(1), 105);
+        assert_eq!(pet.weight_with_shields(3), 115);
+        assert_eq!(pet.weight_with_shields(9), 115, "past three, shields add nothing");
+    }
+
+    #[test]
+    fn a_shielded_pet_is_staked_at_its_shielded_weight_and_resynced_without_one() {
+        let mut contract = deploy();
+        testing_env!(ctx(owner(), 0).build());
+
+        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(0, 0, 1, Rarity::Common), 2)));
+        assert_eq!(contract.get_pool().total_weight.0, 110);
+
+        // The shield is spent in a fight: the re-read replaces the weight.
+        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(0, 0, 1, Rarity::Common), 1)));
+        assert_eq!(contract.get_pool().total_weight.0, 105);
+    }
+
+    // ── Epochs end ───────────────────────────────────────────────────────────
+
+    fn staked_one(contract: &mut PetStake) {
+        testing_env!(ctx(owner(), 0).build());
+        contract.on_pet_attrs(1, alice(), Ok((alice(), attrs(0, 0, 1, Rarity::Common), 0)));
+    }
+
+    #[test]
+    fn nothing_is_emitted_after_the_epoch_ends() {
+        let mut contract = deploy();
+        staked_one(&mut contract);
+
+        testing_env!(ctx(owner(), EPOCH_SECONDS).build());
+        contract.update_pool();
+        let at_end = contract.get_pool().total_distributed.0;
+
+        testing_env!(ctx(owner(), 3 * EPOCH_SECONDS).build());
+        contract.update_pool();
+        assert_eq!(contract.get_pool().total_distributed.0, at_end, "the stream ran on");
+    }
+
+    #[test]
+    fn epochs_roll_themselves_back_to_back_while_the_reserve_lasts() {
+        let mut contract = deploy();
+        staked_one(&mut contract);
+        let budget = contract.get_pool().epoch_target.0;
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(budget * 2));
+
+        // Nobody touches the pool for three epochs; the first touch settles
+        // all of it: the funded one and two rolled from the reserve.
+        testing_env!(ctx(bob(), 3 * EPOCH_SECONDS).build());
+        contract.update_pool();
+        let pool = contract.get_pool();
+        assert_eq!(pool.sale_reserve.0, 0);
+        let paid = pool.total_distributed.0;
+        assert!(paid + 3 >= 3 * budget && paid <= 3 * budget, "paid {paid} of {}", 3 * budget);
+
+        // Then it stops: nothing left to fund a fourth.
+        testing_env!(ctx(bob(), 5 * EPOCH_SECONDS).build());
+        contract.update_pool();
+        assert_eq!(contract.get_pool().total_distributed.0, paid);
+        assert_eq!(contract.get_pool().epoch_budget.0, 0);
+    }
+
+    #[test]
+    fn a_short_reserve_funds_nothing_and_says_by_how_much() {
+        let mut contract = deploy();
+        staked_one(&mut contract);
+        let budget = contract.get_pool().epoch_target.0;
+        testing_env!(ctx(owner(), 0).build());
+        contract.fund_reserve(U128(budget / 2));
+
+        testing_env!(ctx(bob(), EPOCH_SECONDS).build());
+        assert!(!contract.roll_epoch());
+        let pool = contract.get_pool();
+        assert_eq!(pool.epoch_budget.0, 0);
+        assert_eq!(pool.sale_reserve.0, budget / 2, "a partial epoch is never funded");
+    }
+
+    #[test]
+    #[should_panic(expected = "has not ended yet")]
+    fn an_epoch_cannot_be_rolled_early() {
+        let mut contract = deploy();
+        testing_env!(ctx(bob(), EPOCH_SECONDS / 2).build());
+        contract.roll_epoch();
+    }
+
+    #[test]
+    #[should_panic(expected = "Only the owner can call this")]
+    fn only_the_owner_sets_the_target() {
+        let mut contract = deploy();
+        testing_env!(ctx(bob(), 0).build());
+        contract.set_epoch_target(U128(1));
     }
 }

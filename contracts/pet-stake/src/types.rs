@@ -69,7 +69,22 @@ impl PetAttrs {
 
         base * level_bps / 10_000 * star_bps / 10_000 * evo_bps / 10_000
     }
+
+    /// `weight()` with the pet's shields counted: +5% each, three at most.
+    ///
+    /// Three shields are worth one star, and no more: a shield is bought with
+    /// NEAR in the game's shop, and an uncapped bonus would let a wallet buy
+    /// its way to the top of the credit stream.
+    pub fn weight_with_shields(&self, shields: u32) -> u128 {
+        let shield_bps = 10_000u128 + shields.min(MAX_WEIGHTED_SHIELDS) as u128 * SHIELD_WEIGHT_BPS;
+        self.weight() * shield_bps / 10_000
+    }
 }
+
+/// What one shield adds to staking weight, in basis points.
+pub const SHIELD_WEIGHT_BPS: u128 = 500;
+/// Shields past this many still absorb hits but add no weight.
+pub const MAX_WEIGHTED_SHIELDS: u32 = 3;
 
 /// Credit-item ids. The game contract's own $JOY shop uses 1-4, so these start
 /// at 101 to keep the two namespaces apart in events and logs.
@@ -314,4 +329,8 @@ pub struct PoolView {
     pub sale_reserve: U128,
     pub updated_at: U64,
     pub paused: bool,
+    /// Credits each epoch `roll_epoch` funds.
+    pub epoch_target: U128,
+    /// When the funded epoch runs out; nothing is emitted after it.
+    pub epoch_ends_at: U64,
 }
