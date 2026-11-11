@@ -34,33 +34,38 @@ needed to know who attacked you and whether you won.
 
 ## Waiting on a decision, not on work
 
-Two left, where there were three — and the second one is new, found by a
-command in this repository's own README failing on the machine it was written
-on.
+One left. The second entry below is not waiting on anything — it records a
+decision and what it costs, because the question comes back otherwise.
 
 1. **A 1Click *partner* key.** The one on hand is an `explorer` key, which the
    API will not accept for quotes. Without it, minting is NEAR-only — the
    mint-router is deployed and its wNEAR path is tested, so this is the only
    thing between here and paying with ZEC or SOL.
 
-2. **Publish the CLI to npmjs.** It is on GitHub Packages, which is why
-   `npx @joygotchi/joygotchi install <code>` on a fresh machine fails with a
-   404 from npmjs: npm resolves a scoped name against npmjs unless told
-   otherwise, and nobody told it. Two `npm config set` lines fix it per
-   machine — one for the registry, one for a token.
+2. **What the CLI costs a newcomer to install.** Decided for now: it stays on
+   GitHub Packages, published and public, and nothing is pending. This entry
+   exists so the cost is written down rather than rediscovered.
 
-   Making the repository public was expected to remove the token step. It did
-   not, and neither did making the package itself public — which is a separate
-   setting, and was the actual reason nobody else could install at all. With
-   both public, an anonymous read of `npm.pkg.github.com` still answers
-   `401 authentication token not provided`, and an `npx` run with an empty
-   user config fails the same way. GitHub Packages authenticates reads of
-   public npm packages.
+   The cost is two `npm config set` lines per machine — one pointing the
+   `@joygotchi` scope at GitHub, one with a GitHub token that has
+   `read:packages`. A bare `npx @joygotchi/joygotchi` fails with a 404 from
+   *npmjs*, which never mentions GitHub and reads like the package does not
+   exist.
 
-   So "one command, no account" — the line this CLI was built around — is not
-   true on GitHub Packages at all, by their design rather than by our
-   configuration. Only npmjs makes it true. The npmjs scope and an `npm login`
-   are the only things in the way.
+   Neither line is something configuration can remove. The repository is
+   public and so is the package — and package visibility turned out to be a
+   separate setting, which was the real reason nobody outside the org could
+   install at all. With both public, an anonymous read of
+   `npm.pkg.github.com` still answers `401 authentication token not
+   provided`, and an `npx` run with an empty user config fails the same way.
+   GitHub Packages authenticates reads of public npm packages.
+
+   So "one command, no account" is not reachable here, by GitHub's design
+   rather than ours. Publishing to npmjs as well is the only thing that
+   reaches it, and it is a choice about who the CLI is for — not a chore
+   that is overdue. It needs an npmjs login and the `@joygotchi` scope, and
+   it is not worth doing until somebody outside this org actually wants to
+   install a pet.
 
 ~~Make the repository public~~ — done; it is public, and Vercel now deploys on
 push to `main`. It did not remove the token step, see above. ~~Buy NEAR AI
