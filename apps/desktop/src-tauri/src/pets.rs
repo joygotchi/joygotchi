@@ -118,6 +118,20 @@ pub fn installed_pets() -> Vec<InstalledPet> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `installed_pets` with `JOYGOTCHI_HOME` pointed at `home`.
+    ///
+    /// The variable is process-wide and the tests run in parallel, so one
+    /// test's home leaked into another's read and failed it now and then on
+    /// CI. The lock makes each set-read-unset happen alone.
+    fn pets_in(home: impl AsRef<std::path::Path>) -> Vec<InstalledPet> {
+        static HOME: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _alone = HOME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+        std::env::set_var("JOYGOTCHI_HOME", home.as_ref());
+        let pets = installed_pets();
+        std::env::remove_var("JOYGOTCHI_HOME");
+        pets
+    }
     use std::path::Path;
 
     fn write_pet(root: &Path, slug: &str, body: &str) {
@@ -151,9 +165,7 @@ mod tests {
         write_pet(&root, "b-9", &pet_json(9, "B"));
         write_pet(&root, "a-2", &pet_json(2, "A"));
 
-        std::env::set_var("JOYGOTCHI_HOME", &root);
-        let pets = installed_pets();
-        std::env::remove_var("JOYGOTCHI_HOME");
+        let pets = pets_in(&root);
 
         assert_eq!(pets.len(), 2);
         assert_eq!(pets[0].package.pet_id, 2);
@@ -170,9 +182,7 @@ mod tests {
         write_pet(&root, "alien", r#"{"format":"petdex/1"}"#);
         fs::create_dir_all(root.join("empty")).unwrap();
 
-        std::env::set_var("JOYGOTCHI_HOME", &root);
-        let pets = installed_pets();
-        std::env::remove_var("JOYGOTCHI_HOME");
+        let pets = pets_in(&root);
 
         assert_eq!(pets.len(), 1);
         assert_eq!(pets[0].package.display_name, "GOOD");
@@ -205,9 +215,7 @@ mod tests {
             }"#,
         );
 
-        std::env::set_var("JOYGOTCHI_HOME", &root);
-        let pets = installed_pets();
-        std::env::remove_var("JOYGOTCHI_HOME");
+        let pets = pets_in(&root);
 
         assert_eq!(pets.len(), 1);
         let atlas = pets[0].package.atlas.as_ref().expect("the atlas was dropped");
@@ -244,9 +252,7 @@ mod tests {
             }"#,
         );
 
-        std::env::set_var("JOYGOTCHI_HOME", &root);
-        let pets = installed_pets();
-        std::env::remove_var("JOYGOTCHI_HOME");
+        let pets = pets_in(&root);
 
         assert_eq!(pets.len(), 1);
         assert!(pets[0].package.atlas.is_none());
@@ -258,9 +264,7 @@ mod tests {
 
     #[test]
     fn an_empty_machine_is_an_empty_list_not_an_error() {
-        std::env::set_var("JOYGOTCHI_HOME", std::env::temp_dir().join("jg-does-not-exist"));
-        let pets = installed_pets();
-        std::env::remove_var("JOYGOTCHI_HOME");
+        let pets = pets_in(std::env::temp_dir().join("jg-does-not-exist"));
         assert!(pets.is_empty());
     }
 }
