@@ -51,6 +51,15 @@ const BUILT_IN_SPECIES: [(&str, &str); 2] =
 /// the desktop app — every wallet and every explorer drew a broken image.
 const BUILT_IN_ART_BASE: &str = "https://joygotchi.vercel.app/assets/animation";
 
+/// A species creator's cut of every mint of their species, in basis points.
+///
+/// One percent. Small enough that the treasury still funds the credit stream
+/// staked pets are paid from — both come out of the same mint price — and
+/// large enough to be a reason to make a second species rather than a
+/// rounding error. It is paid at mint, not accrued: a balance somebody has
+/// to come back and claim is a balance most people never claim.
+const CREATOR_ROYALTY_BPS: u128 = 100;
+
 /// What creating a species costs, in yoctoNEAR, unless the owner changes it.
 ///
 /// A species is permanent, public, and carries its creator's name, so the
@@ -443,14 +452,53 @@ impl Game {
     #[payable]
     pub fn create_pet(&mut self, name: String, category: String) -> u64 {
         self.assert_running();
-        require!(
-            env::attached_deposit().as_yoctonear() >= self.mint_price,
-            "Attach at least the mint price"
-        );
-        // The whole deposit, not the price: nothing is refunded, so an
+        let paid = env::attached_deposit().as_yoctonear();
+        require!(paid >= self.mint_price, "Attach at least the mint price");
+
+        /*
+         * The creator's cut, taken before the rest is banked.
+         *
+         * Read here rather than inside `internal_mint` because the royalty
+         * is a property of *this* entry point: the mint-router path takes no
+         * deposit on this contract, so there is nothing here to take a cut
+         * of. That is a real gap for multichain mints and it is the router's
+         * to close, not this function's.
+         */
+        let creator = self
+            .species
+            .get(&category)
+            .map(|species| species.creator_id)
+            .unwrap_or_else(|| env::panic_str("Unknown pet category"));
+
+        // Nothing for the two this game shipped: their creator is this
+        // contract, and paying yourself costs gas and moves no money.
+        let royalty = if creator == env::current_account_id() {
+            0
+        } else {
+            paid * CREATOR_ROYALTY_BPS / 10_000
+        };
+
+        // The rest of the deposit, not the price: nothing is refunded, so an
         // overpayment is revenue too and the treasury should see it.
-        self.revenue_banked += env::attached_deposit().as_yoctonear();
-        self.internal_mint(env::predecessor_account_id(), name, category, 1)
+        self.revenue_banked += paid - royalty;
+        let pet_id = self.internal_mint(env::predecessor_account_id(), name, category, 1);
+
+        if royalty > 0 {
+            self.log_event(
+                "royalty_paid",
+                json!({
+                    "pet_id": pet_id,
+                    "creator_id": creator,
+                    "amount": U128(royalty),
+                }),
+            );
+            // No callback. A transfer to an account that no longer exists
+            // fails and the NEAR stays here, which is the outcome a callback
+            // would have had to arrange anyway.
+            Promise::new(creator).transfer(NearToken::from_yoctonear(royalty));
+        }
+
+        pet_id
     }
 
     /// Mint for somebody else.
@@ -2120,6 +2168,104 @@ mod tests {
         let listed = config["categories"].as_array().unwrap();
         assert_eq!(listed.len(), 3);
         assert!(listed.iter().any(|c| c == "coolbeast"));
+    }
+
+    // ── Creator royalty ──────────────────────────────────────────────────────
+
+    #[test]
+    fn a_species_creator_is_paid_a_cut_of_every_mint() {
+        /*
+         * The reason to make a second species. `minted` counted mints from
+         * the day the registry shipped and paid nothing for them, which is
+         * a scoreboard with no prize.
+         */
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        let before = contract.get_revenue_banked().0;
+
+        testing_env!(ctx(bob(), 0, 2 * ONE_NEAR).build());
+        contract.create_pet("NEWT".to_string(), "coolbeast".to_string());
+
+        // One percent to alice, the rest banked for the treasury.
+        let royalty = 2 * ONE_NEAR / 100;
+        assert_eq!(contract.get_revenue_banked().0 - before, 2 * ONE_NEAR - royalty);
+    }
+
+    #[test]
+    fn the_cut_is_taken_from_what_was_paid_not_from_the_price() {
+        // Overpaying is revenue, and the creator's share of it is theirs too
+        // — otherwise the split silently changes with every overpayment.
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        let before = contract.get_revenue_banked().0;
+
+        testing_env!(ctx(bob(), 0, 10 * ONE_NEAR).build());
+        contract.create_pet("NEWT".to_string(), "coolbeast".to_string());
+
+        assert_eq!(
+            contract.get_revenue_banked().0 - before,
+            10 * ONE_NEAR - 10 * ONE_NEAR / 100
+        );
+    }
+
+    #[test]
+    fn the_shipped_species_pay_nobody() {
+        /*
+         * Their creator is this contract. Paying yourself costs gas and moves
+         * no money, and it would also make `revenue_banked` understate what
+         * is sweepable by one percent of every dragon ever minted.
+         */
+        let mut contract = deploy();
+        let before = contract.get_revenue_banked().0;
+
+        testing_env!(ctx(alice(), 0, 2 * ONE_NEAR).build());
+        contract.create_pet("SMAUG".to_string(), "blackdragon".to_string());
+
+        assert_eq!(contract.get_revenue_banked().0 - before, 2 * ONE_NEAR);
+    }
+
+    #[test]
+    fn a_router_mint_pays_no_royalty_here() {
+        /*
+         * The router holds the payment on its own account, so this contract
+         * has nothing to take a cut of. A real gap for multichain mints, and
+         * the router's to close — recorded here so that it is a known gap
+         * rather than a surprise.
+         */
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+        let before = contract.get_revenue_banked().0;
+
+        testing_env!(ctx(router(), 0, 0).build());
+        contract.create_pet_for(bob(), "NEWT".to_string(), "coolbeast".to_string());
+
+        assert_eq!(contract.get_revenue_banked().0, before);
+    }
+
+    #[test]
+    #[should_panic(expected = "Unknown pet category")]
+    fn minting_an_unknown_species_is_refused_before_any_money_moves() {
+        let mut contract = deploy();
+        testing_env!(ctx(alice(), 0, 2 * ONE_NEAR).build());
+        contract.create_pet("NEWT".to_string(), "nosuchthing".to_string());
+    }
+
+    #[test]
+    fn the_royalty_and_the_treasury_always_add_up_to_what_was_paid() {
+        // Integer division truncates, and a split that loses a yoctoNEAR per
+        // mint is a contract that slowly stops balancing.
+        let mut contract = deploy();
+        add_species(&mut contract, alice(), "coolbeast");
+
+        for paid in [2 * ONE_NEAR, 2 * ONE_NEAR + 1, 3 * ONE_NEAR + 7, 99 * ONE_NEAR / 10] {
+            let before = contract.get_revenue_banked().0;
+            testing_env!(ctx(bob(), 0, paid).build());
+            contract.create_pet("N".to_string(), "coolbeast".to_string());
+
+            let banked = contract.get_revenue_banked().0 - before;
+            let royalty = paid * 100 / 10_000;
+            assert_eq!(banked + royalty, paid, "a yoctoNEAR went missing at {paid}");
+        }
     }
 
     // ── Revenue ──────────────────────────────────────────────────────────────

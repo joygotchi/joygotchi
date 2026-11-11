@@ -47,6 +47,10 @@ now refuses all three by name. Code only, no stored struct touched. Previous
 pair: `62EzQeJfY8Y8x4bxTPkgnub7ewT8VS4M6584Auiv7oCN` and
 `81Dbt6scc68L5L3BWnsU6VTWcqbEFrdcTa6WACsWbNK4`.
 
+**Built, not yet deployed:** `72t8eWA12XeupTZUWpcTToE7kaEzqos4X9S7mvDnig81`
+(game) adds the 1% creator royalty. Code only — no stored struct is touched,
+so it goes out `without-init-call` and keeps its state.
+
 Deployed on 2026-11-11, and the first deploy in this project that is a real
 Borsh layout change on the game contract rather than a code-only swap. It adds
 `species`, `species_price` and `revenue_banked` to the contract struct, so it
