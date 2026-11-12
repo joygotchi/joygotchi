@@ -38,8 +38,8 @@ JOYGOTCHI is a virtual pet on the NEAR blockchain, reborn for the age of AI codi
   evolution and owner live in the contract, not on our server. There is no account to make and no
   database to trust.
 - **Playing earns.** Put your pet to work in the **AI Lab** and it earns **AI credit**, the
-  currency you spend to feed it, buy items and talk to it. Battle other players, evolve, collect
-  hats and trade pets and items.
+  currency you spend to feed it, buy items and talk to it. [Battle](#battle) other players' pets
+  for XP, stars and credit, evolve, collect hats and trade pets and items.
 - **Creating earns.** Design a pet of your own, put it on chain, and every time someone mints it you
   are paid. See [For creators](#for-creators).
 
@@ -99,6 +99,28 @@ Registering costs **5 NEAR**, once — that is what keeps names from being squat
 permanent: its id is yours, and pets of it point at it for as long as they exist. Pets of a
 drawn species animate row by row on the desktop and in the web's state viewer, and every wallet
 and explorer draws them from the on-chain art.
+
+## Battle
+
+Pets fight other players' pets, on chain, from the desktop app.
+
+- **Who can fight.** Any two living pets with different owners — a pet at work in the AI Lab
+  included. Pick an opponent from the roster, which shows each pet's level, stars and rarity, and
+  why the ones you cannot fight right now are out.
+- **How a winner is picked.** Your pet's attack against the other's defence. Attack grows 5% a
+  level, defence 4% a level, and both 10% a star; each side then rolls within ±15%, so an underdog
+  can win. A tie goes to the attacker.
+- **What winning gets you.** 25 XP, and the loser's credit wager — up to 0.01 credit, less a 5% cut.
+  **Three wins in a row earn a star** (up to five), and stars raise both your odds and your share
+  of the AI Lab's credit stream.
+- **What losing costs.** A star — unless a **Shield** takes the hit (it is used up) or a **Charm**
+  protects it — and three hours off the hunger clock. The pet is **wounded** for six hours, and a
+  **Tonic** clears that. Pets never die from a fight.
+- **Pacing.** After attacking, a pet rests an hour; after being attacked, it cannot be attacked
+  again for an hour. A **Ward** keeps every attacker away for a day.
+
+When somebody else attacks your pet, the desktop app notices from the chain and shows you the
+fight — no server, no indexer.
 
 ## Items, hats and the things you own
 
