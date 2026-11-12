@@ -6,8 +6,10 @@ name: Release desktop
 # `apps/desktop/src-tauri/tauri.conf.json`, so bump it there first.
 #
 # macOS builds are signed with the Developer ID certificate and notarized by
-# Apple when these repository secrets are set (they are skipped, and the build
-# is unsigned, when they are not):
+# Apple when the repository variable MACOS_SIGNING is `on` and these secrets
+# are set. Otherwise the build is unsigned, like v0.1.0 — a notarization login
+# that Apple refuses fails the whole macOS job, so signing is switched on only
+# once the secrets are known to work:
 #
 #   APPLE_CERTIFICATE           the Developer ID Application .p12, base64
 #   APPLE_CERTIFICATE_PASSWORD  the password the .p12 was exported with
@@ -55,7 +57,7 @@ jobs:
             target: ''
     runs-on: ${{ matrix.os }}
     env:
-      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' }}
+      HAS_APPLE_SIGNING: ${{ secrets.APPLE_CERTIFICATE != '' && vars.MACOS_SIGNING == 'on' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -121,8 +123,9 @@ jobs:
             - Windows: `JOYGOTCHI_<version>_x64-setup.exe`
             - Linux: `.AppImage`, `.deb` or `.rpm`
 
-            The macOS builds are signed and notarized by Apple: open the .dmg and drag JOYGOTCHI to Applications.
-            The Windows build is not signed yet — SmartScreen asks once: click *More info* → *Run anyway*.
+            These builds are not code-signed yet.
+            - **macOS** says the app "is damaged" or "can't be opened". Drag it to Applications, then run `xattr -dr com.apple.quarantine /Applications/JOYGOTCHI.app` once.
+            - **Windows** SmartScreen: click *More info* → *Run anyway*.
 
             Then install a pet from https://joygotchi.vercel.app and connect your agent from the app's Settings.
           releaseDraft: false
