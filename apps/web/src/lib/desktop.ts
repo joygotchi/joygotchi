@@ -5,7 +5,7 @@
  * attaches them to that GitHub release. The names are Tauri's, built from the
  * version in `apps/desktop/src-tauri/tauri.conf.json` — bump both together.
  */
-export const DESKTOP_VERSION = '0.1.0';
+export const DESKTOP_VERSION = '0.1.1';
 
 const REPO = 'https://github.com/joygotchi/joygotchi';
 export const RELEASE_TAG = `desktop-v${DESKTOP_VERSION}`;
