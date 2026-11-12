@@ -145,10 +145,40 @@
   const foodLabel = $derived.by(() => {
     if (!chainSelf) return '';
     if (foodLeft <= 0) return 'starved';
-    if (foodLeft < 3_600) return `${Math.ceil(foodLeft / 60)}m`;
-    if (foodLeft < 86_400) return `${Math.floor(foodLeft / 3_600)}h`;
-    return `${Math.floor(foodLeft / 86_400)}d`;
+    if (foodLeft < 3_600) return `${Math.ceil(foodLeft / 60)}m left`;
+    if (foodLeft < 86_400) return `${Math.floor(foodLeft / 3_600)}h left`;
+    return `${Math.floor(foodLeft / 86_400)}d left`;
   });
+
+  /** The same clock as a sentence, for the tooltip. "58m" alone read as a score. */
+  const foodTitle = $derived.by(() => {
+    if (!chainSelf || !active) return '';
+    if (foodLeft <= 0) return `${active.displayName} has starved — open the panel to revive it`;
+    const hours = foodLeft / 3_600;
+    const when =
+      hours < 1
+        ? `${Math.ceil(foodLeft / 60)} minutes`
+        : hours < 48
+          ? `${Math.floor(hours)} hours`
+          : `${Math.floor(hours / 24)} days`;
+    return `${active.displayName} starves in ${when} unless it is fed`;
+  });
+
+  /**
+   * Quitting takes two clicks. The close button sits right beside Settings in
+   * a 260px window, and one slip used to end the whole app.
+   */
+  let quitArmed = $state(false);
+  let quitTimer: ReturnType<typeof setTimeout> | undefined;
+  function quitClick() {
+    if (quitArmed) {
+      void invoke('quit');
+      return;
+    }
+    quitArmed = true;
+    clearTimeout(quitTimer);
+    quitTimer = setTimeout(() => (quitArmed = false), 3000);
+  }
 
   const signedIn = $derived(walletSession.current);
   const ownsActive = $derived(
@@ -487,11 +517,19 @@
         bobbed with the sprite, and scenery that moves with the actor is not
         scenery.
       -->
-      <img class="backdrop" alt="" data-tauri-drag-region draggable="false" src={backdropArt} />
+      <img
+        class="backdrop"
+        class:starved={!!chainSelf && foodLeft <= 0}
+        alt=""
+        data-tauri-drag-region
+        draggable="false"
+        src={backdropArt}
+      />
     {/if}
 
     <div
       class="pet"
+      class:starved={!!chainSelf && foodLeft <= 0}
       data-state={pose}
       data-tauri-drag-region
       onclick={petTouched}
@@ -603,7 +641,7 @@
               ? `Feed ${active.displayName} · ${ACTION_PRICE.feed} credits`
               : 'Not enough credits to feed'}
           >
-            <img class="jg-px" alt="Feed" src="/assets/items/beef.png" />
+            <img class="jg-px" alt="Feed" src="/assets/icon/feed.png" />
           </button>
         {/if}
         <!--
@@ -617,8 +655,17 @@
         <button title="Settings (⌘,)" onclick={() => (showSettings = true)}>
           <img class="jg-px" alt="Settings" src="/assets/ui/gear.svg" />
         </button>
-        <button class="close" title="Quit JOYGOTCHI" onclick={() => invoke('quit')}>
-          <img class="jg-px" alt="Quit" src="/assets/ui/close.svg" />
+        <button
+          class="close"
+          class:armed={quitArmed}
+          title={quitArmed ? 'Click again to quit' : 'Quit JOYGOTCHI'}
+          onclick={quitClick}
+        >
+          {#if quitArmed}
+            <span class="quit-ask">Quit?</span>
+          {:else}
+            <img class="jg-px" alt="Quit" src="/assets/ui/close.svg" />
+          {/if}
         </button>
       </div>
 
@@ -628,7 +675,7 @@
           <span class="bar" data-level={hunger}>
             <span class="fill" style:width="{Math.max(3, foodFull * 100)}%"></span>
           </span>
-          <span class="food" data-level={hunger}>{foodLabel}</span>
+          <span class="food" data-level={hunger} title={foodTitle}>{foodLabel}</span>
           {#if chainSelf.shield}
             <!-- What the pet is carrying, not what it could buy. -->
             <span class="carry" title="{chainSelf.shield} shield — each absorbs one hit">
@@ -649,7 +696,7 @@
             <span class="coins" title="Credits you can spend — earned ones are claimed on use">
               {formatCredits(
                 (BigInt(account.credit_balance) + BigInt(account.pending_credits)).toString()
-              )}
+              )} cr
             </span>
           {/if}
         </div>
@@ -1131,4 +1178,28 @@
     font-size: 8px;
   }
 
+
+  .close.armed {
+    width: auto;
+    padding: 0 3px;
+    background: var(--jg-bad, #c0392b);
+  }
+  .quit-ask {
+    font-size: 7px;
+    color: #fff;
+  }
+
+  /*
+   * A starved pet lies down in a grey world. It used to stand there looking
+   * healthy, with one red word in the plate the only sign anything was wrong.
+   */
+  .backdrop.starved {
+    filter: grayscale(0.85) brightness(0.92);
+  }
+  .pet.starved {
+    animation: none;
+    filter: grayscale(0.9);
+    opacity: 0.8;
+    transform: rotate(90deg) translateX(14%);
+  }
 </style>

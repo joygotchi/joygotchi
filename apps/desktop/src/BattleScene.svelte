@@ -1,7 +1,7 @@
 <script lang="ts">
   import { MOTION, motionDuration } from '@joygotchi/pet';
   import { convertFileSrc } from '@tauri-apps/api/core';
-  import { artPathFor } from './art';
+  import { artPathFor, firstCell } from './art';
   import type { ChainPetSummary } from './chain';
   import type { InstalledPet } from './types';
 
@@ -23,11 +23,31 @@
     transferred: string | null;
     onfight: () => void;
     onclose: () => void;
+    /** The opponent's drawing when this app ships none: its species' url. */
+    theirArtUrl?: string | null;
+    /** The contract's wager and cut, when they have been read. */
+    terms?: { wager: string; rake: number } | null;
+    /** "lv 2 · 1★ · rare" for this side; the target's comes from the chain. */
+    mineStats?: string;
   };
-  let { mine, target, phase, transferred, onfight, onclose }: Props = $props();
+  let {
+    mine,
+    target,
+    phase,
+    transferred,
+    onfight,
+    onclose,
+    theirArtUrl = null,
+    terms = null,
+    mineStats = ''
+  }: Props = $props();
+
+  const theirStats = $derived(
+    `lv ${Number(target.level ?? 0)}${Number(target.star ?? 0) ? ` · ${Number(target.star)}★` : ''} · ${String(target.rarity ?? '').toLowerCase()}`
+  );
 
   const myArt = $derived(convertFileSrc(`${mine.directory}/${mine.states.idle ?? ''}`));
-  const theirArt = $derived(artPathFor(target));
+  const theirArt = $derived(artPathFor(target) ?? theirArtUrl);
 
   /** What each side is doing, as a state the shared motion table knows. */
   const myMotion = $derived(
@@ -48,6 +68,7 @@
         style:animation="{MOTION[myMotion]} {motionDuration(myMotion)}s ease-in-out infinite"
       />
       <span class="name">{mine.displayName}</span>
+      {#if mineStats}<span class="stats">{mineStats}</span>{/if}
     </div>
 
     <span class="versus" class:clash={phase === 'fighting'}>VS</span>
@@ -64,17 +85,17 @@
           <img
             class="sprite"
             alt={target.name}
+            crossorigin="anonymous"
             src={theirArt}
+            use:firstCell
             style:animation="{MOTION[theirMotion]} {motionDuration(theirMotion)}s ease-in-out infinite"
           />
         {:else}
           <!--
-            A species registered on the contract after this app was built.
-            Its drawings live at a url, and the window's CSP allows images
-            from `'self'`, `asset:` and `data:` only — which is deliberate,
-            and means an opponent's art genuinely is not loadable here.
-            A marked silhouette says so; an `img` with a 404 behind it would
-            leave the arena looking broken instead.
+            Only when the species' art could not be found at all. A species
+            registered after this app was built is drawn from its on-chain
+            url — the window's CSP allows https images for exactly this — so
+            this is a species the chain could not be asked about.
           -->
           <span
             class="sprite unknown"
@@ -84,11 +105,19 @@
         {/if}
       </span>
       <span class="name">{target.name}</span>
+      <span class="stats">{theirStats}</span>
     </div>
   </div>
 
   {#if phase === 'ready'}
-    <p class="line">Winner takes the wager. The odds swing ±15%.</p>
+    <p class="line">
+      {#if terms}
+        The loser pays up to {terms.wager} credits to the winner, less a {terms.rake}% cut.
+      {:else}
+        The loser pays the winner a small credit wager.
+      {/if}
+      Level and stars tilt the odds by up to 15%.
+    </p>
     <!--
       The drawn button is the button. It carries its own label, so putting
       text over it would say "ATTACK NOW" twice.
@@ -111,6 +140,14 @@
 </div>
 
 <style>
+  /* On a plate like the name above it: the arena behind is too busy to read on. */
+  .stats {
+    padding: 0 3px;
+    background: rgba(255, 255, 255, 0.85);
+    font-size: 7px;
+    color: var(--jg-ink);
+  }
+
   .scene {
     display: flex;
     flex-direction: column;
@@ -212,8 +249,9 @@
 
   .line {
     margin: 0;
-    font-size: 8px;
-    line-height: 1.6;
+    font-family: var(--jg-prose);
+    font-size: 11px;
+    line-height: 1.4;
     color: var(--jg-muted);
   }
 

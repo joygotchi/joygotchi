@@ -25,6 +25,8 @@
     isAttackable,
     miningAvailableAt,
     listPets,
+    listSpecies,
+    getStakeTerms,
     stakeContractFor,
     wornBy,
     type AccessoryKind,
@@ -34,9 +36,9 @@
   } from './chain';
   import { convertFileSrc } from '@tauri-apps/api/core';
   import BattleScene from './BattleScene.svelte';
-  import { artPathFor } from './art';
+  import { artPathFor, firstCell, hatAnchorFor, speciesArtFor } from './art';
   import { planIntent } from './plan';
-  import { canAfford, canSpend, evolvePet, feedAndGrade, revivePet } from './actions';
+  import { canAfford, canSpend, creditsHeld, evolvePet, feedAndGrade, revivePet } from './actions';
   import { artOf, BACKDROPS, setStyle, styleFor } from './style.svelte';
   import { clearOffer, clearThread, offerFor, say, threadFor } from './chat.svelte';
   import { markSelfFight } from './battle-watch';
@@ -88,6 +90,27 @@
     if (next) onpick?.(next.slug);
   };
 
+  /**
+   * The next installed pet this account owns. "Show my next pet" used to call
+   * `step(1)` and land on whoever was next, which could be somebody else's.
+   */
+  function nextMine() {
+    const me = session?.accountId;
+    const at = siblings.findIndex((p) => p.slug === pet.slug);
+    for (let i = 1; i <= siblings.length; i++) {
+      const candidate = siblings[(at + i) % siblings.length];
+      if (candidate && candidate.slug !== pet.slug && candidate.chain.owner === me) {
+        onpick?.(candidate.slug);
+        return;
+      }
+    }
+    explain(
+      me
+        ? `None of the pets installed here belong to ${me}. Install one of yours from its page on the website.`
+        : 'Connect a wallet in Settings to act on your pets.'
+    );
+  }
+
   let account = $state<StakeAccount | null>(null);
   let status = $state<PetStatus | null>(null);
   let inventory = $state<Array<[number, number]>>([]);
@@ -110,6 +133,35 @@
    * a read that failed and left nothing to draw; this is for an answer.
    */
   let refused = $state<string | null>(null);
+  /**
+   * Why a locked control is locked, shown when it is tapped.
+   *
+   * This used to live only in each button's `title`. The window is WebKit,
+   * and WebKit shows no tooltip for a disabled button — so every greyed-out
+   * tile was a dead end with its reason one hover away that never came.
+   */
+  let why = $state<string | null>(null);
+  const explain = (reason: string) => {
+    note = null;
+    refused = null;
+    why = reason;
+  };
+
+  /** What a running action says while the wallet signs it. */
+  const BUSY_LABEL: Record<string, string> = {
+    shop: 'Buying…',
+    feed: 'Feeding…',
+    revive: 'Reviving…',
+    evolve: 'Evolving…',
+    claim: 'Claiming…',
+    faucet: 'Collecting…',
+    mine: 'Mining…',
+    stake: 'Signing…',
+    auto: 'Saving…'
+  };
+  const busyText = (label: string) =>
+    BUSY_LABEL[label] ??
+    (label.startsWith('buy-') ? 'Buying…' : label.startsWith('use-') ? 'Using…' : 'Signing…');
   let miningAt = $state(0);
   let onChain = $state<ChainPetSummary | null>(null);
   /** Ticks so the mining countdown moves between loads. */
@@ -244,6 +296,7 @@
     busy = label;
     refused = null;
     note = null;
+    why = null;
     try {
       await run();
       /*
@@ -319,6 +372,15 @@
   const xpPercent = $derived(xpNeeded > 0 ? Math.min(100, (xpNow / xpNeeded) * 100) : 0);
 
   const phase = $derived(Number(onChain?.evolution_phase ?? 1));
+
+  /**
+   * Where the hat sits on this drawing. The main window always asked
+   * `hatAnchorFor`; the panel pinned every hat at one spot tuned for a phase-1
+   * green dragon, so on any other drawing it covered the pet's eyes.
+   */
+  const hatAt = $derived(
+    hatAnchorFor({ kind: pet.kind, category: onChain?.category, evolution_phase: phase })
+  );
   const needsLevel = $derived(levelToEvolve(phase));
   const canEvolve = $derived(
     needsLevel !== null && Number(onChain?.level ?? 0) >= needsLevel
@@ -385,7 +447,28 @@
    * to earn. A silently empty roster reads as a broken button. Showing the
    * roster with reasons says what the game is actually waiting for.
    */
+  /** Registered species' art, for opponents this app has no drawings of. */
+  let speciesArt = $state(new Map<string, string[]>());
+  const opponentArt = (target: ChainPetSummary) =>
+    artPathFor(target) ?? speciesArtFor(target, speciesArt);
+
+  /** What a fight costs, read once from the contract rather than assumed. */
+  let terms = $state<{ wager: string; rake: number } | null>(null);
+
   async function loadTargets(owner: string) {
+    if (!terms) {
+      void getStakeTerms(net(), stake)
+        .then((config) => {
+          terms = {
+            wager: formatCredits(config.battle_wager, 6),
+            rake: Number(config.battle_rake_bps) / 100
+          };
+        })
+        .catch(() => undefined);
+    }
+    void listSpecies(net(), pet.chain.contract)
+      .then((all) => (speciesArt = new Map(all.map((one) => [one.id, one.art]))))
+      .catch(() => undefined);
     const all = await listPets(net(), pet.chain.contract).catch(() => []);
     const others = all.filter((o) => o.pet_id !== pet.petId && o.owner_id !== owner);
 
@@ -442,7 +525,10 @@
       wager = formatCredits(settled.transferred);
       await load();
     } catch (cause) {
-      error = readableError(cause);
+      // Into the bar every view shows. `error` is the panel's load-failure
+      // state and is only drawn when no view is open, so a fight that failed
+      // here used to drop back to the roster and say nothing at all.
+      refused = `The fight did not happen — ${readableError(cause)}`;
       opponent = null;
       fight = 'ready';
     }
@@ -670,7 +756,12 @@
   hint: string,
   busyLabel?: string
 )}
-  <button class="jg-tile" {disabled} {onclick} title={hint}>
+  <button
+    class="jg-tile"
+    aria-disabled={disabled}
+    onclick={() => (disabled ? (busy === null ? explain(hint) : undefined) : onclick())}
+    title={hint}
+  >
     <img alt="" src={art} />
     <span>{busyLabel ?? label}</span>
   </button>
@@ -697,10 +788,37 @@
     <button class="x" data-tauri-drag-region="false" onclick={onclose} title="Close">✕</button>
   </header>
 
+  <!--
+    One place for what just happened, above whichever view is open. The shop,
+    the bag and the fight each used to swallow their result: a purchase that
+    failed said so only after you had gone back to the main view.
+  -->
+  {#if busy}
+    <p class="flash busy" role="status">{busyText(busy)}</p>
+  {:else if refused}
+    <p class="flash bad" role="alert">
+      <span>{refused}</span>
+      <button class="dismiss" onclick={() => (refused = null)} title="Dismiss">✕</button>
+    </p>
+  {:else if note}
+    <p class="flash ok" role="status">
+      <span>{note}</span>
+      <button class="dismiss" onclick={() => (note = null)} title="Dismiss">✕</button>
+    </p>
+  {:else if why}
+    <p class="flash info" role="status">
+      <span>{why}</span>
+      <button class="dismiss" onclick={() => (why = null)} title="Dismiss">✕</button>
+    </p>
+  {/if}
+
   {#if opponent}
     <BattleScene
       mine={pet}
       target={opponent}
+      theirArtUrl={opponentArt(opponent)}
+      {terms}
+      mineStats={`lv ${Number(onChain?.level ?? pet.level ?? 0)}${Number(onChain?.star ?? 0) ? ` · ${Number(onChain?.star)}★` : ''} · ${pet.rarity}`}
       phase={fight}
       transferred={wager}
       onfight={attack}
@@ -722,7 +840,17 @@
         {:else}
           {#each targets as target (target.pet_id)}
             <li class:unavailable={target.why !== null}>
-              <img class="jg-px" alt="" src={artPathFor(target)} />
+              {#if opponentArt(target)}
+                <img
+                  class="jg-px"
+                  alt=""
+                  crossorigin="anonymous"
+                  src={opponentArt(target)}
+                  use:firstCell
+                />
+              {:else}
+                <span class="unknown-art" title="A species this app cannot draw yet">?</span>
+              {/if}
               <span class="target-name">
                 {target.name}
                 <small>
@@ -824,18 +952,30 @@
       </p>
       <ul class="grid jg-screen">
         {#each shop as [id, price] (id)}
+          {@const cost = Number(formatCredits(price, 6))}
+          {@const affordable = canSpend(account, cost)}
           <li class="card">
             <img class="art jg-px" alt="" src={ITEM_ART[id] ?? '/assets/items/food.png'} />
             <span class="title">{itemName(id)}</span>
             <span class="effect">{ITEMS[id as ItemId]?.blurb ?? ''}</span>
             <button
               class="jg-btn primary buy"
-              disabled={busy !== null || !canSpend(account, Number(formatCredits(price, 6)))}
+              aria-disabled={busy !== null || !affordable}
               onclick={() =>
-                act('shop', () => signAndSend(net(), 'buy_credit_item', { item_id: id, quantity: 1 }), `${itemName(id)} is in your bag — open Bag to use it.`)}
-              title={`${formatCredits(price, 6)} credits`}
+                busy !== null
+                  ? undefined
+                  : !affordable
+                    ? explain(
+                        `${itemName(id)} costs ${cost} credits and you have ${creditsHeld(account)}. Claim, Mine or use the Faucet first.`
+                      )
+                    : act(
+                        'shop',
+                        () => signAndSend(net(), 'buy_credit_item', { item_id: id, quantity: 1 }),
+                        `${itemName(id)} is in your bag — open Bag to use it.`
+                      )}
+              title={`${cost} credits`}
             >
-              {formatCredits(price, 6)}
+              {cost} cr
             </button>
           </li>
         {/each}
@@ -1030,13 +1170,17 @@
               </button>
               <button
                 class="jg-btn primary"
-                disabled={busy !== null || owned === 0}
+                aria-disabled={busy !== null || owned === 0}
                 onclick={() =>
-                  act(
-                    `use-${item.id}`,
-                    () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
-                    `Used a ${itemName(item.id)}.`
-                  )}
+                  busy !== null
+                    ? undefined
+                    : owned === 0
+                      ? explain(`You have no ${item.name}. Buy one first.`)
+                      : act(
+                          `use-${item.id}`,
+                          () => signAndSend(net(), 'use_item', { item_id: item.id, pet_id: pet.petId }),
+                          `Used a ${itemName(item.id)}.`
+                        )}
                 title={item.blurb}
               >
                 {busy === `use-${item.id}` ? '…' : 'Use'}
@@ -1045,7 +1189,6 @@
           </li>
         {/each}
       </ul>
-      {#if note}<p class="ok">{note}</p>{/if}
       <button class="jg-btn wide" onclick={() => (showBag = false)}>Back</button>
     </div>
   {:else if loading}
@@ -1057,6 +1200,7 @@
     <!-- The pet, on its own screen, the way the game showed it. -->
     <div
       class="stage jg-screen"
+      class:starved
       style:background-image={backdropArt ? `url('${backdropArt}')` : 'none'}
     >
       <!--
@@ -1079,13 +1223,21 @@
       <span class="badge tr">{pet.rarity}</span>
       <span class="hero-wrap">
         <img class="hero jg-px" alt={pet.displayName} src={heroArt} />
-        {#if hatArt}<img class="hero-hat jg-hat jg-px" alt="" src={hatArt} />{/if}
+        {#if hatArt && !starved}
+          <img
+            class="hero-hat jg-hat jg-px"
+            alt=""
+            src={hatArt}
+            style:left="{hatAt.left}%"
+            style:top="{hatAt.top}%"
+          />
+        {/if}
       </span>
       <span class="badge bl" class:work={status?.staked}>
         {status?.staked ? 'at work' : 'idle'}
       </span>
-      <span class="badge br" class:hurt={wounded} class:ward={warded}>
-        {wounded ? 'wounded' : warded ? 'warded' : 'fine'}
+      <span class="badge br" class:hurt={starved || wounded} class:ward={!starved && warded}>
+        {starved ? 'starved' : wounded ? 'wounded' : warded ? 'warded' : 'fine'}
       </span>
     </div>
 
@@ -1094,7 +1246,12 @@
       <b>{account ? formatCredits(account.credit_balance) : '0'}</b>
       <span class="muted">unclaimed {account ? formatCredits(account.pending_credits) : '0'}</span>
       {#if status && status.lens_feeds_left > 0}
-        <span class="lens">lens ×{status.lens_feeds_left}</span>
+        <span
+          class="lens"
+          title="A Focus Lens: the next {status.lens_feeds_left} feeds earn bonus XP"
+        >
+          lens: {status.lens_feeds_left} feeds
+        </span>
       {/if}
     </div>
 
@@ -1168,11 +1325,46 @@
         {session.accountId} — so there is nothing here you can do to it.
       </p>
       {#if siblings.length > 0}
-        <button class="jg-btn primary wide" onclick={() => step(1)}>
+        <button class="jg-btn primary wide" onclick={nextMine}>
           Show my next pet →
         </button>
       {/if}
     {:else}
+      <!--
+        Three rows with names instead of twelve tiles in a heap. Looking after
+        the pet, earning the credits that pay for it, and spending them — the
+        order a new player needs them in.
+      -->
+      {#if starved && mine}
+        <!--
+          A starved pet is the one thing on this screen that matters, and it
+          used to look exactly like a healthy one with a grey tile somewhere
+          in the grid.
+        -->
+        <div class="revive jg-screen">
+          <span>
+            <b>{pet.displayName} has starved.</b>
+            Revive it for {ACTION_PRICE.revive} credits to feed and fight again.
+          </span>
+          <button
+            class="jg-btn primary"
+            aria-disabled={busy !== null || !feedSignsHere || !canSpend(account, ACTION_PRICE.revive)}
+            onclick={() =>
+              busy !== null
+                ? undefined
+                : !feedSignsHere
+                  ? explain('This session key was granted before reviving could be signed here — reconnect in Settings')
+                  : !canSpend(account, ACTION_PRICE.revive)
+                    ? explain(
+                        `Reviving costs ${ACTION_PRICE.revive} credits and you have ${creditsHeld(account)} — Claim, Mine or use the Faucet first`
+                      )
+                    : revive()}
+          >
+            Revive
+          </button>
+        </div>
+      {/if}
+      <p class="group">Care</p>
       <div class="tiles">
         <!--
           Feeding signs here, in credits. `spend_credits("ai_feed")` only
@@ -1183,7 +1375,7 @@
         -->
         {@render tile(
           starved ? 'Revive' : 'Feed',
-          starved ? '/assets/items/holy_water.png' : '/assets/items/beef.png',
+          starved ? '/assets/icon/revive.png' : '/assets/icon/feed.png',
           starved ? revive : feed,
           busy !== null ||
             !mine ||
@@ -1196,11 +1388,115 @@
             : starved
               ? canSpend(account, ACTION_PRICE.revive)
                 ? `${ACTION_PRICE.revive} credits to bring ${pet.displayName} back`
-                : `Reviving costs ${ACTION_PRICE.revive} credits`
+                : `Reviving costs ${ACTION_PRICE.revive} credits and you have ${creditsHeld(account)} — Claim, Mine or use the Faucet first`
               : canFeed
                 ? `${ACTION_PRICE.feed} credits for 12 hours, XP, and a roll for a drop`
-                : 'Not enough credits',
+                : `Feeding costs ${ACTION_PRICE.feed} credits and you have ${creditsHeld(account)} — Claim, Mine or use the Faucet first`,
           busy === 'feed' || busy === 'revive' ? '…' : undefined
+        )}
+        {@render tile(
+          'Evolve',
+          '/assets/icon/evolve.png',
+          evolve,
+          busy !== null || !mine || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
+          !mine
+            ? `${pet.displayName} belongs to ${owner}`
+            : needsLevel === null
+            ? `${pet.displayName} is fully evolved`
+            : !canEvolve
+              ? `Needs level ${needsLevel} — it is ${Number(onChain?.level ?? 0)}`
+              : canSpend(account, ACTION_PRICE.evolve)
+                ? `${ACTION_PRICE.evolve} credits for phase ${phase + 1}`
+                : `Evolving costs ${ACTION_PRICE.evolve} credits and you have ${creditsHeld(account)}`,
+          /*
+           * The label carries the gate. Greyed out with the reason only in a
+           * tooltip reads as broken — and this one takes twenty-six battles
+           * to clear, which is a long time to wonder whether the button
+           * works.
+           */
+          busy === 'evolve'
+            ? '…'
+            : needsLevel !== null && !canEvolve
+              ? `Evolve · lv ${needsLevel}`
+              : undefined
+        )}
+        {@render tile(
+          'Talk',
+          '/assets/icon/talk.png',
+          () => (showChat = true),
+          busy !== null,
+          `Ask ${pet.displayName} something — it knows its own state`
+        )}
+        {@render tile(
+          'Style',
+          '/assets/icon/style.png',
+          () => (showStyle = true),
+          busy !== null,
+          'Hats and backdrops, kept on this machine'
+        )}
+      </div>
+      <p class="group">Earn credits</p>
+      <div class="tiles">
+        {@render tile(
+          status?.staked ? 'Leave lab' : 'Send to lab',
+          '/assets/icon/lab.png',
+          toggleStake,
+          busy !== null || walletAction.running !== null,
+          stakeSignsHere
+            ? status?.staked
+              ? `Bring ${pet.displayName} home from the AI Lab. It stops earning credits.`
+              : `Put ${pet.displayName} to work in the AI Lab, where it earns credits`
+            : 'Opens your browser — this session key predates staking being granted',
+          busy === 'stake' ? '…' : walletAction.running ? 'browser…' : undefined
+        )}
+        {@render tile(
+          'Claim',
+          '/assets/icon/claim.png',
+          () => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.'),
+          busy !== null || Number(account?.pending_credits ?? 0) === 0,
+          Number(account?.pending_credits ?? 0) === 0
+            ? 'Nothing to claim yet — a pet at work in the AI Lab earns credits over time'
+            : 'Move earned credits into the spendable balance',
+          busy === 'claim' ? '…' : undefined
+        )}
+        {@render tile(
+          minesIn > 0 ? `Mine ${untilMine}` : 'Mine',
+          '/assets/icon/mine.png',
+          () => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.'),
+          busy !== null || (account?.staked_pets.length ?? 0) === 0 || minesIn > 0,
+          (account?.staked_pets.length ?? 0) === 0
+            ? 'Mining needs a pet at work in the lab'
+            : minesIn > 0
+              ? `On cooldown for another ${untilMine}`
+              : 'A small top-up every six hours',
+          busy === 'mine' ? '…' : undefined
+        )}
+        {@render tile(
+          'Faucet',
+          '/assets/icon/faucet.png',
+          () => act('faucet', () => signAndSend(net(), 'claim_faucet', {}), 'Ten credits, once ever.'),
+          busy !== null,
+          'Ten free credits, once per account',
+          busy === 'faucet' ? '…' : undefined
+        )}
+      </div>
+      <p class="group">Play &amp; trade</p>
+      <div class="tiles">
+        <!--
+          The fourth place the same rule lived. The contracts stopped refusing
+          a staked pet a fight; this still greyed the tile out and explained
+          why with a sentence that was no longer true.
+
+          The count is of pets that can actually be fought, not of the roster:
+          the list shows everyone with a reason now, and counting the ones
+          that cannot fight would promise opponents that are not there.
+        -->
+        {@render tile(
+          `Battle ${fightable ? `(${fightable})` : ''}`,
+          '/assets/icon/battle.png',
+          () => (showTargets = true),
+          busy !== null,
+          fightable ? 'Pick somebody to attack' : 'Nobody can be fought right now — see who is out there'
         )}
         <!--
           Shop and Evolve, both of which I had left unreachable. Collapsing
@@ -1218,117 +1514,21 @@
           'Tonics, wards and lenses, paid in credits'
         )}
         {@render tile(
+          'Bag',
+          '/assets/icon/bag.png',
+          () => (showBag = true),
+          busy !== null,
+          'Buy and use items'
+        )}
+        {@render tile(
           'Market',
           '/assets/icon/market.png',
           () => (showMarket = true),
           busy !== null,
           'Buy and sell items with other players'
         )}
-        {@render tile(
-          'Evolve',
-          '/assets/icon/evolve.png',
-          evolve,
-          busy !== null || !mine || !canEvolve || !canSpend(account, ACTION_PRICE.evolve),
-          !mine
-            ? `${pet.displayName} belongs to ${owner}`
-            : needsLevel === null
-            ? `${pet.displayName} is fully evolved`
-            : !canEvolve
-              ? `Needs level ${needsLevel} — it is ${Number(onChain?.level ?? 0)}`
-              : canSpend(account, ACTION_PRICE.evolve)
-                ? `${ACTION_PRICE.evolve} credits for phase ${phase + 1}`
-                : `Evolving costs ${ACTION_PRICE.evolve} credits`,
-          /*
-           * The label carries the gate. Greyed out with the reason only in a
-           * tooltip reads as broken — and this one takes twenty-six battles
-           * to clear, which is a long time to wonder whether the button
-           * works.
-           */
-          busy === 'evolve'
-            ? '…'
-            : needsLevel !== null && !canEvolve
-              ? `Evolve · lv ${needsLevel}`
-              : undefined
-        )}
-        {@render tile(
-          'Claim',
-          '/assets/icon/claim.png',
-          () => act('claim', () => signAndSend(net(), 'claim_credits', {}), 'Claimed.'),
-          busy !== null || Number(account?.pending_credits ?? 0) === 0,
-          'Move earned credits into the spendable balance',
-          busy === 'claim' ? '…' : undefined
-        )}
-        {@render tile(
-          'Faucet',
-          '/assets/items/water.png',
-          () => act('faucet', () => signAndSend(net(), 'claim_faucet', {}), 'Ten credits, once ever.'),
-          busy !== null,
-          'Ten free credits, once per account',
-          busy === 'faucet' ? '…' : undefined
-        )}
-        {@render tile(
-          minesIn > 0 ? `Mine ${untilMine}` : 'Mine',
-          '/assets/button/mining.png',
-          () => act('mine', () => signAndSend(net(), 'claim_mining', {}), 'Mined.'),
-          busy !== null || (account?.staked_pets.length ?? 0) === 0 || minesIn > 0,
-          (account?.staked_pets.length ?? 0) === 0
-            ? 'Mining needs a pet at work in the lab'
-            : minesIn > 0
-              ? `On cooldown for another ${untilMine}`
-              : 'A small top-up every six hours',
-          busy === 'mine' ? '…' : undefined
-        )}
-        <!--
-          The fourth place the same rule lived. The contracts stopped refusing
-          a staked pet a fight; this still greyed the tile out and explained
-          why with a sentence that was no longer true.
-
-          The count is of pets that can actually be fought, not of the roster:
-          the list shows everyone with a reason now, and counting the ones
-          that cannot fight would promise opponents that are not there.
-        -->
-        {@render tile(
-          `Battle ${fightable ? `(${fightable})` : ''}`,
-          '/assets/button/attack.png',
-          () => (showTargets = true),
-          busy !== null,
-          fightable ? 'Pick somebody to attack' : 'Nobody can be fought right now — see who is out there'
-        )}
-        {@render tile(
-          status?.staked ? 'Bring home' : 'AI Lab',
-          '/assets/button/house.png',
-          toggleStake,
-          busy !== null || walletAction.running !== null,
-          stakeSignsHere
-            ? 'Signs here, with your session key'
-            : 'Opens your browser — this session key predates staking being granted',
-          busy === 'stake' ? '…' : walletAction.running ? 'browser…' : undefined
-        )}
-        {@render tile(
-          'Talk',
-          '/assets/ui/info.svg',
-          () => (showChat = true),
-          busy !== null,
-          `Ask ${pet.displayName} something — it knows its own state`
-        )}
-        {@render tile(
-          'Style',
-          '/assets/icon/style.png',
-          () => (showStyle = true),
-          busy !== null,
-          'Hats and backdrops, kept on this machine'
-        )}
-        {@render tile(
-          'Bag',
-          '/assets/button/backpack.png',
-          () => (showBag = true),
-          busy !== null,
-          'Buy and use items'
-        )}
       </div>
 
-      {#if note}<p class="ok">{note}</p>{/if}
-      {#if refused}<p class="bad">{refused}</p>{/if}
 
       <!--
         Silkscreen is all caps at this size, so three lines of prose reads as
@@ -1543,6 +1743,51 @@
 
   .badge.work { color: var(--jg-good); }
   .badge.hurt { color: var(--jg-bad); }
+
+  .unknown-art {
+    display: inline-grid;
+    place-items: center;
+    width: 24px;
+    height: 24px;
+    border: 1px dashed var(--jg-muted);
+    color: var(--jg-muted);
+    font-size: 10px;
+  }
+
+  /* A starved pet lies down in a grey world, and nothing about it says fine. */
+  /* Grey the scene behind the badges, not the badges: "starved" stays red. */
+  .stage.starved::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    backdrop-filter: grayscale(0.85) brightness(0.92);
+    pointer-events: none;
+  }
+  .stage.starved .badge {
+    z-index: 1;
+  }
+  .stage.starved .hero {
+    animation: none;
+    filter: grayscale(0.9);
+    transform: rotate(90deg) translateX(18%);
+    opacity: 0.75;
+  }
+
+  .revive {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 6px;
+    padding: 6px 8px;
+    border: 2px solid var(--jg-bad);
+    font-family: var(--jg-prose);
+    font-size: 11px;
+    line-height: 1.35;
+    color: var(--jg-bad);
+  }
+  .revive span {
+    flex: 1;
+  }
   .badge.ward { color: #3b7fb8; }
 
   .purse {
@@ -1614,8 +1859,16 @@
    */
   .tiles {
     display: grid;
-    grid-template-columns: repeat(3, 1fr);
+    grid-template-columns: repeat(4, 1fr);
     gap: 4px;
+  }
+
+  /* A row's name. Set small and quiet: the tiles are the content. */
+  .group {
+    margin: 4px 0 0;
+    font-size: 7px;
+    letter-spacing: 1px;
+    color: var(--jg-muted);
   }
 
   .view {
@@ -1704,7 +1957,9 @@
    */
   .lead {
     margin: 0;
-    font-size: 9px;
+    font-family: var(--jg-prose);
+    font-size: 11px;
+    line-height: 1.35;
     color: var(--jg-muted);
   }
 
@@ -1825,7 +2080,8 @@
   }
 
   .card .effect {
-    font-size: 7px;
+    font-family: var(--jg-prose);
+    font-size: 10px;
     text-align: center;
     color: var(--jg-muted);
     line-height: 1.3;
@@ -1901,6 +2157,49 @@
     margin: 0;
     font-size: 9px;
     color: var(--jg-good);
+  }
+
+  /*
+   * The feedback bar. Set in the system face: Silkscreen has no lowercase,
+   * and an error is the one sentence a player has to actually read.
+   */
+  .flash {
+    position: sticky;
+    top: 0;
+    z-index: 3;
+    display: flex;
+    align-items: flex-start;
+    gap: 6px;
+    margin: 0 0 6px;
+    padding: 5px 7px;
+    border: 2px solid currentColor;
+    background: #fff;
+    font-family: var(--jg-prose);
+    font-size: 11px;
+    line-height: 1.35;
+  }
+  .flash span {
+    flex: 1;
+  }
+  .flash.ok {
+    color: var(--jg-good);
+  }
+  .flash.bad {
+    color: var(--jg-bad);
+  }
+  .flash.info {
+    color: #5b6472;
+  }
+  .flash.busy {
+    color: #a8700f;
+  }
+  .dismiss {
+    border: 0;
+    background: none;
+    padding: 0 2px;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
   }
 
   .bad {

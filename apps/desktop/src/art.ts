@@ -1,4 +1,4 @@
-import { artPath, isBundledKind, type EvolutionPhase } from '@joygotchi/pet';
+import { artPath, atlasFrom, isBundledKind, type EvolutionPhase } from '@joygotchi/pet';
 
 /**
  * Art for a pet that is not installed on this machine.
@@ -72,4 +72,53 @@ export function hatAnchorFor(pet: {
   const kind = pet.kind ?? pet.category ?? 'blackdragon';
   const phase = Math.min(3, Math.max(1, Math.trunc(pet.evolution_phase ?? 1)));
   return HAT_ANCHORS[kind]?.[phase] ?? { left: 50, top: 14 };
+}
+
+/**
+ * A registered species' drawing for a pet's phase, from its on-chain urls.
+ *
+ * For pets this app ships no drawings for — anyone can register a species,
+ * and its art lives at an https url chosen after this app was built. The
+ * roster used to hand `null` straight to an <img>, which drew a broken image.
+ */
+export function speciesArtFor(
+  pet: { category?: string; kind?: string; evolution_phase?: number },
+  species: Map<string, string[]>
+): string | null {
+  const art = species.get(pet.category ?? pet.kind ?? '') ?? [];
+  if (art.length === 0) return null;
+  const phase = Math.max(1, Math.trunc(pet.evolution_phase ?? 1));
+  return art[Math.min(phase, art.length) - 1] ?? art[0]!;
+}
+
+/**
+ * Svelte action: if the image turns out to be a sprite atlas, show only its
+ * first cell — the idle pose — instead of all seventy-two frames at once.
+ *
+ * Decided by measuring, as everywhere else: nothing in a url says what is
+ * behind it. Needs `crossorigin="anonymous"` on the <img> so the canvas can
+ * read the pixels; `/api/art` serves the header that allows it.
+ */
+export function firstCell(node: HTMLImageElement) {
+  const crop = () => {
+    if (node.dataset.cell === 'done') return;
+    const sheet = atlasFrom(node.src, node.naturalWidth, node.naturalHeight);
+    if (!sheet.ok) return;
+    const { width, height } = sheet.atlas.frame;
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    try {
+      context.drawImage(node, 0, 0, width, height, 0, 0, width, height);
+      node.dataset.cell = 'done';
+      node.src = canvas.toDataURL('image/png');
+    } catch {
+      // A host without CORS: leave the whole sheet rather than nothing.
+    }
+  };
+  if (node.complete && node.naturalWidth > 0) crop();
+  node.addEventListener('load', crop);
+  return { destroy: () => node.removeEventListener('load', crop) };
 }

@@ -100,6 +100,15 @@ export function canSpend(account: StakeAccount | null, price: number): boolean {
   return balance + pending >= price;
 }
 
+/** Credits an account can spend now, claimed and pending, for messages. */
+export function creditsHeld(account: StakeAccount | null): string {
+  if (!account) return '0';
+  const held =
+    Number(formatCredits(account.credit_balance, 6)) +
+    Number(formatCredits(account.pending_credits, 6));
+  return String(Math.floor(held * 1000) / 1000);
+}
+
 /** Whether a feed can go through. The common case, kept for the callers. */
 export const canAfford = (account: StakeAccount | null) =>
   canSpend(account, ACTION_PRICE.feed);

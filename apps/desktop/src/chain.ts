@@ -300,6 +300,16 @@ export const getListings = (network: string, stakeContract: string) =>
 export const getCreditItems = (network: string, stakeContract: string) =>
   viewFunction<Array<[number, string]>>(network, stakeContract, 'get_items', {});
 
+/** The staking contract's battle terms, in micro-credits and basis points. */
+export type StakeTerms = { battle_wager: string; battle_rake_bps: number };
+export const getStakeTerms = (network: string, stake: string) =>
+  viewFunction<StakeTerms>(network, stake, 'get_config', {});
+
+/** Every registered species with its art, one https url per phase. */
+export type Species = { id: string; name: string; art: string[] };
+export const listSpecies = (network: string, gameContract: string) =>
+  viewFunction<Species[]>(network, gameContract, 'list_species', {});
+
 export const getShop = (network: string, gameContract: string) =>
   viewFunction<ShopItem[]>(network, gameContract, 'get_shop', {});
 

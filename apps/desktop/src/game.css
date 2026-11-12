@@ -38,6 +38,8 @@
   --jg-bad: #d2524f;
   --jg-gold: #f0a32c;
   --jg-pixel: 'Silkscreen', ui-monospace, monospace;
+  /* For sentences: Silkscreen has no lowercase, so prose set in it shouts. */
+  --jg-prose: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
 }
 
 /*
@@ -88,14 +90,22 @@ img.jg-px {
 }
 
 /* Pressed, in whole pixels — no soft easing, nothing sub-pixel. */
-.jg-tile:active:not(:disabled) {
+.jg-tile:active:not(:disabled):not([aria-disabled='true']) {
   transform: translateY(2px);
 }
 
-.jg-tile:disabled {
-  cursor: default;
+.jg-tile:disabled,
+.jg-tile[aria-disabled='true'] {
+  cursor: help;
   opacity: 0.4;
   filter: grayscale(1);
+}
+
+/* A locked button still answers a tap — with its reason — so it is not
+   `disabled`, which in WebKit also kills the tooltip that held that reason. */
+.jg-btn[aria-disabled='true'] {
+  cursor: help;
+  opacity: 0.45;
 }
 
 .jg-tile:not(:disabled):hover img {
