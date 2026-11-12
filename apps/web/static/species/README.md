@@ -13,9 +13,8 @@ has to keep working for as long as the pet exists. A file in a public
 repository, served by a CDN, outlives a bucket somebody has to keep paying
 for.
 
-It also means adding a species is a pull request, which is the review step —
-the same shape petdex uses, where a submission waits in a queue before anyone
-can install it. The difference is that nothing here can be taken down by us
+It also means adding a species is a pull request, which is the review step:
+a submission waits before anyone can install it. Even so, nothing here can be taken down by us
 after the fact: the species is registered on chain by its creator, with their
 own NEAR, and this repository only serves the pixels.
 

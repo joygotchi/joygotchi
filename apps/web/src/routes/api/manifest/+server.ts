@@ -6,7 +6,7 @@ import type { RequestHandler } from './$types';
 /**
  * Every pet on the contract, as a flat manifest.
  *
- * The same idea as petdex's `/api/manifest`: one public URL any client can
+ * One public URL any client can
  * read — the CLI, the desktop app, a Discord bot, somebody's wearable — so
  * building on JOYGOTCHI never means scraping these pages.
  *

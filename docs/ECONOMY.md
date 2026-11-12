@@ -10,35 +10,35 @@ NEAR AI Cloud compute.
 That changes the shape of the whole economy:
 
 ```
-   ZEC / SOL / BTC                 (players bring outside money)
-          │
-          │  NEAR Intents · 1Click
-          ▼
-       wNEAR  ────────────────▶  treasury
-          │                          │
-          │                          │  stake with NEAR AI
-     mint-router                     ▼
-          │                   stake-to-compute
-          ▼                          │
-        a pet                        │  monthly $ allowance
-          │                          ▼
-          │  stake in the AI Lab   epoch_budget  (published on-chain)
-          ▼                          │
-      pet-stake  ◀───────────────────┘
-          │
-          │  streamed by weight, every second
-          ▼
-      AI credit
-          │
-          │  spent on AI feed, training, crafting, chat
-          ▼
-   NEAR AI inference  (the credit is consumed for real)
+   NEAR wallet        BTC / ETH / SOL / TRON / TON / … (17 chains, mainnet)
+        │                    │
+        │                    │  NEAR Intents · 1Click → wNEAR → mint-router
+        ▼                    ▼
+      game contract  ── 1% of each mint ──▶  the species' creator
+        │
+        │  mints, species, NEAR shop, 2.5% market fee
+        ▼
+     treasury  ── buys NEAR AI credits ──▶  fund_reserve
+                                                │
+                                   sale_reserve (credits that exist)
+                                                │
+                              one full epoch_target, every 30 days
+                                                ▼
+   a pet ── stake in the AI Lab ──▶  pet-stake  (streamed by weight, every second)
+                                                │
+                                                ▼
+                                            AI credit
+                                                │
+                       spent on feeds, revives, training, items, chat
+                                                ▼
+                         NEAR AI inference  (the credit is consumed for real)
 ```
 
-Emission is bounded by something that exists outside the game: the compute
-allowance NEAR AI grants for the treasury's staked NEAR. We cannot print more
-credit than we can actually pay for, and every credit a player spends is
-compute we genuinely buy. There is no float to defend, because credits are
+Emission is bounded by something that exists outside the game: credits the
+treasury has actually bought on NEAR AI and recorded in the reserve. An epoch
+only starts when the reserve holds all of it, so we cannot print more credit
+than we can pay for, and every credit a player spends is compute we genuinely
+buy. There is no float to defend, because credits are
 never tradeable.
 
 ## The two resources
@@ -49,8 +49,8 @@ There is **no game token**. There is NEAR, and there are credits.
 |---|---|---|
 | What it is | the chain's own token | account balance in `pet-stake`, 6 decimals |
 | Transferable | yes, it's NEAR | **no, on purpose** |
-| How you get it | you hold it, or 1Click swaps your ZEC/SOL/BTC into it | staking pets, mining, battle wins, selling items, or buying at a bad rate |
-| What it buys | pets, and credits | everything in the game |
+| How you get it | you hold it, sell a pet, earn creator royalties — or, on mainnet, 1Click swaps your BTC/ETH/SOL/… into it | staking pets, mining, battle wins, selling items, the faucet, or buying at a bad rate |
+| What it buys | pets, species, NEAR shop items, hats, other players' pets, credits | feeds, revives, training, evolving, credit items, chat |
 | Peg | the market's | 1 ACR = US$1 of NEAR AI compute |
 | Role | the way in | the only thing you earn and spend |
 
@@ -71,16 +71,24 @@ client were labels with nothing behind them.
 
 Stake a pet in the **AI Lab** (`pet-stake`) and it starts working. While staked:
 
-- it **cannot battle** — that is the real cost, not a cosmetic one,
+- it **cannot be sold, transferred or approved** — a sale has to be atomic,
+  and a staked pet's record lives in another contract,
 - it **still starves**, so you still have to feed it,
+- it **can still fight**, and a fight that changes its level or star
+  re-weights it straight away (`sync_weight`),
 - it earns a share of the stream proportional to its weight.
 
 ```
-weight = base(rarity) × (1 + level/20) × (1 + star × 0.15) × evolution
+weight = base(rarity) × (1 + level/20) × (1 + star × 0.15) × evolution × (1 + 5% × shields)
 
 base:        common 100 · rare 160 · epic 260 · legendary 400
 evolution:   phase 1 ×1.00 · phase 2 ×1.15 · phase 3 ×1.35 · phase 4 ×1.60
+shields:     NEAR-shop Shields the pet holds, counted up to 3
 ```
+
+Rarity is rolled by the game contract at mint (70% common, 20% rare, 8% epic,
+2% legendary) and read by `pet-stake` through `get_pet_stake_attrs`, which
+returns owner, attributes and shield count in one call.
 
 A brand-new common pet is weight 100. A fully maxed legendary (level 20, 5
 stars, phase 4) is weight 2,240 — about 22 commons, not 22,000. Growth is
@@ -93,6 +101,31 @@ Your rate is then:
 credits_per_second = (epoch_budget / 30 days) × (your_weight / total_weight)
 ```
 
+### Epochs: the stream only pays what exists
+
+The stream runs one 30-day **epoch** at a time, and an epoch is funded in full
+or not at all:
+
+1. The treasury buys credits on NEAR AI, then records them with
+   `fund_reserve`. That is the only step off chain.
+2. When an epoch ends, the next settle of the pool — any claim, stake or
+   auto-feed — moves exactly `epoch_target` from `sale_reserve` into the
+   stream and starts the next epoch back to back. `roll_epoch()` does the
+   same, for anyone, when nobody has touched the pool.
+3. If the reserve is short, emission stops at the epoch's end and the contract
+   logs `epoch_unfunded` with `short_by` — the number the treasury has to buy.
+
+`get_pool` publishes `epoch_target`, `epoch_ends_at` and `sale_reserve`, and the
+oracle's treasury watch (`apps/oracle/src/treasury.ts`) alerts when the next
+epoch is not covered.
+
+This replaced an open-ended `epoch_budget` that kept streaming whether or not
+anything stood behind it. On testnet it had paid out 95.9 credits against 49
+ever bought before it was cut; `migrate_epochs` moved the live contract to the
+new state. Testnet today: target **8 credits / 30 days**, current epoch ending
+2026-12-11, reserve 0.96 — so about 7 more credits must be bought and funded
+before then, or the stream pauses.
+
 This is the standard accumulator pattern — the same `reward_debt` shape the
 existing pet contract already uses, so it should read as familiar. The accrual
 is continuous, which matters for feel: the number in the header ticks up while
@@ -101,86 +134,90 @@ up.
 
 ### A worked example
 
-Treasury stakes 50,000 NEAR with NEAR AI. At the published rate (≈US$5/month of
-credits per 500 NEAR staked) that is **$500/month**, so
-`epoch_budget = 500_000_000` micro-credits.
+Say the treasury buys **$500/month** of NEAR AI credits, so
+`epoch_target = 500_000_000` micro-credits. A meal is 0.015 credit and buys 12
+hours, so a pet needs two a day — 0.03 credit — never to go hungry.
 
-| Pool | Your pets | Your weight | Pool weight | Your credits/day | What that buys daily |
+| Pool | Your pets | Your weight | Pool weight | Your credits/day | Meals that pays for |
 |---|---|---|---|---|---|
-| early | 1 common | 100 | 5,000 | 0.33 | 16 AI feeds |
-| growing | 1 common | 100 | 50,000 | 0.033 | 1 AI feed |
-| growing | 3 pets, lvl 10 | 900 | 50,000 | 0.30 | 15 AI feeds |
-| mature | 3 pets, lvl 10 | 900 | 400,000 | 0.037 | 1 AI feed + change |
+| early | 1 common | 100 | 5,000 | 0.33 | 22 (11 pet-days) |
+| growing | 1 common | 100 | 50,000 | 0.033 | 2 — just keeps it fed |
+| growing | 3 pets, lvl 10 | 900 | 50,000 | 0.30 | 20 (10 pet-days) |
+| mature | 3 pets, lvl 10 | 900 | 400,000 | 0.037 | 2 — one pet of the three |
 
-Note what happens as the game grows: a single unupgraded pet drifts toward "one
-feed a day", while an invested player stays comfortably above water. That is the
-intended pressure — it pushes levelling and evolving, which are themselves
-credit sinks, which pulls credits back out of circulation.
+Note what happens as the game grows: a single unupgraded pet drifts toward
+"just pays for its own food", while an invested player stays above water. That
+is the intended pressure — it pushes levelling, evolving and shields, which are
+themselves sinks.
 
-And when the pool grows, revenue grows with it: more players means more
-multichain mints, means more wNEAR staked, means a larger `epoch_budget`. The
-treasury raises the number on-chain with `set_epoch_budget`.
+And when the pool grows, revenue grows with it: more players means more mints,
+species and market fees, means more NEAR to buy compute with, means a larger
+`epoch_target`. The treasury raises it with `set_epoch_target`, and it takes
+effect at the next epoch — when the reserve can cover it.
 
 ## What credits buy
 
-| Action | Cost | Real inference | Effect |
+| Action | Cost | Method | Effect |
 |---|---|---|---|
-| **AI Feed** | 0.002 ACR | yes | The pet decides what it wants to eat. Matching its taste multiplies XP by **1.0–1.8×** |
-| **Train** | 0.008 ACR | yes | A generated sparring drill raises ATK or DEF |
-| **Craft item** | 0.02 ACR | yes | An item rolled from your pet's own history |
-| **Talk to pet** | 0.001 ACR | yes | One message, answered in the pet's voice |
-| **Evolve** | 0.50 ACR | no | Next evolution phase — permanently more weight and a better drop rate |
-| **Auto-feed** | 0.015 ACR | no | The pet feeds itself while you are away |
+| **Feed** | 0.015 ACR | `feed_pet` | 12 hours on the hunger clock; the AI grades the meal and sets its XP (taste match ×1.0–1.8, capped at 72 XP) |
+| **Revive** | 0.075 ACR | `revive_pet` | Brings a starved pet back with 12 hours on the clock |
+| **Train** | 0.008 ACR | `spend_credits` | A generated sparring drill raises ATK or DEF |
+| **Craft item** | 0.02 ACR | `spend_credits` | An item rolled from your pet's own history |
+| **Talk to pet** | 0.001 ACR | `spend_credits` | One message, answered in the pet's voice |
+| **Evolve** | 0.50 ACR | `evolve_pet` | Next evolution phase — permanently more weight and a better drop rate |
+| **Auto-feed** | 0.015 ACR | `auto_feed` (oracle) | The oracle feeds your pet from a daily budget you set, while you are away |
+
+Feed, revive and evolve go through their own methods, which call the game
+contract and give the credits back if it says no (a pet that is not yours, or
+not dead). `spend_credits` refuses those three outright: it would take the
+credits and move no clock.
 
 Every row has something on chain that carries it out. That is the rule the
-table is kept to, and it is a rule because it was broken: **Revive** sat here
-at 1.00 ACR, with a price seeded in `pet-stake` and a line in the client's
-"What credits buy" list, and no contract anywhere implemented it. Buying it
-would have debited a credit balance and done nothing.
+table is kept to, and it is a rule because it was broken: Revive once sat here
+at 1.00 ACR with a seeded price and no contract behind it. It is back at 0.075
+— five meals, the ratio Holy Water (0.5 NEAR) has against Beef (0.1 NEAR) — now
+that `revive_pet` exists. Holy Water still works for anyone paying in NEAR.
 
-Reviving a starved pet does work, through the other rail: the game contract's
-Holy Water (item 4, 0.50 NEAR), whose `is_revival` flag is the only thing in
-the system that brings a pet back past its deadline. There was never a reason
-for a second, credit-priced way to do the same thing, which is presumably why
-nobody wrote one.
-
-Removing the row is not enough on its own: the price lives in contract
-*state*, so a running deployment keeps it until the owner calls
-`remove_action_price("revive")`. Setting the price to zero does **not** retire
-a sink — zero passes every check in `spend_credits`, so the action stays live
-and merely becomes free.
+Retiring a sink means `remove_action_price`, not a price of zero: zero passes
+every check in `spend_credits`, so the action stays live and merely becomes
+free.
 
 ### On the price of a feed
 
-An earlier version of this document claimed these prices were "roughly what the
-model call costs". That was wrong, and wrong in a way that mattered: a ~200-token
-completion costs on the order of **$0.0004**, so the original 0.02 ACR was a
-~50× markup, not cost recovery.
+A ~200-token completion costs on the order of **$0.0004**, so a feed is not
+priced at its inference cost. An earlier draft had a 0.002 ACR "AI feed" that
+only rolled XP; the feed that shipped is a real meal — it moves the hunger
+clock exactly like the oracle's auto-feed — so it costs what auto-feed costs.
 
-The markup itself is fine — it is the margin that funds the game. The problem
-was what it did to playability:
+The sum that matters is per pet-day: two meals, **0.03 ACR**. A $500/month
+target keeps about 550 pets fed before anyone levels or evolves, which is why
+the worked example above leans on weight: a pet that earns less than 0.03 a day
+is one its owner tops up with mining, battle wins or items.
 
-| Price of a feed | Feeds per month from a 500 ACR budget | Real NEAR AI cost | Feeds/day at 1,000 active players |
-|---|---|---|---|
-| 0.02 ACR | 25,000 | ~$10 | **0.8** |
-| 0.005 ACR | 100,000 | ~$40 | 3.3 |
-| **0.002 ACR** | 250,000 | ~$100 | **8.3** |
-
-Under one feed per player per day is unplayable — pets starve faster than that.
-The prices in the table above are the corrected ones: still a 5× margin over
-real inference, but a game you can actually play.
-
-AI Feed is the centrepiece. It is a slot machine you can actually read: the pet
-has a taste profile, you do not know exactly what it wants today, and a good
-match is worth nearly twice the XP of a bad one. It gives a reason to open the
-app that does not reduce to "tap the button".
+The feed is still the centrepiece. The pet has a taste profile, you do not know
+exactly what it wants today, and a good match is worth nearly twice the XP of a
+bad one. The oracle grades the meal on NEAR AI and awards the XP with
+`award_feed_xp`, capped at `MAX_FEED_XP` so a compromised backend cannot level
+a pet in a few calls.
 
 ## Items
 
-The game contract has an older shop of its own (Beef, Water, Shield, Holy
-Water) priced in the token that turned out not to exist. It is not surfaced
-until it is repriced in NEAR. Everything below lives in `pet-stake` and is paid
-for in credits:
+Two shops, one per currency.
+
+The game contract's shop is paid in **NEAR**, and the NEAR goes to the treasury:
+
+| id | Item | Cost | Effect |
+|---|---|---|---|
+| 1 | Beef | 0.10 NEAR | time on the hunger clock, and XP |
+| 2 | Water | 0.05 NEAR | a little time on the clock |
+| 3 | Shield | 0.20 NEAR | absorbs one lost fight before a star does, and +5% staking weight while held, up to 3 |
+| 4 | Holy Water | 0.50 NEAR | revives a starved pet |
+
+A Shield is the one item that touches staking weight, and it can safely because
+it changes only when the game contract changes it — on purchase, and when a
+fight uses it up — and both paths call `sync_weight` there and then.
+
+The credit shop lives in `pet-stake`:
 
 | id | Item | Cost | Effect |
 |---|---|---|---|
@@ -190,10 +227,12 @@ for in credits:
 | 104 | Star Charm | 0.015 ACR | keeps your star if you lose the next battle |
 
 Every effect here is pet *state* with a deadline or a counter. **None of them
-touch staking weight.** That is deliberate: the credit accumulator is exact and
-well tested, and a weight that changed on a deadline would need the pool updated
-at a moment when nothing is calling it. Keeping items out of the weight maths is
-what makes them safe to add.
+touch staking weight.** That is deliberate: a weight that changed on a deadline
+would need the pool updated at a moment when nothing is calling it.
+
+Hats are a third kind of thing: NFTs of their own on the accessory contract,
+bought in NEAR, worn on any pet and tradeable on any NEAR NFT market. They are
+cosmetic and change no number in this document.
 
 The Focus Lens is consumed by the contract inside `spend_credits`, and whether it
 applied goes into the `credit_spent` event. The backend reads that event from the
@@ -225,11 +264,18 @@ So losing a battle costs this instead:
 |---|---|
 | Wager | 0.01 ACR, moved from loser to winner |
 | Rake | 5% of the pot → `sale_reserve`, never out of `epoch_budget` |
-| Wound | 6 hours unable to battle; an AI Tonic clears it at once |
-| Star | lost, unless a Shield or Star Charm absorbs it |
+| Wound | 6 hours in which it cannot be attacked; an AI Tonic clears it at once |
+| Star | lost, unless a Shield (used up) or a Star Charm absorbs it |
+| Hunger | 3 hours off the clock, never past now — a fight cannot starve a pet |
 | Streak | reset, so progress towards the next star goes too |
 
-The winner takes 25 XP and a win on their streak.
+The winner takes 25 XP, a win on their streak, the pot less rake, and a roll
+for an item drop.
+
+Who wins is mostly arithmetic: effective attack is base × (1 + 5%·level) ×
+(1 + 10%·star), defence the same with 4% a level; each side rolls within ±15%
+from the block seed, and a tie goes to the attacker. A pet rests an hour after
+attacking, and cannot be attacked again for an hour after being attacked.
 
 The wager is a **transfer, not a destruction**: the loser's loss is the winner's
 gain, so PvP is zero-sum between players rather than eating into the asset base
@@ -262,13 +308,25 @@ raised it, and the three tests covering star loss each set `star = 2` by hand �
 which is why they passed and why nobody noticed. The Star Charm protected
 something that could not exist.
 
-### Staked pets are off limits in both directions
+### Staked pets fight
 
-`is_attackable(pet_id)` returns false while a pet is staked, warded or wounded,
-and the game contract must consult it. A staked pet not being able to *attack*
-was never enough on its own: without the other half, staking would mark you as a
-target, and cutting a staker's weight is exactly what an attacker profits from.
-The AI Lab would have been a honeypot.
+The first design kept staked pets out of battle in both directions:
+`is_attackable` said no for a staked pet, and the game contract refused to let
+one attack, so that staking would not mark you as a target. In practice it made
+battle impossible rather than restricted: staking is the only way to earn
+credits, so every pet worth fighting was staked, and of eight pets on testnet
+exactly one was both alive and unstaked.
+
+Now `is_attackable` says no only for a ward or a wound. The game contract calls
+`report_battle` first and applies damage in the callback, so a protected pet is
+never hurt by a settlement that reverts. Staking still locks transfers, sales
+and approvals — fighting moves no ownership, so that reason never reached it.
+
+The grief incentive is smaller than it was, but not zero: a loss can cost a
+star, a star is 15% of that pet's weight, and that nudges everyone else's share
+up. What bounds it is the pacing — an hour between attacks, an hour's immunity
+after being hit, six hours wounded after a loss, a Ward for anyone who wants a
+quiet day — and that a defender with a better build simply wins.
 
 ## Keeping it smooth
 
@@ -278,8 +336,10 @@ and never opens the app again. Four things guard against it:
 1. **Credits never hard-stop you.** Items drop while you play, other players
    sell them, mining pays every six hours, and the faucet covers your first
    few feeds.
-2. **Auto-feed.** Set a daily budget and your pets keep themselves alive from
-   your credit balance while you sleep. Capped by you, off by default.
+2. **Auto-feed.** Set a daily budget with `set_auto_feed_budget` and the
+   oracle feeds pets that are about to starve — 0.015 credit for 12 hours
+   each — from your balance while you sleep. Capped by you per 24 hours, off
+   by default.
 3. **A one-off faucet.** `claim_faucet` grants 0.01 credit, once per account,
    from the treasury's sale reserve — five AI feeds, enough to see the good part
    before you own anything.
@@ -309,15 +369,17 @@ moment credits become tradeable they are a second speculative asset with an
 implicit redemption promise, and the treasury carries a float it never agreed
 to.
 
-### Only one contract ever holds money
+### The ledger never holds money
 
 `pet-stake` is a pure ledger. It has no payable method, accepts no token, and
-never holds NEAR. Payments land on `mint-router`, which then calls
-`grant_credits`. One place in the system custodies funds, and the contract with
-all the game logic in it is not that place.
+never holds NEAR. Credit purchases land on `mint-router`, which then calls
+`grant_credits`.
 
-A player spending NEAR they already hold takes the same road: wrap it, hand the
-wNEAR to the router. Two transactions, one approval.
+NEAR spent *in the game* — mints, species, the NEAR shop, the pet market fee —
+lands on the game contract, which counts it in `revenue_banked` and hands it to
+the treasury with `sweep_revenue`. The only NEAR the game contract passes on to
+anyone else is a seller's proceeds and a creator's royalty, both in the same
+call that took it.
 
 ## Drops, and selling what you find
 
@@ -371,11 +433,16 @@ funds `epoch_budget`, that cap propagates straight into the credit stream.
 A 2.5% fee goes to the treasury, which is what gets staked with NEAR AI, so
 trading volume feeds the credit stream too.
 
+The last five sales of every pet are kept on chain (`get_pet_sales`, newest
+first), so a buyer sees a price history rather than a guess. A listing is tied
+to the owner who made it: if the pet has changed hands since, `buy_pet` refuses
+it as stale rather than selling someone else's pet.
+
 Listings live in the game contract rather than a separate marketplace. It
 already owns transfers and the staking lock, so a sale is one atomic call: there
 is no window in which a pet gets staked between being listed and being bought,
 and no escrow hop to go wrong. Staking a listed pet, or transferring it out of
-band, removes the listing — a buyer should never be sold a pet they cannot move.
+band (`nft_transfer`, `nft_transfer_call`), removes the listing — a buyer should never be sold a pet they cannot move.
 
 ## Mining
 
@@ -384,24 +451,57 @@ Lab.
 
 The gate is the point. A NEAR account is nearly free to create, so anything
 payable to "an account" is a sybil tap — which is exactly what the old
-0.05-a-day faucet was. A pet costs 2 wNEAR, so gating on staked weight prices
+0.05-a-day faucet was. A pet costs 2 NEAR, so gating on staked weight prices
 the attack.
+
+## Creators: species and royalties
+
+Anyone can add a **species** — the drawing every pet of it wears — with
+`create_species`, for **5 NEAR** once. That price is the only thing stopping
+names being squatted. The creator then earns **1% of every mint** of their
+species (`CREATOR_ROYALTY_BPS = 100`), paid in NEAR in the mint's own
+transaction: no claim step, no escrow.
+
+The royalty takes the same path however the buyer paid. A NEAR mint and a
+router mint both go through `paid_mint`; the router unwraps its wNEAR
+(`near_withdraw`) and attaches the mint price to `create_pet_for`, so a
+creator is paid whether the buyer came from a NEAR wallet or another chain.
+
+A species' art is either a recolour recipe of a shipped dragon, or an 8×9
+sprite sheet per evolution phase stored on chain in the art contract
+(`art.<game>`), addressed by its sha256. The uploader pays the storage —
+about 1 NEAR per 100 KB, refunded above cost — so the treasury carries none of
+it and the picture cannot disappear when a bill lapses. The owner can
+`retire_species` (no new mints; existing pets keep their art), which is the
+answer to someone registering art that is not theirs.
 
 ## Multichain money-in
 
-The player picks ZEC, SOL, BTC or USDC. The app asks our server for a 1Click
-quote (`EXACT_OUTPUT`, so the price is fixed in wNEAR and any excess is refunded
-automatically), shows a deposit address and a QR, and polls until the swap
-settles.
+**Mainnet only.** 1Click settles on NEAR mainnet, and the contracts are on
+testnet, so a testnet mint is paid in NEAR. The pay flow is built and waits on
+the mainnet deploy in [MAINNET.md](MAINNET.md).
+
+The player picks a chain, then an asset on it: **28 assets on 17 chains** —
+BTC, ETH and USDC/USDT on Ethereum, Base, Arbitrum, Optimism, BNB Chain,
+Polygon and Avalanche, SOL and Solana stablecoins, TRX and USDT on Tron, TON
+and USDT on TON, ZEC, DOGE, LTC, XRP, SUI and APT. The app asks our server for
+a 1Click quote (`EXACT_OUTPUT`, so the price is fixed in wNEAR and any excess
+is refunded), shows a deposit address and a QR, and polls until the swap
+settles. The refund address is checked against the chain's address format
+before any quote, because a refund to a mistyped address is money nobody gets
+back.
 
 1Click withdraws the wNEAR to `mint-router` with `ft_transfer_call`, carrying
 the `customRecipientMsg` our server attached to the quote. The router validates
-the payment, queues the mint, and calls the game contract.
+the payment, unwraps it, and pays the game contract for the mint.
 
-The server builds the entire quote: the client sends only *which coin* and
+The server builds the entire quote: the client sends only *which asset* and
 *which refund address*. Recipient, amount and message come from server config,
 so a tampered request cannot redirect funds or mint a pet for free. The 1Click
-partner JWT never reaches the browser.
+key never reaches the browser.
+
+Aurora's swap API was evaluated as a replacement and rejected: it drops
+`customRecipientMsg`, which is how the router knows whose pet to mint.
 
 Two details worth knowing:
 
@@ -430,64 +530,68 @@ KV before production, or two concurrent requests can share one receipt.
 
 ## Parameters, and where they live
 
-Every number above exists in exactly two places, which must be kept in step:
+Every number above exists in two places, which must be kept in step:
 
-- [`src/lib/economy/params.ts`](../src/lib/economy/params.ts) — what the client
-  shows and projects.
-- [`contracts/pet-stake/src/lib.rs`](../contracts/pet-stake/src/lib.rs) — what
-  is actually enforced. Prices are seeded in `new()` and changeable afterwards
-  with `set_action_price`.
+- [`packages/pet/src/economy.ts`](../packages/pet/src/economy.ts) — what the
+  web and desktop apps show and project.
+- The contracts — what is actually enforced. `pet-stake` seeds prices in
+  `new()` and changes them with `set_action_price` / `set_item_price`; the game
+  contract seeds its shop and fees the same way.
 
 The contract is the authority. The client numbers are for display and for
 telling the player what something will cost before they sign.
 
-| Parameter | Value | Set by |
+| Parameter | Value (testnet) | Set by |
 |---|---|---|
-| `epoch_budget` | 500 ACR / 30 days | treasury, `set_epoch_budget` |
+| `epoch_target` | 8 ACR / 30 days | treasury, `pet-stake::set_epoch_target` |
+| epoch funding | full target from `sale_reserve`, or nothing | `roll_epoch` / any pool settle |
 | `near_per_credit` | 0.5 NEAR | treasury, `mint-router::set_near_per_credit` |
-| mining | 0.005 ACR / 6h | treasury, `set_mining_reward` |
+| feed / auto-feed | 0.015 ACR, 12 hours | `set_action_price`; hours fixed in `AUTO_FEED_SECONDS` |
+| revive | 0.075 ACR | `set_action_price` |
+| mining | 0.005 ACR / 6h, staked pet required | treasury, `set_mining_reward` |
+| `faucet_amount` | 0.01 ACR, once per account | treasury, `set_faucet_amount` |
 | drop curve | 2%–25%, +1bp per weight | fixed in `drop_odds` |
 | item market rake | 500 bps (5%, capped at 20%) | treasury, `set_market_rake_bps` |
-| pet market fee | 250 bps (2.5%, capped at 10%) | treasury, `game::set_market_fee_bps` |
-| `faucet_amount` | 0.01 ACR, once per account | treasury, `set_faucet_amount` |
 | `battle_wager` | 0.01 ACR | treasury, `set_battle_params` |
 | `battle_rake_bps` | 500 (5%, capped at 20%) | treasury, `set_battle_params` |
-| ward / wound | 24h / 6h | fixed in `types.rs` |
+| ward / wound | 24h / 6h | fixed in `pet-stake` `types.rs` |
+| attack cooldowns | 1h after attacking, 1h after being attacked | fixed in game `types.rs` |
+| loss hunger penalty | 3h | fixed in `attack` callback |
 | wins per star | 3, capped at 5 stars | fixed in `WINS_PER_STAR` / `MAX_STAR` |
-| mint price | 2 wNEAR | `mint-router::set_mint_price` |
+| shield weight | +5% each, up to 3 | fixed in `SHIELD_WEIGHT_BPS` / `MAX_WEIGHTED_SHIELDS` |
+| mint price | 2 NEAR | game and `mint-router::set_mint_price` |
+| species price | 5 NEAR | game owner |
+| creator royalty | 100 bps (1%) of each mint | fixed in `CREATOR_ROYALTY_BPS` |
+| pet market fee | 250 bps (2.5%, capped at 10%) | treasury, `game::set_market_fee_bps` |
+| sale history | last 5 per pet | fixed in `SALES_KEPT` |
+| NEAR shop | Beef 0.1 · Water 0.05 · Shield 0.2 · Holy Water 0.5 NEAR | game owner |
+| art storage | paid by the uploader, ≤ 600 KB a sheet | art contract |
 | credit decimals | 6 | fixed |
 | rarity weights | 100 / 160 / 260 / 400 | fixed in `Rarity::base_weight` |
+| rarity odds | 70 / 20 / 8 / 2 % | fixed in `Rarity::ODDS_BPS` |
 
 ## Open issues
 
 Written down because they are real, not because they are solved:
 
-- **The game contract does not call our views yet** — see
-  [GAME_CONTRACT_V2.md](GAME_CONTRACT_V2.md) for the interface it needs.
-  `pet-stake` exposes
-  `is_attackable(pet_id)` and `report_battle(...)`, and the client respects
-  them, but the deployed game contract knows about neither. Until it does, a
-  determined player can attack a staked or warded pet by talking to the game
-  contract directly, and no battle settles any credits.
-- **Auto-feed is budgeted but still not executed.** The budget is stored
-  on-chain and nothing spends it yet.
-- **Pets still cannot be traded on the deployed contract.** `game.joyv1.near`
-  is not NEP-171 — no `nft_token`, `nft_transfer` or `nft_approve` (verified
-  against mainnet). The v2 contract is, and carries its own marketplace, so
-  this closes the moment v2 is deployed.
-- **Nobody has ever battled.** Of the 20 pets on mainnet, zero have ever
-  attacked or been attacked, and none is above level 1. The wager above is the
-  first reason to fight that the game has had; whether it is enough is untested.
-- **`get_pet_attrs`.** `stake_pet` reads the pet's owner and attributes from the
-  game contract through this view, which the current deployment does not expose.
-  `admin_set_pet` is the interim path for an operator or indexer to push them.
-- **Rarity is not on-chain.** The client derives a stand-in from star count. The
-  real field belongs in pet metadata.
-- **Auto-feed is budgeted but not yet executed.** The budget is stored
-  on-chain; something has to actually spend it on a schedule — a cron worker
-  calling `spend_credits` on the player's behalf needs a delegated key, which is
-  a design decision in its own right.
+- **The testnet stream runs out on 2026-12-11.** The reserve holds 0.96
+  credits against an 8-credit target. Unless about 7 credits are bought on NEAR
+  AI and recorded with `fund_reserve` before then, the next epoch does not
+  start and staked pets stop earning until it does.
 - **Credit accounting is trust-minimised, not trustless.** The on-chain ledger
   says what players are owed; the treasury's NEAR AI balance is what honours it.
-  `get_pool` publishes `total_distributed`, `total_spent` and `sale_reserve` so
-  the two can be reconciled publicly, but the backing itself is custodial.
+  `get_pool` publishes `total_distributed`, `total_spent`, `sale_reserve` and
+  the epoch so the two can be reconciled publicly, but the backing itself is
+  custodial, and buying credits is a manual step.
+- **Nothing is on mainnet yet.** Multichain minting, real mint revenue and real
+  creator royalties all wait on it. The account plan, the ~16 NEAR it needs,
+  and the numbers testnet never had to get right — mint and species price,
+  owner keys, treasury, first `epoch_target` — are in [MAINNET.md](MAINNET.md).
+- **`get_pet_state.attackable` still reads `false` for a staked pet.** The
+  view predates the rule change; `is_attackable` is the one battles use. Worth
+  aligning so a client reading the view does not hide valid opponents.
+- **The replay guard on `/api/ai/chat` is in memory.** Fine for one instance;
+  point it at Redis or Vercel KV before more than one runs.
+- **Randomness is the block seed.** Good enough for loot rolls and the ±15%
+  battle band; a validator could in principle bias it, so nothing of real value
+  hangs on a single roll.

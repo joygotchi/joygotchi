@@ -276,10 +276,8 @@
   </summary>
   <div class="border-t border-line px-5 py-4">
     <p class="mb-4 text-xs text-muted">
-      An 8×9 atlas, one row per state — the
-      <a class="text-accent" href="https://petdex.dev/docs" rel="noreferrer noopener" target="_blank"
-        >petdex</a
-      > format, usually 1536×1872. The sheets are stored on NEAR, so nobody has to host them.
+      An 8×9 atlas, one row per state, usually 1536×1872. The sheets are stored on NEAR, so nobody
+      has to host them.
     </p>
     <SheetSpecies {price} />
     <p class="mt-4 text-[0.65rem] text-muted">

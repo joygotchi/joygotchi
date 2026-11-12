@@ -79,7 +79,7 @@
       {#if atlas && rowFor(selected) === null}
         <!--
           `feeding` and `battling` come from the game rather than from a
-          coding agent, so a petdex sheet has no row for them. Saying so
+          coding agent, so an 8×9 sheet has no row for them. Saying so
           beats showing the idle row and letting somebody conclude the
           sheet is wrong.
         -->

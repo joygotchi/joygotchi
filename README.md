@@ -91,8 +91,7 @@ Two ways to make one, both at [joygotchi.vercel.app/create](https://joygotchi.ve
    running, waving, jumping, failing, waiting, reviewing…), usually 1536 × 1872 px — one sheet per
    evolution phase, up to three. Upload it on the page: the sheet is checked in your browser, stored
    **on NEAR itself** by its hash (you pay its storage once, about 0.3 NEAR for a typical 30 KB
-   sheet), and registered as your species. It is the same format [petdex](https://petdex.dev/docs)
-   uses, so a sheet made for either works in the other. Prefer the terminal?
+   sheet), and registered as your species. Prefer the terminal?
    `npx @joygotchi/joygotchi submit ./my-pet` checks the same grid.
 
 Registering costs **5 NEAR**, once — that is what keeps names from being squatted. A species is

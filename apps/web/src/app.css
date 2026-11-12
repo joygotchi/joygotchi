@@ -38,7 +38,7 @@ body {
   image-rendering: pixelated;
 }
 
-/* The faint grid petdex uses behind the gallery. */
+/* The faint grid behind the gallery. */
 .grid-bg {
   background-image:
     linear-gradient(to right, color-mix(in srgb, var(--color-line) 60%, transparent) 1px, transparent 1px),

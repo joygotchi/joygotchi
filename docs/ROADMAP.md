@@ -74,9 +74,9 @@ pet asked to feed itself replies and proposes `{kind: "feed"}`.
 
 ## The gap that shapes everything else
 
-**Our pets have one drawing each, and petdex pets have nine.**
+**Our pets have one drawing each, and an animated pet needs nine.**
 
-A petdex pet is an 8×9 sprite atlas: one row per state, six to eight frames
+An animated pet is an 8×9 sprite atlas: one row per state, six to eight frames
 each. Ours is a single idle GIF per evolution phase, and `toPetPackage` points
 all nine states at it. The desktop app tells states apart with CSS motion over
 that one loop — a real difference, but not animation.
@@ -86,9 +86,8 @@ Everything below marked (art) is limited by this, and there are three ways out:
 - **Keep CSS motion.** Free, works today, honest. A state viewer shows what the
   desktop pet actually does rather than nine identical GIFs.
 - **Draw or generate nine rows per pet.** The real fix; the cost is art.
-- **Adopt petdex's atlas format.** `frame` and `spriteVersion` are already in
-  `pet.json` for this reason — a petdex-shaped atlas would drop straight in,
-  and their gallery becomes a source of pets.
+- **Adopt an 8×9 atlas format.** `frame` and `spriteVersion` are already in
+  `pet.json` for this reason — an atlas of that shape drops straight in.
 
 ## Next, in the order I would do it
 
@@ -157,8 +156,7 @@ A species is a row in a registry, registered by anyone for a fee, and
 
 Two ways in, and the second is the real one. `/create` recolours a drawing
 this game ships, which is quick and is a recolour. `joygotchi submit
-<folder>` takes a nine-row sprite atlas you drew anywhere — petdex's grid
-unchanged, so a sheet made with their Hatch Pet skill drops in — and a pet
+<folder>` takes a nine-row sprite atlas you drew anywhere, and a pet
 installed from one really animates per state rather than being moved around
 in CSS.
 
@@ -171,7 +169,7 @@ jg1_06vjq08a86dg` brought it down as a `spriteVersion: 2` package with its
 8x9 atlas. The species doubles as the worked example of what the nine rows
 should contain.
 
-The part that had no answer in [`CREATE.md`](CREATE.md) was hosting: art has to
+The part that had no answer at first was hosting: art has to
 be at an https url and this project has no storage. It did not need any. Every
 sprite is a GIF with a 16-entry global colour table and the frames reference it
 by index, so a colourway is 48 bytes — rewrite the table, leave the rest of the
