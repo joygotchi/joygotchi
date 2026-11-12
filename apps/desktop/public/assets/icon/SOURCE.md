@@ -16,6 +16,20 @@ can take a different one from the same sheet without hunting for it.
 | `lens.png` | 18, 4 | A scrying orb, for the item that doubles what a meal is worth. It wore a plate of food. |
 | `charm.png` | 7, 4 | An amulet. It wore a star, which is also what the charm protects — two stars meaning two things. |
 
+Added when every action tile moved onto this sheet, so the grid stops
+mixing it with the older one-off drawings:
+
+| File | Sheet row, column | Why this one |
+| --- | --- | --- |
+| `feed.png` | 30, 5 | A roast leg. A meal, read at a glance. |
+| `revive.png` | 41, 13 | A glowing cross: coming back. It wore a bottle of holy water. |
+| `faucet.png` | 7, 10 | A blue water bottle, for the free drip of credits. |
+| `mine.png` | 96, 0 | A gold pickaxe — digging up credits. |
+| `battle.png` | 45, 0 | Crossed swords. |
+| `lab.png` | 7, 12 | An anvil, for a pet put to work. A brain was tried and read as bread. |
+| `bag.png` | 9, 13 | A sack: what the pet carries. The sheet has no backpack. |
+| `talk.png` | 0, 6 | A quill. The sheet's speech bubble is three dots, too small to read at 40px. |
+
 A first pass used a market stall, a coin pouch and a green up-arrow. They were
 legible but wrong in register — the stall and the shop's potion were two shop
 fronts for different things, and the arrow belonged to a toolbar.
