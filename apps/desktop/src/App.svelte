@@ -186,6 +186,9 @@
   );
   const canFeed = $derived(ownsActive && canAfford(account) && !feeding);
 
+  /** Bumped whenever the window changes this pet behind an open panel. */
+  let panelRev = $state(0);
+
   /**
    * Feed without opening anything.
    *
@@ -214,6 +217,10 @@
       }
       forgetReads();
       await Promise.all([loadAccount(), pollBattles()]);
+      // The panel, if it is open, read this pet before the meal. Telling it
+      // to read again is what keeps its level, its XP and its drawing from
+      // falling behind the plate right above it.
+      panelRev += 1;
     } catch (cause) {
       feedError = cause instanceof Error ? cause.message : String(cause);
       setTimeout(() => (feedError = null), 6_000);
@@ -743,6 +750,7 @@
     <PetPanel
       pet={active}
       {pets}
+      rev={panelRev}
       onpick={(slug) => (activeSlug = slug)}
       onclose={() => (showPanel = false)}
     />

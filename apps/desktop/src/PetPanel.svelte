@@ -70,8 +70,17 @@
     pets?: InstalledPet[];
     onpick?: (slug: string) => void;
     onclose: () => void;
+    /**
+     * Bumped by the window when it acts on this pet without the panel.
+     *
+     * The name plate feeds too, and it used to refresh only the account, so
+     * an open panel kept the level and the sprite it had read before the
+     * meal — far enough behind, after a run of them, that Evolve read a
+     * stale level and was refused for a level the pet already had.
+     */
+    rev?: number;
   };
-  let { pet, pets = [], onpick, onclose }: Props = $props();
+  let { pet, pets = [], rev = 0, onpick, onclose }: Props = $props();
 
   /**
    * Flipping between pets belongs here, not only in Settings.
@@ -313,6 +322,19 @@
       // otherwise show the state from before the thing that was signed.
       forgetReads();
       await load();
+      /*
+       * And once more, a moment later.
+       *
+       * `evolve_pet` settles through a promise chain into the game contract,
+       * so the read above can land before the phase it was signed for exists
+       * — the panel then draws the previous animal under a note saying the
+       * pet has evolved, and nothing reads again until you flip to another
+       * pet and back.
+       */
+      setTimeout(() => {
+        forgetReads();
+        void load();
+      }, 3_000);
     } catch (cause) {
       refused = readableError(cause);
     } finally {
@@ -741,6 +763,8 @@
 
   $effect(() => {
     void pet.petId;
+    void rev;
+    forgetReads();
     void load();
     const tick = setInterval(() => (now = Date.now()), 30_000);
     return () => clearInterval(tick);
